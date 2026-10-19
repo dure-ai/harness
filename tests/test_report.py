@@ -9,6 +9,7 @@ from harness.metrics import compute_metrics
 from harness.replay import ProbeRecord, ScenarioRun
 from harness.report import (
     RunMeta,
+    _scrubber,
     blind_ids,
     harness_version,
     machine_info,
@@ -270,7 +271,8 @@ def test_engine_info_scrubbed(tmp_path):
     info = EngineInfo(
         name=SECRET,
         version="SecretEngine-1",
-        config={"module": SECRET, "note": "SecretEngine v2", "nested": [{"k": SECRET}]},
+        config={"module": SECRET, "note": "SecretEngine v2", "nested": [{"k": SECRET}],
+                SECRET: 1, "SecretEngine_opt": 2},
         virtual_clock=True,
     )
     for sealed in (False, True):
@@ -286,3 +288,12 @@ def test_engine_info_scrubbed(tmp_path):
         assert shown["version"] == f"{blind}-1"
         assert shown["config"]["module"] == blind and shown["config"]["note"] == f"{blind} v2"
         assert "acme.mem" not in shown["name"]
+
+
+def test_shared_class_name_not_mapped():
+    ids = blind_ids(["a.x:Engine", "b.y:Engine", "none"], 5)
+    scrub = _scrubber(ids)
+    assert scrub("a.x:Engine and b.y:Engine") == f"{ids['a.x:Engine']} and {ids['b.y:Engine']}"
+    assert ids["a.x:Engine"] != ids["b.y:Engine"]
+    assert scrub("bare Engine stays") == "bare Engine stays"
+    assert scrub("none") == "none"

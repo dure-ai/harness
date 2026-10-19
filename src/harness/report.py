@@ -102,13 +102,17 @@ def _metrics_json(m: Metrics, sealed: bool) -> dict[str, Any]:
 def _scrubber(ids: Mapping[str, str]) -> Callable[[str], str]:
     """Replace each candidate's full name and its class-name part (after ":") with its blind id."""
     pairs: dict[str, str] = {}
+    classes: dict[str, list[str]] = {}
     for name, blind in ids.items():
         if blind == name:
             continue
         pairs[name] = blind
         _, sep, cls = name.partition(":")
         if sep and cls:
-            pairs.setdefault(cls, blind)
+            classes.setdefault(cls, []).append(blind)
+    for cls, blinds in classes.items():
+        if len(blinds) == 1 and cls not in pairs:  # a class name shared by two candidates is ambiguous
+            pairs[cls] = blinds[0]
     ordered = sorted(pairs, key=len, reverse=True)
 
     def scrub(text: str) -> str:
@@ -123,7 +127,7 @@ def _scrub_value(value: Any, scrub: Callable[[str], str]) -> Any:
     if isinstance(value, str):
         return scrub(value)
     if isinstance(value, dict):
-        return {k: _scrub_value(v, scrub) for k, v in value.items()}
+        return {(scrub(k) if isinstance(k, str) else k): _scrub_value(v, scrub) for k, v in value.items()}
     if isinstance(value, list):
         return [_scrub_value(v, scrub) for v in value]
     return value
