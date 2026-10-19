@@ -41,13 +41,14 @@ def load_set(roots: list[Path], include_drafts: bool) -> ScenarioSet:
     paths: list[Path] = []
     entries: list[tuple[str, str]] = []
     for root in roots:
-        for path in sorted(root.rglob("*.yaml")):
+        files = [root] if root.is_file() else sorted(root.rglob("*.yaml"))
+        for path in files:
             scenario = load_scenario(path)
             if scenario.review.status not in included:
                 continue
             scenarios.append(scenario)
             paths.append(path)
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            entries.append((path.relative_to(root).as_posix(), digest))
+            entries.append((path.name if root.is_file() else path.relative_to(root).as_posix(), digest))
     joined = "".join(rel + digest for rel, digest in sorted(entries))
     return ScenarioSet(scenarios, paths, hashlib.sha256(joined.encode()).hexdigest())
