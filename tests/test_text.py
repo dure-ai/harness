@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+
 from harness.text import BM25, jaccard, tokenize
 
 
@@ -55,3 +59,29 @@ def test_bm25_positive_idf_on_tiny_corpus():
     idx = BM25()
     idx.add("d1", "vendor")
     assert idx.scores("vendor")["d1"] > 0
+
+
+_DETERMINISM_SCRIPT = """
+import random
+from harness.text import BM25
+
+rng = random.Random(7)
+words = [f"w{i}" for i in range(25)] + ["벤더모듈", "수정", "금지"]
+idx = BM25()
+for i in range(40):
+    idx.add(f"d{i}", " ".join(rng.choice(words) for _ in range(rng.randint(5, 30))))
+query = " ".join(words)
+print(repr(sorted(idx.scores(query).items())))
+"""
+
+
+def test_bm25_scores_identical_across_hash_seeds():
+    outputs = set()
+    for seed in ("1", "2", "3", "4", "5", "6"):
+        proc = subprocess.run(
+            [sys.executable, "-c", _DETERMINISM_SCRIPT],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True, text=True, check=True,
+        )
+        outputs.add(proc.stdout)
+    assert len(outputs) == 1

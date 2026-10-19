@@ -45,7 +45,7 @@ class BM25:
 
     def scores(self, query: str) -> dict[str, float]:
         n = len(self._tf)
-        q_tokens = set(tokenize(query))
+        q_tokens = sorted(set(tokenize(query)))  # fixed order: float sums must not depend on hash seed
         if n == 0 or not q_tokens:
             return {}
         avgdl = sum(self._len.values()) / n
