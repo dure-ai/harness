@@ -1,10 +1,10 @@
 """Run report: summary.json, results.jsonl, report.md and engine_ids.json, with blind engine ids."""
 
 import dataclasses
-import hashlib
 import json
 import platform
 import random
+import secrets
 import statistics
 import subprocess
 from collections.abc import Callable, Iterable, Mapping
@@ -25,6 +25,7 @@ from harness.stats import Delay, Rate
 
 NA = "n/a"
 UNRETRACTED = "미철회"
+DRAFTS_WARNING = "> ⚠️ 초안 포함 — 발표 수치로 쓰지 않음"
 
 
 @dataclass
@@ -38,6 +39,9 @@ class RunMeta:
     machine: str
     engine_infos: dict[str, EngineInfo]
     sealed: bool
+    include_drafts: bool
+    scenario_roots: list[str]
+    repeats: dict[str, int]  # engine name -> runs per scenario
 
 
 def harness_version() -> str:
@@ -159,6 +163,10 @@ def _relative(
     )
 
 
+def _ordered_repeats(meta: RunMeta, ids: Mapping[str, str]) -> list[tuple[str, int]]:
+    return sorted(meta.repeats.items(), key=lambda kv: _order_key(ids)(kv[0]))
+
+
 def _summary(
     meta: RunMeta,
     ordered: list[EngineScore],
@@ -173,6 +181,9 @@ def _summary(
         ids[name]: _info_json(name, info, ids, scrub)
         for name, info in sorted(meta.engine_infos.items(), key=lambda kv: _order_key(ids)(kv[0]))
     }
+    meta_json["repeats"] = {ids[name]: n for name, n in _ordered_repeats(meta, ids)}
+    if meta.sealed:  # paths can name the sealed set
+        meta_json["n_scenario_roots"] = len(meta_json.pop("scenario_roots"))
     return {
         "meta": meta_json,
         "engines": {
@@ -180,6 +191,7 @@ def _summary(
                 "metrics": _metrics_json(s.metrics, meta.sealed),
                 "verdict": _plain(s.verdict),
                 "repeats": [_metrics_json(r, meta.sealed) for r in s.repeats],
+                "flip": _plain(s.flip),
                 "relative": _relative(s, by_name),
             }
             for s in ordered
@@ -319,11 +331,12 @@ def _section_aux(
                 _num(rel.get("repeat_mistake_reduction")),
                 worst,
                 "-" if s.engine_id == "repeat_n" else _worse_than(m, repeat_n),
+                _rate(s.flip),
             ]
         )
     headers = ["엔진", "얕은 지식 고착률", "철회 지연", "유효 지식 도달률", "반영 지연", "오염 노출률",
                "출처 없는 결과", "promote FN", "개선 달성률", "반복 실수 감소율", "최악 계열",
-               "repeat_n보다 나쁜 계열"]
+               "repeat_n보다 나쁜 계열", "재실행 뒤집힘률"]
     return ["## 보조·관찰", "", *_table(headers, rows)]
 
 
@@ -413,9 +426,16 @@ def _markdown(
     scrub: Callable[[str], str],
 ) -> str:
     by_name = {s.engine_id: s for s in ordered}
+    roots = (
+        f"- 시나리오 경로 수: {len(meta.scenario_roots)}"
+        if meta.sealed
+        else f"- 시나리오 경로: {', '.join(meta.scenario_roots) or '-'}"
+    )
+    repeats = ", ".join(f"{ids[name]} {n}" for name, n in _ordered_repeats(meta, ids)) or "-"
     head = [
         "# 메모리 평가 리포트",
         "",
+        *([DRAFTS_WARNING, ""] if meta.include_drafts else []),
         f"- 실행: {meta.run_id}",
         f"- 실행 일시: {meta.started_at.isoformat()}",
         f"- 하네스 버전: {meta.harness_version}",
@@ -424,6 +444,9 @@ def _markdown(
         f"- 시나리오 수: {meta.n_scenarios}",
         f"- 머신: {meta.machine}",
         f"- 봉인 모드: {'예' if meta.sealed else '아니오'}",
+        f"- 초안 포함: {'예' if meta.include_drafts else '아니오'}",
+        roots,
+        f"- 반복 실행: {repeats}",
         "",
     ]
     check_rows = [
@@ -476,14 +499,16 @@ def write_report(
     blind_seed: int | None = None,
 ) -> None:
     """Write the four report files. Engine names other than the baselines become blind ids
-    (seeded by `blind_seed`, default derived from the run id) everywhere but engine_ids.json."""
+    (seeded by `blind_seed`, default a fresh random seed) everywhere but engine_ids.json, which
+    alone records the seed."""
     if blind_seed is None:
-        blind_seed = int.from_bytes(hashlib.sha256(meta.run_id.encode()).digest()[:8], "big")
+        blind_seed = secrets.randbits(64)
     names = {
         *(s.engine_id for s in scores),
         *(e.engine_id for e in ranking),
         *runs,
         *meta.engine_infos,
+        *meta.repeats,
     }
     ids = blind_ids(sorted(names), blind_seed)
     scrub = _scrubber(ids)
@@ -504,8 +529,8 @@ def write_report(
     (out_dir / "report.md").write_text(
         _markdown(meta, ordered, ranking, runs, selfcheck, ids, scrub) + "\n", encoding="utf-8"
     )
+    blind = {v: k for k, v in sorted(ids.items(), key=lambda kv: key(kv[0])) if v != k}
     (out_dir / "engine_ids.json").write_text(
-        json.dumps({v: k for k, v in sorted(ids.items(), key=lambda kv: key(kv[0])) if v != k},
-                   ensure_ascii=False, indent=2) + "\n",
+        json.dumps({"seed": blind_seed, "ids": blind}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )

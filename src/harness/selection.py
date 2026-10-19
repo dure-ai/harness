@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from harness.config import EvalConfig
 from harness.metrics import Metrics, per_scenario_counts
 from harness.replay import ScenarioRun
-from harness.stats import bootstrap_diff
+from harness.stats import Rate, bootstrap_diff
 
 EPS = 1e-9
 NO_SAMPLE = "표본 없음"
@@ -31,13 +31,19 @@ class EngineScore:
     metrics: Metrics
     verdict: Verdict
     repeats: list[Metrics]
+    flip: Rate | None = None  # re-run flip rate; None for an engine run once
 
     @classmethod
     def from_repeats(
-        cls, engine_id: str, repeats: list[Metrics], base: Metrics, cfg: EvalConfig
+        cls,
+        engine_id: str,
+        repeats: list[Metrics],
+        base: Metrics,
+        cfg: EvalConfig,
+        flip: Rate | None = None,
     ) -> "EngineScore":
         metrics = averaged(repeats) if len(repeats) > 1 else repeats[0]
-        return cls(engine_id, metrics, judge_engine(metrics, base, cfg), repeats)
+        return cls(engine_id, metrics, judge_engine(metrics, base, cfg), repeats, flip)
 
 
 @dataclass

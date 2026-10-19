@@ -162,6 +162,14 @@ def feedback_events(
     return generated
 
 
+def _as_result(item: object) -> Result:
+    if isinstance(item, Result):
+        return item
+    if isinstance(item, dict):
+        return Result.model_validate(item)
+    raise TypeError(f"search returned {type(item).__name__}, expected Result or dict")
+
+
 def run_scenario(
     engine: BaseEngine, scenario: Scenario, *, run_id: str, cfg: EvalConfig
 ) -> ScenarioRun:
@@ -198,6 +206,7 @@ def run_scenario(
             start = time.perf_counter()
             raw = list(engine.search(query))
             search_ms = (time.perf_counter() - start) * 1000
+            raw = [_as_result(r) for r in raw]  # a malformed return errors this scenario only
         except Exception as e:
             run.error = f"{type(e).__name__}: {e}"
             return run

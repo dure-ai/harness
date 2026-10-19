@@ -270,3 +270,10 @@ def test_averaged_errors_union_over_repeats():
     assert averaged(repeats).errors == ["s1", "s2"]
     s = EngineScore.from_repeats("e", repeats, BASE, CFG)
     assert not s.verdict.passed and "판정 불가: 오류 시나리오 2개" in s.verdict.reasons
+
+
+def test_engine_score_flip():
+    one = M()
+    assert EngineScore.from_repeats("e", [one], BASE, CFG).flip is None
+    flip = Rate(1, 4, 0.25, None)
+    assert EngineScore.from_repeats("e", [one, one], BASE, CFG, flip=flip).flip == flip

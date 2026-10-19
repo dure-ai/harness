@@ -76,3 +76,15 @@ class FailOnTc(LatestWins):
         if self.fail and self.searches > 1:
             raise RuntimeError("search fails")
         return super().search(query)
+
+
+class ReturnsDicts(LatestWins):
+    """LatestWins, but returns plain dicts instead of Result objects."""
+
+    def search(self, query: Query) -> list:
+        return [r.model_dump() for r in super().search(query)]
+
+
+class ReturnsInts(Dummy):
+    def search(self, query: Query) -> list:
+        return [1, 2]

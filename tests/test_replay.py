@@ -185,3 +185,33 @@ def test_engine_never_sees_hidden_fields():
         assert not keys & forbidden
         if isinstance(obj, Query):
             assert "kind" not in keys  # Event.kind is a real contract field; only the probe kind is hidden
+
+
+class Returns(BaseEngine):
+    def __init__(self, items):
+        self.items = items
+
+    def info(self):
+        return EngineInfo(name="returns", version="0")
+
+    def reset(self, namespace):
+        pass
+
+    def record(self, event):
+        pass
+
+    def search(self, query):
+        return self.items
+
+
+def test_search_dicts_validated_into_results():
+    run = run_scenario(Returns([{"text": "a", "sources": ["e1"]}, Result(text="b")]), _same_time(),
+                       run_id="r", cfg=CFG)
+    assert run.error is None
+    assert run.probes[0].results == [Result(text="a", sources=["e1"]), Result(text="b")]
+
+
+@pytest.mark.parametrize("items", [[1], [{"sources": ["e1"]}], None])
+def test_malformed_search_return_marks_error(items):
+    run = run_scenario(Returns(items), _same_time(), run_id="r", cfg=CFG)
+    assert run.error is not None and run.probes == []

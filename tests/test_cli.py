@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -278,3 +279,104 @@ def test_run_engine_erroring_on_subset_fails_verdict(tmp_path):
     assert engine["metrics"]["errors"] == ["tc"]
     assert engine["verdict"]["passed"] is False
     assert "판정 불가: 오류 시나리오 1개" in engine["verdict"]["reasons"]
+
+
+def test_run_reports_flip_for_repeated_engine(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy", "--repeat", "2")
+    summary = summary_of(result)
+    assert summary["engines"]["E1"]["flip"]["k"] == 0 and summary["engines"]["E1"]["flip"]["n"] == 4
+    assert summary["engines"]["oracle"]["flip"] is None
+
+
+def test_run_single_repeat_has_no_flip(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy", "--repeat", "1")
+    assert summary_of(result)["engines"]["E1"]["flip"] is None
+
+
+def test_run_meta_records_drafts_roots_repeats(tmp_path):
+    d = good_dir(tmp_path, status="draft")
+    result, _ = run_cli(tmp_path, d, "--include-drafts", "--engine", "tests.dummy_engine:Dummy", "--repeat", "2")
+    summary = summary_of(result)
+    assert summary["meta"]["include_drafts"] is True
+    assert summary["meta"]["scenario_roots"] == [str(d)]
+    assert summary["meta"]["repeats"] == {"none": 1, "all_store": 1, "repeat_n": 1, "oracle": 1, "E1": 2}
+    report = Path(result.output.strip().splitlines()[-1]).read_text(encoding="utf-8")
+    assert "> ⚠️ 초안 포함 — 발표 수치로 쓰지 않음" in report.splitlines()[:3]
+
+
+def test_run_sealed_meta_roots_count(tmp_path):
+    d = good_dir(tmp_path)
+    result, _ = run_cli(tmp_path, d, "--sealed")
+    meta = summary_of(result)["meta"]
+    assert meta["n_scenario_roots"] == 1 and "scenario_roots" not in meta
+
+
+def invalid_dir(tmp_path: Path) -> Path:
+    d = tmp_path / "scenarios"
+    d.mkdir()
+    s = truth_change()
+    bad = [s.events[0].model_copy(update={"fact": "nope"}), s.events[1].model_copy(update={"fact": "nope"})]
+    write(d, s.model_copy(update={"events": [*bad, *s.events[2:]]}))
+    write(d, truth_change(), name="dup.yaml")
+    return d
+
+
+def assert_no_scenario_content(output: str) -> None:
+    for secret in ("tc", "sp", "p_block", "p_promote", "f_old", "f_new", "nope", "vendor"):
+        assert secret not in output, (secret, output)
+
+
+def test_run_sealed_validation_prints_counts_only(tmp_path):
+    result, out = run_cli(tmp_path, invalid_dir(tmp_path), "--sealed")
+    assert result.exit_code == 1
+    assert "error unknown_fact: 2" in result.output
+    assert "error duplicate_scenario_id: 1" in result.output
+    assert_no_scenario_content(result.output)
+    assert not out.exists()
+
+
+def test_selfcheck_sealed_validation_prints_counts_only(tmp_path):
+    result = runner.invoke(app, ["selfcheck", "--scenarios", str(invalid_dir(tmp_path)), "--sealed"])
+    assert result.exit_code == 1
+    assert "error unknown_fact: 2" in result.output
+    assert_no_scenario_content(result.output)
+
+
+def sealed_selfcheck_failure_dir(tmp_path: Path) -> Path:
+    d = tmp_path / "scenarios"
+    d.mkdir()
+    write(d, too_easy())
+    return d
+
+
+def test_run_sealed_selfcheck_failure_names_only(tmp_path):
+    result, out = run_cli(tmp_path, sealed_selfcheck_failure_dir(tmp_path), "--sealed")
+    assert result.exit_code == 1
+    lines = result.output.strip().splitlines()
+    assert "FAIL  all_store_max_m1" in lines and "PASS  oracle_perfect" in lines
+    assert "want" not in result.output and "m1=" not in result.output
+    assert_no_scenario_content(result.output)
+    assert not out.exists()
+
+
+def test_selfcheck_sealed_names_only(tmp_path):
+    (tmp_path / "x").mkdir()
+    for d, code in ((good_dir(tmp_path), 0), (sealed_selfcheck_failure_dir(tmp_path / "x"), 1)):
+        result = runner.invoke(app, ["selfcheck", "--scenarios", str(d), "--sealed"])
+        assert result.exit_code == code, result.output
+        assert all(re.fullmatch(r"(PASS|FAIL)  \w+", line) for line in result.output.strip().splitlines())
+        assert "want" not in result.output and "skipped" not in result.output
+        assert_no_scenario_content(result.output)
+
+
+def test_run_engine_returning_ints_errors_cleanly(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:ReturnsInts", "--repeat", "1")
+    engine = summary_of(result)["engines"]["E1"]
+    assert engine["metrics"]["errors"] == ["sp", "tc"]
+    assert engine["verdict"]["passed"] is False
+
+
+def test_run_engine_returning_dicts_works(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:ReturnsDicts", "--repeat", "1")
+    engine = summary_of(result)["engines"]["E1"]
+    assert engine["metrics"]["errors"] == [] and engine["verdict"]["passed"] is True

@@ -45,10 +45,10 @@ def metrics(m1=0.2, m2=0.9, m3=0, **kw):
     )
 
 
-def score(name, **kw):
+def score(name, flip=None, **kw):
     m = metrics(**kw)
     v = Verdict(True, True, m.m3 == 0, None, m.m3 == 0, [] if m.m3 == 0 else ["M3 leaked"])
-    return EngineScore(name, m, v, [m])
+    return EngineScore(name, m, v, [m], flip)
 
 
 def record(probe_id="probe_secret", outcome="TP", leaks=()):
@@ -72,7 +72,7 @@ def run(sid="sc_secret", error=None, probes=None):
     return ScenarioRun(sid, "truth_change", "read_only", probes=[] if error else probes, error=error)
 
 
-def meta(sealed=False, infos=None):
+def meta(sealed=False, infos=None, include_drafts=False):
     infos = infos if infos is not None else {
         SECRET: EngineInfo(name=SECRET, version="1.2", virtual_clock=True, sources=True, scopes=False),
         "none": EngineInfo(name="none", version="0"),
@@ -87,13 +87,16 @@ def meta(sealed=False, infos=None):
         machine="TestOS / Python 3.14",
         engine_infos=infos,
         sealed=sealed,
+        include_drafts=include_drafts,
+        scenario_roots=["secret/roots/dev", "secret/roots/extra.yaml"],
+        repeats={"none": 1, "all_store": 1, "oracle": 1, "repeat_n": 1, SECRET: 3, OTHER: 1},
     )
 
 
 def fixture(sealed=False, errors=False):
     scores = [score("none", m1=0.6, m2=0.0), score("all_store", m1=0.6, m2=0.9),
               score("oracle", m1=0.0, m2=1.0), score("repeat_n", m1=0.4, m2=0.8),
-              score(SECRET), score(OTHER, m3=1)]
+              score(SECRET, flip=rate(1, 8)), score(OTHER, m3=1)]
     ranking = [RankEntry(SECRET, 1, False, None, None)]
     runs = {n: [run()] for n in ("none", "all_store", "oracle", "repeat_n", SECRET, OTHER)}
     if errors:
@@ -117,7 +120,7 @@ def test_report_files_written(tmp_path):
     summary = json.loads((out / "summary.json").read_text("utf-8"))
     assert summary["meta"]["config_hash"] == "cfg-hash-xyz"
     assert summary["meta"]["started_at"] == "2026-10-19T09:30:00+00:00"
-    ids = json.loads((out / "engine_ids.json").read_text("utf-8"))
+    ids = json.loads((out / "engine_ids.json").read_text("utf-8"))["ids"]
     assert sorted(ids.values()) == sorted([SECRET, OTHER])
     assert set(summary["engines"]) == {"none", "all_store", "repeat_n", "oracle", *ids}
     blind = next(i for i, n in ids.items() if n == SECRET)
@@ -182,7 +185,7 @@ def test_names_not_in_outputs(tmp_path):
         assert SECRET not in text and OTHER not in text
         assert "SecretEngine" not in text and "OtherEngine" not in text
     report = (out / "report.md").read_text("utf-8")
-    ids = json.loads((out / "engine_ids.json").read_text("utf-8"))
+    ids = json.loads((out / "engine_ids.json").read_text("utf-8"))["ids"]
     assert all(i in report for i in ids)
     for baseline in ("none", "all_store", "repeat_n", "oracle"):
         assert baseline in report
@@ -227,7 +230,7 @@ def test_report_sections_and_formats(tmp_path):
 def test_relative_metrics_for_candidates(tmp_path):
     out = write(tmp_path)
     summary = json.loads((out / "summary.json").read_text("utf-8"))
-    ids = json.loads((out / "engine_ids.json").read_text("utf-8"))
+    ids = json.loads((out / "engine_ids.json").read_text("utf-8"))["ids"]
     blind = next(i for i, n in ids.items() if n == SECRET)
     rel = summary["engines"][blind]["relative"]
     # (0.6 - 0.2) / (0.6 - 0.0)
@@ -283,7 +286,7 @@ def test_engine_info_scrubbed(tmp_path):
         for name in ("summary.json", "report.md"):
             text = (out / name).read_text("utf-8")
             assert SECRET not in text and "SecretEngine" not in text
-        blind = next(i for i, n in json.loads((out / "engine_ids.json").read_text("utf-8")).items() if n == SECRET)
+        blind = next(i for i, n in json.loads((out / "engine_ids.json").read_text("utf-8"))["ids"].items() if n == SECRET)
         shown = json.loads((out / "summary.json").read_text("utf-8"))["meta"]["engine_infos"][blind]
         assert shown["version"] == f"{blind}-1"
         assert shown["config"]["module"] == blind and shown["config"]["note"] == f"{blind} v2"
@@ -297,3 +300,73 @@ def test_shared_class_name_not_mapped():
     assert ids["a.x:Engine"] != ids["b.y:Engine"]
     assert scrub("bare Engine stays") == "bare Engine stays"
     assert scrub("none") == "none"
+
+
+def engine_ids(out):
+    return json.loads((out / "engine_ids.json").read_text("utf-8"))
+
+
+def test_flip_rate_reported(tmp_path):
+    out = write(tmp_path)
+    summary = json.loads((out / "summary.json").read_text("utf-8"))
+    blind = next(i for i, n in engine_ids(out)["ids"].items() if n == SECRET)
+    assert summary["engines"][blind]["flip"]["k"] == 1 and summary["engines"][blind]["flip"]["n"] == 8
+    assert summary["engines"]["none"]["flip"] is None
+    report = (out / "report.md").read_text("utf-8")
+    aux = report.split("## 보조·관찰")[1].split("## 계열별")[0]
+    assert "재실행 뒤집힘률" in aux and "0.125 (n=8)" in aux
+
+
+def test_run_meta_drafts_roots_repeats(tmp_path):
+    out = write(tmp_path)
+    meta_json = json.loads((out / "summary.json").read_text("utf-8"))["meta"]
+    blind = next(i for i, n in engine_ids(out)["ids"].items() if n == SECRET)
+    assert meta_json["include_drafts"] is False
+    assert meta_json["scenario_roots"] == ["secret/roots/dev", "secret/roots/extra.yaml"]
+    assert meta_json["repeats"][blind] == 3 and meta_json["repeats"]["none"] == 1
+    assert SECRET not in json.dumps(meta_json["repeats"])
+    report = (out / "report.md").read_text("utf-8")
+    head = report.split("## 판정")[0]
+    assert "초안 포함: 아니오" in head
+    assert "secret/roots/dev" in head
+    assert f"{blind} 3" in head
+    assert "⚠️" not in report
+
+
+def test_drafts_warning_at_top(tmp_path):
+    m, scores, ranking, runs, selfcheck = fixture()
+    m.include_drafts = True
+    out = tmp_path / "o"
+    write_report(out, m, scores, ranking, runs, selfcheck, blind_seed=1)
+    report = (out / "report.md").read_text("utf-8")
+    assert "> ⚠️ 초안 포함 — 발표 수치로 쓰지 않음" in report.splitlines()[:3]
+    assert "초안 포함: 예" in report
+    assert json.loads((out / "summary.json").read_text("utf-8"))["meta"]["include_drafts"] is True
+
+
+def test_sealed_roots_as_count(tmp_path):
+    out = write(tmp_path, sealed=True)
+    for name in ("summary.json", "report.md"):
+        assert "secret/roots" not in (out / name).read_text("utf-8")
+    meta_json = json.loads((out / "summary.json").read_text("utf-8"))["meta"]
+    assert "scenario_roots" not in meta_json and meta_json["n_scenario_roots"] == 2
+    assert "시나리오 경로 수: 2" in (out / "report.md").read_text("utf-8")
+
+
+def test_default_blind_seed_is_random_and_only_in_engine_ids(tmp_path, monkeypatch):
+    import secrets
+
+    m, scores, ranking, runs, selfcheck = fixture()
+    monkeypatch.setattr(secrets, "randbits", lambda bits: 987654321987 if bits == 64 else 0)
+    out = tmp_path / "o"
+    write_report(out, m, scores, ranking, runs, selfcheck)
+    assert engine_ids(out)["seed"] == 987654321987
+    expected = blind_ids(sorted({*(s.engine_id for s in scores), *runs, *m.engine_infos}), 987654321987)
+    assert engine_ids(out)["ids"] == {v: k for k, v in expected.items() if v != k}
+    for name in ("summary.json", "report.md", "results.jsonl"):
+        assert "987654321987" not in (out / name).read_text("utf-8")
+
+
+def test_explicit_blind_seed_recorded(tmp_path):
+    out = write(tmp_path, seed=7)
+    assert engine_ids(out)["seed"] == 7
