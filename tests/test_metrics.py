@@ -67,6 +67,17 @@ def test_promote_fp_and_fn_are_not_tp():
     assert m.m1.n == 0 and m.m1.value is None
 
 
+def test_promote_fn_counts_read_only_error_free_promote_fn():
+    s1, s2, s3 = sc("s1"), sc("s2", family="echo", mode="feedback"), sc("s3")
+    runs = [
+        run("s1", [rec("a", "promote", "FN"), rec("b", "promote", "TP"), rec("c", "block", "FP")]),
+        run("s2", [rec("a", "promote", "FN")], family="echo", mode="feedback"),
+        run("s3", [rec("a", "promote", "FN")], error="boom"),
+    ]
+    m = compute_metrics(runs, scs(s1, s2, s3))
+    assert (m.promote_fn.k, m.promote_fn.n, m.promote_fn.value) == (1, 2, 0.5)
+
+
 def test_feedback_runs_excluded_from_m1():
     s1 = sc("s1")
     s2 = sc("s2", family="echo", mode="feedback")
