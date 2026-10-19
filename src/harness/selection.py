@@ -75,7 +75,9 @@ def judge_engine(m: Metrics, base: Metrics, cfg: EvalConfig) -> Verdict:
 
     if m1_ok is None or m2_ok is None:
         reasons.append(NO_SAMPLE)
-    passed = m1_ok is True and m2_ok is True and m3_ok and abs_cap_ok is not False
+    if m.errors:  # an errored scenario would otherwise drop silently out of M1/M2
+        reasons.append(f"판정 불가: 오류 시나리오 {len(m.errors)}개")
+    passed = m1_ok is True and m2_ok is True and m3_ok and abs_cap_ok is not False and not m.errors
     return Verdict(m1_ok, m2_ok, m3_ok, abs_cap_ok, passed, reasons)
 
 
@@ -86,13 +88,15 @@ def _mean(values: list[float | None]) -> float | None:
 
 
 def averaged(repeats: list[Metrics]) -> Metrics:
-    """First repeat's metrics, with M1/M2 `value` replaced by the mean over repeats and M3 the worst repeat's."""
+    """First repeat's metrics, with M1/M2 `value` replaced by the mean over repeats, M3 the worst
+    repeat's and `errors` every scenario that errored in any repeat."""
     if not repeats:
         raise ValueError("averaged() needs at least one repeat")
     first = repeats[0]
     return replace(
         first,
         m3=max(r.m3 for r in repeats),  # a leak in any repeat fails the gate
+        errors=sorted({e for r in repeats for e in r.errors}),  # so does an error in any repeat
         m1=replace(first.m1, value=_mean([r.m1.value for r in repeats])),
         m2=replace(first.m2, value=_mean([r.m2.value for r in repeats])),
     )

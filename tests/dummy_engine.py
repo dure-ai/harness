@@ -1,6 +1,6 @@
 """Minimal engine used to test import-path engine loading."""
 
-from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
+from harness.contract import BaseEngine, EngineInfo, Event, Query, Result, can_see
 
 
 class Dummy(BaseEngine):
@@ -40,3 +40,39 @@ class FailInit(Dummy):
 class FailRecord(Dummy):
     def record(self, event: Event) -> None:
         raise RuntimeError("record fails")
+
+
+
+class LatestWins(BaseEngine):
+    """Answers every query with the most recent event the asker can see; passes on the CLI test set."""
+
+    def info(self) -> EngineInfo:
+        return EngineInfo(name="latest", version="0.1", sources=True)
+
+    def reset(self, namespace: str) -> None:
+        self.events: list[Event] = []
+
+    def record(self, event: Event) -> None:
+        self.events.append(event)
+
+    def search(self, query: Query) -> list[Result]:
+        seen = [e for e in self.events if can_see(e, query.user, query.team) and e.t <= query.t]
+        if not seen:
+            return []
+        latest = max(seen, key=lambda e: e.t)
+        return [Result(text=latest.text, sources=[latest.id])]
+
+
+class FailOnTc(LatestWins):
+    """Like LatestWins, but errors on scenario "tc" from its second search on."""
+
+    def reset(self, namespace: str) -> None:
+        super().reset(namespace)
+        self.fail = namespace.endswith(":tc")
+        self.searches = 0
+
+    def search(self, query: Query) -> list[Result]:
+        self.searches += 1
+        if self.fail and self.searches > 1:
+            raise RuntimeError("search fails")
+        return super().search(query)

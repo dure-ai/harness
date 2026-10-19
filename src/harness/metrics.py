@@ -164,7 +164,7 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
     return Metrics(
         m1=_m1(read_only),
         m2=_m2(read_only),
-        m3=_m3(ok),
+        m3=_m3(runs),  # leaks recorded before an error still count
         promote_fn=rate(*_count(read_only, "promote", "FN")),
         by_family=by_family,
         feedback_by_family=_family_table(feedback),

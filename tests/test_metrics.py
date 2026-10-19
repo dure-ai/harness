@@ -114,12 +114,22 @@ def test_errored_runs_excluded():
     r = run("s1", [rec("p", "block", "FP", leaks=2)], error="boom", record_ms=[5.0])
     m = compute_metrics([r], scs(s1))
     assert m.m1.value is None and m.m2.value is None
-    assert m.m3 == 0
+    assert m.m3 == 1  # the leaking result recorded before the error still counts
     assert m.errors == ["s1"]
     assert m.by_family == {} and m.feedback_by_family == {}
     assert m.worst_family is None
     assert m.context_chars_mean is None
     assert m.record_ms_p50 is None and m.search_ms_p95 is None
+
+
+def test_m3_counts_leaks_before_error_but_family_table_does_not():
+    s1, s2 = sc("s1"), sc("s2")
+    errored = run("s1", [rec("p", "leak", "LEAK_ONLY", leaks=1), rec("q", "block", "FP")], error="boom")
+    ok = run("s2", [rec("p", "leak", "LEAK_ONLY", leaks=1)])
+    m = compute_metrics([errored, ok], scs(s1, s2))
+    assert m.m3 == 2
+    assert m.m1.n == 0  # the errored run's block probe stays out of M1
+    assert m.by_family["truth_change"]["m3"] == 1
 
 
 def test_errors_sorted():

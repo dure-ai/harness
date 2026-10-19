@@ -264,3 +264,17 @@ def test_check_accepts_include_drafts(tmp_path):
     d = good_dir(tmp_path, status="draft")
     result = runner.invoke(app, ["scenario", "check", str(d), "--include-drafts"])
     assert result.exit_code == 0, result.output
+
+
+def test_run_latest_wins_engine_passes(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:LatestWins", "--repeat", "1")
+    verdict = summary_of(result)["engines"]["E1"]["verdict"]
+    assert verdict["passed"] is True, verdict
+
+
+def test_run_engine_erroring_on_subset_fails_verdict(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:FailOnTc", "--repeat", "1")
+    engine = summary_of(result)["engines"]["E1"]
+    assert engine["metrics"]["errors"] == ["tc"]
+    assert engine["verdict"]["passed"] is False
+    assert "판정 불가: 오류 시나리오 1개" in engine["verdict"]["reasons"]

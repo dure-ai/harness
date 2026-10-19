@@ -1,3 +1,4 @@
+import hashlib
 from datetime import timedelta
 
 from harness.baselines.simple import AllStoreEngine, NoneEngine
@@ -43,10 +44,16 @@ def _scenario(mode="feedback", extra_probes=()):
     )
 
 
+def gen(run, probe_id, slot):
+    """The generated event for (probe, slot), looked up through the harness-side mapping."""
+    event_id = run.generated_ids[(probe_id, slot)]
+    return next(le for le in run.generated if le.event.id == event_id)
+
+
 def test_action_event_follows_choice():
     run = run_scenario(AllStoreEngine(), _scenario(), run_id="r", cfg=CFG)
     assert run.error is None
-    action = next(le for le in run.generated if le.event.id == "p1#action")
+    action = gen(run, "p1", "action")
     assert action.fact == "f_act_old"
     assert action.event.t == T("10-10 10:05")
     assert action.event.user == "u2"
@@ -59,14 +66,15 @@ def test_action_event_follows_choice():
 
 def test_abstain_template_used():
     run = run_scenario(NoneEngine(), _scenario(), run_id="r", cfg=CFG)
-    assert [le.event.id for le in run.generated] == ["p1#action"]
+    assert [le.event.id for le in run.generated] == [run.generated_ids[("p1", "action")]]
+    assert list(run.generated_ids) == [("p1", "action")]
     assert run.generated[0].event.text == "gave up on the deploy question"
     assert run.generated[0].fact == "f_abstain"
 
 
 def test_on_false_outcome_after_one_day():
     run = run_scenario(AllStoreEngine(), _scenario(), run_id="r", cfg=CFG)
-    outcome = next(le for le in run.generated if le.event.id == "p1#outcome")
+    outcome = gen(run, "p1", "outcome")
     assert outcome.event.t == T("10-10 10:00") + timedelta(days=1)
     assert outcome.event.signal == "test"
     assert outcome.event.outcome == "failure"
@@ -80,10 +88,9 @@ def test_on_true_outcome_immediate_and_template_delay():
     s.probes[0] = s.probes[0].model_copy(update={"query": "beta host"})
     s.events.append(ev("e_new", T("10-06 10:00"), fact="f_new", text="deploy host beta"))
     run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=CFG)
-    by_id = {le.event.id: le for le in run.generated}
-    assert by_id["p1#outcome"].event.outcome == "success"
-    assert by_id["p1#outcome"].event.t == T("10-10 12:00")
-    assert by_id["p1#action"].event.t == T("10-10 10:01")
+    assert gen(run, "p1", "outcome").event.outcome == "success"
+    assert gen(run, "p1", "outcome").event.t == T("10-10 12:00")
+    assert gen(run, "p1", "action").event.t == T("10-10 10:01")
 
 
 def test_missing_templates_generate_nothing():
@@ -155,20 +162,21 @@ def test_generated_event_reaches_engine():
     eng = RecordingEngine()
     run = run_scenario(eng, _scenario(extra_probes=[p2]), run_id="r", cfg=CFG)
     assert run.error is None
-    assert ("record", "p1#action") in eng.calls
-    assert eng.calls.index(("record", "p1#action")) < eng.calls.index(("search", "second query"))
-    assert eng.calls.index(("search", "alpha host")) < eng.calls.index(("record", "p1#action"))
+    action = ("record", run.generated_ids[("p1", "action")])
+    outcome = ("record", run.generated_ids[("p1", "outcome")])
+    assert action in eng.calls
+    assert eng.calls.index(action) < eng.calls.index(("search", "second query"))
+    assert eng.calls.index(("search", "alpha host")) < eng.calls.index(action)
     # on_false lands a day later, i.e. after p2 (10-10 12:00)
-    assert eng.calls.index(("search", "second query")) < eng.calls.index(("record", "p1#outcome"))
+    assert eng.calls.index(("search", "second query")) < eng.calls.index(outcome)
 
 
 def test_no_marker_of_echo_in_generated():
     run = run_scenario(AllStoreEngine(), _scenario(), run_id="r", cfg=CFG)
     for le in run.generated:
         assert le.event.meta == {}
-    texts = {le.event.id: le.event.text for le in run.generated}
-    assert texts["p1#action"] == "applied alpha deploy fix"
-    assert texts["p1#outcome"] == "deploy failed again"
+    assert gen(run, "p1", "action").event.text == "applied alpha deploy fix"
+    assert gen(run, "p1", "outcome").event.text == "deploy failed again"
 
 
 def test_read_only_never_generates():
@@ -181,3 +189,29 @@ def test_probe_without_feedback_generates_nothing():
     s.probes[0] = s.probes[0].model_copy(update={"feedback": None})
     run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=CFG)
     assert run.generated == []
+
+
+def test_generated_ids_reveal_neither_harness_nor_probe():
+    p2 = probe("p2", "block", T("10-10 12:00"), ["f_old", "f_new"], query="second query")
+    s = _scenario(extra_probes=[p2])
+    eng = RecordingEngine()
+    run = run_scenario(eng, s, run_id="r", cfg=CFG)
+    recorded = [eid for call, eid in eng.calls if call == "record"]
+    generated = set(run.generated_ids.values())
+    assert generated and generated <= set(recorded)
+    for eid in recorded:
+        assert "#" not in eid
+        assert not any(p.id in eid for p in s.probes)
+    expected = "e" + hashlib.sha256(b"sc:p1:action").hexdigest()[:12]
+    assert run.generated_ids[("p1", "action")] == expected
+
+
+def test_generated_id_collision_gets_suffix():
+    taken = "e" + hashlib.sha256(b"sc:p1:action").hexdigest()[:12]
+    s = _scenario()
+    s.events.append(ev(taken, T("10-01 11:00"), text="unrelated"))
+    s.events.append(ev(f"{taken}-2", T("10-01 12:00"), text="unrelated too"))
+    run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=CFG)
+    assert run.generated_ids[("p1", "action")] == f"{taken}-3"
+    ids = [le.event.id for le in run.generated]
+    assert len(ids) == len(set(ids))

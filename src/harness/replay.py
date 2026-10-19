@@ -1,7 +1,9 @@
 """Read-only replay: feed a scenario to an engine in virtual-time order and score each probe."""
 
+import hashlib
 import heapq
 import time
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from itertools import count
 
@@ -38,6 +40,8 @@ class ScenarioRun:
     record_ms: list[float] = field(default_factory=list)
     generated: list[LabeledEvent] = field(default_factory=list)
     error: str | None = None
+    # (probe id, "action" | "outcome") -> generated event id; harness-side only, never sent to engines
+    generated_ids: dict[tuple[str, str], str] = field(default_factory=dict)
 
 
 class Timeline:
@@ -91,12 +95,23 @@ def _score_probe(
     )
 
 
+def generated_event_id(scenario: Scenario, probe: Probe, slot: str, taken: Collection[str]) -> str:
+    """Opaque id for a generated event: it names neither the probe nor the harness. A clash with
+    an id in `taken` gets "-2", "-3", ... appended."""
+    base = "e" + hashlib.sha256(f"{scenario.id}:{probe.id}:{slot}".encode()).hexdigest()[:12]
+    event_id, n = base, 1
+    while event_id in taken:
+        n += 1
+        event_id = f"{base}-{n}"
+    return event_id
+
+
 def _generated(
-    probe: Probe, tmpl: FeedbackTemplate, suffix: str, default_delay, scenario: Scenario
+    probe: Probe, tmpl: FeedbackTemplate, event_id: str, default_delay, scenario: Scenario
 ) -> LabeledEvent:
     """Build the agent-side record for `probe`; no marker says it followed a search result."""
     event = Event(
-        id=f"{probe.id}#{suffix}",
+        id=event_id,
         t=probe.t + (tmpl.delay if tmpl.delay is not None else default_delay),
         user=probe.user,
         session=probe.session,
@@ -113,9 +128,17 @@ def _generated(
 
 
 def feedback_events(
-    probe: Probe, choice: Choice, scenario: Scenario, cfg: EvalConfig
-) -> list[LabeledEvent]:
-    """The action record and outcome record the simulated agent writes after acting on a probe."""
+    probe: Probe, choice: Choice, scenario: Scenario, cfg: EvalConfig, taken: Collection[str] = ()
+) -> list[tuple[str, LabeledEvent]]:
+    """(slot, event) for the action record and outcome record the simulated agent writes after
+    acting on a probe; event ids avoid every id in `taken`."""
+    used = set(taken)
+
+    def make(tmpl: FeedbackTemplate, slot: str, delay) -> tuple[str, LabeledEvent]:
+        event_id = generated_event_id(scenario, probe, slot, used)
+        used.add(event_id)
+        return slot, _generated(probe, tmpl, event_id, delay, scenario)
+
     feedback = probe.feedback
     if feedback is None:
         return []
@@ -128,14 +151,14 @@ def feedback_events(
         action_tmpl = feedback.action.get(pick)
     generated = []
     if action_tmpl is not None:
-        generated.append(_generated(probe, action_tmpl, "action", cfg.feedback.action, scenario))
+        generated.append(make(action_tmpl, "action", cfg.feedback.action))
     if not abstained:
         if is_wrong(choice.basis, probe, scenario):
             tmpl, delay = feedback.on_false, cfg.feedback.on_false
         else:
             tmpl, delay = feedback.on_true, cfg.feedback.on_true
         if tmpl is not None:
-            generated.append(_generated(probe, tmpl, "outcome", delay, scenario))
+            generated.append(make(tmpl, "outcome", delay))
     return generated
 
 
@@ -182,8 +205,9 @@ def run_scenario(
         record = _score_probe(item, results, scenario, events, search_ms)
         run.probes.append(record)
         if scenario.mode == "feedback" and item.feedback is not None:
-            for generated in feedback_events(item, record.choice, scenario, cfg):
+            for slot, generated in feedback_events(item, record.choice, scenario, cfg, events.keys()):
                 events[generated.event.id] = generated
                 run.generated.append(generated)
+                run.generated_ids[(item.id, slot)] = generated.event.id
                 push_event(timeline, generated)
     return run
