@@ -205,7 +205,7 @@ def test_sealed_errors_only_count(tmp_path):
     out = write(tmp_path, sealed=True, errors=True)
     report = (out / "report.md").read_text("utf-8")
     assert "오류 시나리오" in report
-    assert "1" in report.split("오류 시나리오")[1]
+    assert report.split("## 오류 시나리오")[1].split("##")[0].strip() == "오류가 난 시나리오 수: 1"
 
 
 def test_report_sections_and_formats(tmp_path):
@@ -264,3 +264,25 @@ def test_harness_version_returns_string():
 
 def test_machine_info():
     assert "Python" in machine_info()
+
+
+def test_engine_info_scrubbed(tmp_path):
+    info = EngineInfo(
+        name=SECRET,
+        version="SecretEngine-1",
+        config={"module": SECRET, "note": "SecretEngine v2", "nested": [{"k": SECRET}]},
+        virtual_clock=True,
+    )
+    for sealed in (False, True):
+        m, scores, ranking, runs, selfcheck = fixture(sealed)
+        m.engine_infos = {SECRET: info}
+        out = tmp_path / str(sealed)
+        write_report(out, m, scores, ranking, runs, selfcheck, blind_seed=3)
+        for name in ("summary.json", "report.md"):
+            text = (out / name).read_text("utf-8")
+            assert SECRET not in text and "SecretEngine" not in text
+        blind = next(i for i, n in json.loads((out / "engine_ids.json").read_text("utf-8")).items() if n == SECRET)
+        shown = json.loads((out / "summary.json").read_text("utf-8"))["meta"]["engine_infos"][blind]
+        assert shown["version"] == f"{blind}-1"
+        assert shown["config"]["module"] == blind and shown["config"]["note"] == f"{blind} v2"
+        assert "acme.mem" not in shown["name"]

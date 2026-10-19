@@ -100,14 +100,40 @@ def _metrics_json(m: Metrics, sealed: bool) -> dict[str, Any]:
 
 
 def _scrubber(ids: Mapping[str, str]) -> Callable[[str], str]:
-    names = sorted((n for n in ids if ids[n] != n), key=len, reverse=True)
+    """Replace each candidate's full name and its class-name part (after ":") with its blind id."""
+    pairs: dict[str, str] = {}
+    for name, blind in ids.items():
+        if blind == name:
+            continue
+        pairs[name] = blind
+        _, sep, cls = name.partition(":")
+        if sep and cls:
+            pairs.setdefault(cls, blind)
+    ordered = sorted(pairs, key=len, reverse=True)
 
     def scrub(text: str) -> str:
-        for name in names:
-            text = text.replace(name, ids[name])
+        for name in ordered:
+            text = text.replace(name, pairs[name])
         return text
 
     return scrub
+
+
+def _scrub_value(value: Any, scrub: Callable[[str], str]) -> Any:
+    if isinstance(value, str):
+        return scrub(value)
+    if isinstance(value, dict):
+        return {k: _scrub_value(v, scrub) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_value(v, scrub) for v in value]
+    return value
+
+
+def _info_json(
+    name: str, info: EngineInfo, ids: Mapping[str, str], scrub: Callable[[str], str]
+) -> dict[str, Any]:
+    """EngineInfo as JSON with every string value scrubbed; `name` is the blind id."""
+    return {**_scrub_value(_plain(info), scrub), "name": ids[name]}
 
 
 def _order_key(ids: Mapping[str, str]) -> Callable[[str], tuple[int, int]]:
@@ -140,7 +166,7 @@ def _summary(
     by_name = {s.engine_id: s for s in ordered}
     meta_json = _plain(meta)
     meta_json["engine_infos"] = {
-        ids[name]: {**_plain(info), "name": ids[name]}
+        ids[name]: _info_json(name, info, ids, scrub)
         for name, info in sorted(meta.engine_infos.items(), key=lambda kv: _order_key(ids)(kv[0]))
     }
     return {
@@ -344,8 +370,9 @@ def _section_limits(meta: RunMeta, ids: Mapping[str, str], scrub: Callable[[str]
             notes.append("출처 미반환: 출처 관련 결과에 주석 필요")
         if not info.scopes:
             notes.append("범위 미지원")
-        config = scrub(json.dumps(_plain(info.config), ensure_ascii=False, sort_keys=True))
-        rows.append([ids[name], info.version, info.virtual_clock, info.sources, info.scopes,
+        shown = _info_json(name, info, ids, scrub)
+        config = json.dumps(shown["config"], ensure_ascii=False, sort_keys=True)
+        rows.append([ids[name], shown["version"], info.virtual_clock, info.sources, info.scopes,
                      config, "; ".join(notes) or "-"])
     headers = ["엔진", "버전", "virtual_clock", "sources", "scopes", "설정", "비고"]
     return ["## 엔진 한계", "", *_table(headers, rows)]
