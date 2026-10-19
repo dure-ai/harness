@@ -4,10 +4,11 @@ AI 에이전트용 메모리 엔진이 "낡았거나 거짓인 지식을 막고,
 
 ## 설치
 
-Python 3.14 이상과 [uv](https://docs.astral.sh/uv/)가 필요합니다.
+Python 3.12 이상(3.12·3.13·3.14에서 테스트)과 [uv](https://docs.astral.sh/uv/)가 필요합니다. Python은 uv가 설치·관리합니다(pyenv 불필요). 레포의 `.python-version`이 개발 기본 버전(3.12)을 정합니다.
 
 ```bash
-uv sync
+uv sync            # .venv 생성 + 의존성 설치 (Python이 없으면 uv가 내려받음)
+uv run pytest      # 테스트
 ```
 
 ## 명령 세 가지
