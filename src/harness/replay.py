@@ -7,8 +7,8 @@ from itertools import count
 
 from harness.agent import Choice, choose, result_basis
 from harness.config import EvalConfig
-from harness.contract import BaseEngine, Result
-from harness.scenario.model import LabeledEvent, Probe, Scenario
+from harness.contract import BaseEngine, Event, Result
+from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, Scenario
 from harness.scoring import Leak, ProbeOutcome, find_leaks, is_wrong, judge
 
 EVENT, PROBE = 0, 1  # tie-break order: events at the same time come before probes
@@ -91,6 +91,54 @@ def _score_probe(
     )
 
 
+def _generated(
+    probe: Probe, tmpl: FeedbackTemplate, suffix: str, default_delay, scenario: Scenario
+) -> LabeledEvent:
+    """Build the agent-side record for `probe`; no marker says it followed a search result."""
+    event = Event(
+        id=f"{probe.id}#{suffix}",
+        t=probe.t + (tmpl.delay if tmpl.delay is not None else default_delay),
+        user=probe.user,
+        session=probe.session,
+        repo=probe.repo,
+        scope=tmpl.scope,
+        team=scenario.team_of(probe.user),
+        signal=tmpl.signal,
+        kind=tmpl.kind,
+        outcome=tmpl.outcome,
+        text=tmpl.text,
+        meta={},
+    )
+    return LabeledEvent(event=event, fact=tmpl.fact, secret_markers=())
+
+
+def feedback_events(
+    probe: Probe, choice: Choice, scenario: Scenario, cfg: EvalConfig
+) -> list[LabeledEvent]:
+    """The action record and outcome record the simulated agent writes after acting on a probe."""
+    feedback = probe.feedback
+    if feedback is None:
+        return []
+    abstained = choice.index is None
+    if abstained:
+        action_tmpl = feedback.abstain
+    else:
+        wrong = sorted(f for f in choice.basis if is_wrong(frozenset({f}), probe, scenario))
+        pick = wrong[0] if wrong else min(choice.basis)
+        action_tmpl = feedback.action.get(pick)
+    generated = []
+    if action_tmpl is not None:
+        generated.append(_generated(probe, action_tmpl, "action", cfg.feedback.action, scenario))
+    if not abstained:
+        if is_wrong(choice.basis, probe, scenario):
+            tmpl, delay = feedback.on_false, cfg.feedback.on_false
+        else:
+            tmpl, delay = feedback.on_true, cfg.feedback.on_true
+        if tmpl is not None:
+            generated.append(_generated(probe, tmpl, "outcome", delay, scenario))
+    return generated
+
+
 def run_scenario(
     engine: BaseEngine, scenario: Scenario, *, run_id: str, cfg: EvalConfig
 ) -> ScenarioRun:
@@ -131,5 +179,11 @@ def run_scenario(
             run.error = f"{type(e).__name__}: {e}"
             return run
         results = raw[: item.k or cfg.k]
-        run.probes.append(_score_probe(item, results, scenario, events, search_ms))
+        record = _score_probe(item, results, scenario, events, search_ms)
+        run.probes.append(record)
+        if scenario.mode == "feedback" and item.feedback is not None:
+            for generated in feedback_events(item, record.choice, scenario, cfg):
+                events[generated.event.id] = generated
+                run.generated.append(generated)
+                push_event(timeline, generated)
     return run
