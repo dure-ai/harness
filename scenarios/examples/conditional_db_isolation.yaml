@@ -1,0 +1,52 @@
+id: example-conditional-db-isolation
+family: conditional
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    platform: [u1, u2, u3]
+facts:
+  f_order:
+    text: "order-svc uses the READ COMMITTED isolation level"
+    conditions: {service: order-svc}
+    markers: ["read committed"]
+  f_billing:
+    text: "billing-svc uses the SERIALIZABLE isolation level"
+    conditions: {service: billing-svc}
+    markers: ["serializable"]
+events:
+  - {id: e1, t: "2026-10-01T10:00+09:00", user: u1, session: s1, repo: platform-db,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_order,
+     meta: {service: order-svc},
+     text: "Which isolation level does the service use for database transactions? The order-svc uses READ COMMITTED isolation level for database transactions"}
+  - {id: e2, t: "2026-10-03T10:00+09:00", user: u2, session: s2, repo: platform-db,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_order,
+     meta: {service: order-svc},
+     text: "Isolation level for database transactions in the service: order-svc runs READ COMMITTED, noted again while debugging transactions"}
+  - {id: e3, t: "2026-10-06T10:00+09:00", user: u1, session: s3, repo: platform-db,
+     scope: team, signal: test, kind: ci_result, outcome: success, fact: f_order,
+     meta: {service: order-svc},
+     text: "Integration test confirmed the order-svc isolation level for database transactions is READ COMMITTED"}
+  - {id: e4, t: "2026-10-07T10:00+09:00", user: u3, session: s4, repo: platform-db,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_billing,
+     meta: {service: billing-svc},
+     text: "billing-svc uses SERIALIZABLE for ledger writes"}
+probes:
+  - {id: p_block, kind: block, t: "2026-10-14T10:00+09:00", user: u2, session: s20,
+     repo: platform-db, meta: {service: billing-svc},
+     query: "Which isolation level does the service use for database transactions?",
+     about: [f_order, f_billing]}
+  - {id: p_promote, kind: promote, t: "2026-10-15T10:00+09:00", user: u2, session: s21,
+     repo: platform-db, meta: {service: order-svc},
+     query: "Which isolation level does the service use for database transactions?",
+     about: [f_order, f_billing]}
+review:
+  status: draft
+  reviewer: null
+  notes: ""
+provenance:
+  author: llm
+  source_traces: []
+  llm_model: null
+  prompt_version: null

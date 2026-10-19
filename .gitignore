@@ -222,3 +222,6 @@ __marimo__/
 # Local tooling
 .superpowers/
 .python-version
+
+# Evaluation run outputs
+runs/
