@@ -15,3 +15,7 @@ class Dummy(BaseEngine):
 
     def search(self, query: Query) -> list[Result]:
         return []
+
+
+class NotAnEngine:
+    """Importable class that is not a BaseEngine; used to test the make_engine type guard."""

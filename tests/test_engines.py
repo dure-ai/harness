@@ -35,8 +35,8 @@ def test_make_engine_import_path():
 
 
 def test_make_engine_import_path_not_an_engine_raises():
-    with pytest.raises(TypeError):
-        make_engine("tests.factories:KST", SC, EvalConfig())
+    with pytest.raises(TypeError, match="did not produce a BaseEngine"):
+        make_engine("tests.dummy_engine:NotAnEngine", SC, EvalConfig())
 
 
 def test_make_engine_unknown_raises():
