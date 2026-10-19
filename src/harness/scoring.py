@@ -22,7 +22,7 @@ def is_wrong(basis: frozenset[str], probe: Probe, scenario: Scenario) -> bool:
 def judge(probe: Probe, choice: Choice, scenario: Scenario) -> ProbeOutcome:
     if probe.kind == "leak":
         return "LEAK_ONLY"
-    abstained = choice.index is None
+    abstained = choice.index is None or not choice.basis  # nothing to act on
     wrong = not abstained and is_wrong(choice.basis, probe, scenario)
     if probe.kind == "block":
         return "FP" if wrong else "BLOCKED"

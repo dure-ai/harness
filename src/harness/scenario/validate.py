@@ -2,6 +2,7 @@
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Literal
 
 from harness.contract import can_see
@@ -59,6 +60,18 @@ def validate_scenario(s: Scenario) -> list[Issue]:
             for tpl in _templates(p.feedback):
                 if tpl.fact is not None and tpl.fact not in s.facts:
                     error("unknown_fact", f"probe {p.id}: feedback template references unknown fact {tpl.fact!r}")
+
+    for fid, f in s.facts.items():
+        if any(not m.strip() for m in f.markers):
+            error("empty_marker", f"fact {fid}: empty marker")
+    for e in s.events:
+        if any(not m.strip() for m in e.secret_markers):
+            error("empty_marker", f"event {e.id}: empty secret marker")
+    for p in s.probes:
+        if p.feedback is not None and any(
+            t.delay is not None and t.delay < timedelta(0) for t in _templates(p.feedback)
+        ):
+            error("negative_delay", f"probe {p.id}: feedback template with a negative delay")
 
     bad_users, messages = _unknown_users(s)
     for message in messages:

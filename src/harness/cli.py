@@ -56,9 +56,10 @@ def scenario_check(
     include_drafts: Annotated[
         bool, typer.Option("--include-drafts", help="No-op: drafts are always checked.")
     ] = False,
+    config: ConfigOpt = Path("config/eval-v0.1.yaml"),
 ) -> None:
     """Validate scenarios (drafts included) and check that each one discriminates between baselines."""
-    cfg = EvalConfig()
+    cfg = _config(config)
     failed = False
     for root in paths:
         if not root.exists():
@@ -87,14 +88,18 @@ def scenario_check(
 # ---- shared steps for selfcheck and run --------------------------------------------------------
 
 
+def _config(config: Path) -> EvalConfig:
+    try:
+        return load_config(config)
+    except Exception as e:
+        raise _fail(f"error: cannot load config {config}: {e}", 2) from e
+
+
 def _load(scenarios: list[Path], config: Path, include_drafts: bool) -> tuple[EvalConfig, ScenarioSet]:
     for root in scenarios:
         if not root.exists():
             raise _fail(f"error: scenario path does not exist: {root}", 2)
-    try:
-        cfg = load_config(config)
-    except Exception as e:
-        raise _fail(f"error: cannot load config {config}: {e}", 2) from e
+    cfg = _config(config)
     try:
         return cfg, load_set(scenarios, include_drafts)
     except ScenarioLoadError as e:

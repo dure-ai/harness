@@ -380,3 +380,28 @@ def test_run_engine_returning_dicts_works(tmp_path):
     result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:ReturnsDicts", "--repeat", "1")
     engine = summary_of(result)["engines"]["E1"]
     assert engine["metrics"]["errors"] == [] and engine["verdict"]["passed"] is True
+
+
+def test_check_uses_config(tmp_path, monkeypatch):
+    import harness.cli
+
+    seen = []
+    real = harness.cli.check_discrimination
+    monkeypatch.setattr(harness.cli, "check_discrimination", lambda sc, cfg: seen.append(cfg) or real(sc, cfg))
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("k: 7\n", encoding="utf-8")
+    path = write(tmp_path, truth_change())
+    result = runner.invoke(app, ["scenario", "check", str(path), "--config", str(cfg)])
+    assert result.exit_code == 0, result.output
+    assert [c.k for c in seen] == [7]
+
+    seen.clear()
+    assert runner.invoke(app, ["scenario", "check", str(path)]).exit_code == 0
+    assert [c.k for c in seen] == [5]  # config/eval-v0.1.yaml
+
+
+def test_check_bad_config_exit2(tmp_path):
+    path = write(tmp_path, truth_change())
+    result = runner.invoke(app, ["scenario", "check", str(path), "--config", str(tmp_path / "missing.yaml")])
+    assert result.exit_code == 2
+    assert "cannot load config" in result.output

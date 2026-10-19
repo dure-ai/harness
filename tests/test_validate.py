@@ -1,3 +1,7 @@
+from datetime import timedelta
+
+import pytest
+
 from harness.scenario.model import Feedback, FeedbackTemplate
 from harness.scenario.validate import Issue, validate_scenario
 from tests.factories import T, ev, fact, probe, scenario
@@ -164,3 +168,25 @@ def test_markers_missing_is_warning():
 def test_errors_have_error_level():
     issues = validate_scenario(base(probes=[block()]))
     assert issues == [Issue("error", "pairing_missing", issues[0].message)]
+
+
+@pytest.mark.parametrize("marker", ["", "   ", "\t\n"])
+def test_empty_marker_in_fact(marker):
+    f = facts()
+    f["f_new"] = f["f_new"].model_copy(update={"markers": ["merged directly", marker]})
+    assert codes(base(facts=f)) == {"empty_marker"}
+
+
+@pytest.mark.parametrize("marker", ["", "  "])
+def test_empty_secret_marker_in_event(marker):
+    e = events()
+    e.append(ev("e3", T("10-02 10:00"), secret_markers=["SECRET", marker]))
+    assert codes(base(events=e)) == {"empty_marker"}
+
+
+def test_negative_delay():
+    fb = Feedback(action={"f_old": FeedbackTemplate(text="x", delay=timedelta(minutes=-1))},
+                  on_true=FeedbackTemplate(text="ok", delay=timedelta(0)))
+    s = base(mode="feedback", family="echo", probes=[block(feedback=fb), promote()])
+    issues = validate_scenario(s)
+    assert [(i.level, i.code) for i in issues] == [("error", "negative_delay")]

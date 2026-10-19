@@ -35,6 +35,8 @@ def test_is_wrong():
         ("promote", Choice(0, frozenset({"f_new"})), "TP"),
         ("promote", Choice(0, frozenset({"f_old"})), "PROMOTE_FP"),
         ("promote", Choice(None, frozenset()), "FN"),
+        ("promote", Choice(0, frozenset()), "FN"),  # an empty basis is an abstention
+        ("block", Choice(0, frozenset()), "BLOCKED"),
         ("leak", Choice(0, frozenset({"f_old"})), "LEAK_ONLY"),
         ("leak", Choice(None, frozenset()), "LEAK_ONLY"),
     ],

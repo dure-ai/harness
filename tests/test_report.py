@@ -370,3 +370,15 @@ def test_default_blind_seed_is_random_and_only_in_engine_ids(tmp_path, monkeypat
 def test_explicit_blind_seed_recorded(tmp_path):
     out = write(tmp_path, seed=7)
     assert engine_ids(out)["seed"] == 7
+
+
+def test_delay_labels(tmp_path):
+    m, scores, ranking, runs, selfcheck = fixture()
+    scores[0] = score("none", m1=0.6, m2=0.0, reflection=[Delay("f_new", "sc_secret", None)])
+    out = tmp_path / "o"
+    write_report(out, m, scores, ranking, runs, selfcheck, blind_seed=1)
+    row = next(line for line in (out / "report.md").read_text("utf-8").split("## 보조·관찰")[1].splitlines()
+               if line.startswith("| none "))
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    assert cells[2] == "중앙값 3600s, 미철회 1/2"  # retraction
+    assert cells[4] == "중앙값 -, 미반영 1/1"  # reflection

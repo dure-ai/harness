@@ -25,6 +25,7 @@ from harness.stats import Delay, Rate
 
 NA = "n/a"
 UNRETRACTED = "미철회"
+UNREFLECTED = "미반영"
 DRAFTS_WARNING = "> ⚠️ 초안 포함 — 발표 수치로 쓰지 않음"
 
 
@@ -251,12 +252,13 @@ def _rate(r: Rate | None) -> str:
     return f"{r.value:.3f} (n={r.n}) {ci}"
 
 
-def _delay(delays: list[Delay]) -> str:
+def _delay(delays: list[Delay], never: str) -> str:
+    """Median delay and the share of facts for which it never happened (labelled `never`)."""
     if not delays:
         return NA
     seen = [d.seconds for d in delays if d.seconds is not None]
     median = f"{statistics.median(seen):.0f}s" if seen else "-"
-    return f"중앙값 {median}, {UNRETRACTED} {len(delays) - len(seen)}/{len(delays)}"
+    return f"중앙값 {median}, {never} {len(delays) - len(seen)}/{len(delays)}"
 
 
 def _worse_than(m: Metrics, repeat_n: Metrics | None) -> str:
@@ -321,9 +323,9 @@ def _section_aux(
             [
                 ids[s.engine_id],
                 _rate(m.shallow_fix),
-                _delay(m.retraction),
+                _delay(m.retraction, UNRETRACTED),
                 _rate(m.reach),
-                _delay(m.reflection),
+                _delay(m.reflection, UNREFLECTED),
                 _rate(m.contamination),
                 _rate(m.sourceless),
                 _rate(m.promote_fn),
