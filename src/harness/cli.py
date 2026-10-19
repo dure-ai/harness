@@ -48,7 +48,12 @@ def _yaml_files(path: Path) -> list[Path]:
 
 
 @scenario_app.command("check")
-def scenario_check(paths: Annotated[list[Path], typer.Argument(help="Scenario files or directories.")]) -> None:
+def scenario_check(
+    paths: Annotated[list[Path], typer.Argument(help="Scenario files or directories.")],
+    include_drafts: Annotated[
+        bool, typer.Option("--include-drafts", help="No-op: drafts are always checked.")
+    ] = False,
+) -> None:
     """Validate scenarios (drafts included) and check that each one discriminates between baselines."""
     cfg = EvalConfig()
     failed = False
