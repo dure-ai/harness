@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from harness.contract import Event, Kind, Outcome, Query, Scope, Signal
 
@@ -23,7 +23,13 @@ FAMILIES = (
 FEEDBACK_FAMILIES = ("echo", "failure_feedback")
 
 
-class Fact(BaseModel):
+class _Strict(BaseModel):
+    """Base for scenario models: unknown keys are errors, never silently dropped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Fact(_Strict):
     text: str
     valid_from: AwareDatetime | None = None
     valid_until: AwareDatetime | None = None
@@ -33,7 +39,7 @@ class Fact(BaseModel):
     markers: list[str] = []
 
 
-class ScenarioEvent(BaseModel):
+class ScenarioEvent(_Strict):
     """An Event plus hidden labels; `team` may be omitted (resolved from the user's team)."""
 
     id: str
@@ -52,7 +58,7 @@ class ScenarioEvent(BaseModel):
     secret_markers: list[str] = []
 
 
-class FeedbackTemplate(BaseModel):
+class FeedbackTemplate(_Strict):
     text: str
     fact: str | None = None
     delay: timedelta | None = None
@@ -62,14 +68,14 @@ class FeedbackTemplate(BaseModel):
     scope: Scope = "team"
 
 
-class Feedback(BaseModel):
+class Feedback(_Strict):
     action: dict[str, FeedbackTemplate] = {}
     abstain: FeedbackTemplate | None = None
     on_false: FeedbackTemplate | None = None
     on_true: FeedbackTemplate | None = None
 
 
-class Probe(BaseModel):
+class Probe(_Strict):
     id: str
     kind: Literal["block", "promote", "leak"]
     t: AwareDatetime
@@ -83,18 +89,18 @@ class Probe(BaseModel):
     feedback: Feedback | None = None
 
 
-class World(BaseModel):
+class World(_Strict):
     timezone: str = "Asia/Seoul"
     teams: dict[str, list[str]]
 
 
-class Review(BaseModel):
+class Review(_Strict):
     status: Literal["draft", "approved", "rejected"] = "draft"
     reviewer: str | None = None
     notes: str = ""
 
 
-class Provenance(BaseModel):
+class Provenance(_Strict):
     author: Literal["human", "llm", "generator"]
     source_traces: list[str] = []
     llm_model: str | None = None
@@ -108,7 +114,7 @@ class LabeledEvent:
     secret_markers: tuple[str, ...]
 
 
-class Scenario(BaseModel):
+class Scenario(_Strict):
     id: str
     family: Literal[*FAMILIES]
     mode: Literal["read_only", "feedback"]

@@ -167,3 +167,34 @@ def test_labeled_events_keep_order_and_explicit_team():
     assert le[0].event.team == "b" and le[0].secret_markers == ("x",)
     assert le[1].event.team == "b" and le[1].fact is None
     assert not hasattr(le[0].event, "fact")
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("valid_until:", "valid_untill:"),  # fact
+        ("fact: f_old,", "fact: f_old, secret_marker: [x],"),  # event
+        ("about: [f_old]}", "about: [f_old], feedbak: null}"),  # probe
+        ("language: en", "language: en\nlanguge: ko"),  # scenario
+        ("  timezone: Asia/Seoul", "  timezone: Asia/Seoul\n  timezon: x"),  # world
+        ("  notes: \"\"", "  notes: \"\"\n  reviewr: me"),  # review
+        ("  llm_model: null", "  llm_model: null\n  llm_modle: x"),  # provenance
+    ],
+)
+def test_unknown_key_is_error_with_path(tmp_path, old, new):
+    assert old in EXAMPLE_YAML
+    p = write(tmp_path, EXAMPLE_YAML.replace(old, new, 1))
+    with pytest.raises(ScenarioLoadError) as e:
+        load_scenario(p)
+    assert p.name in str(e.value)
+
+
+def test_unknown_key_in_feedback_models_is_error():
+    from pydantic import ValidationError
+
+    from harness.scenario.model import Feedback, FeedbackTemplate
+
+    with pytest.raises(ValidationError):
+        FeedbackTemplate(text="x", delya=None)
+    with pytest.raises(ValidationError):
+        Feedback(abstian=None)
