@@ -32,6 +32,13 @@ class EngineScore:
     verdict: Verdict
     repeats: list[Metrics]
 
+    @classmethod
+    def from_repeats(
+        cls, engine_id: str, repeats: list[Metrics], base: Metrics, cfg: EvalConfig
+    ) -> "EngineScore":
+        metrics = averaged(repeats) if len(repeats) > 1 else repeats[0]
+        return cls(engine_id, metrics, judge_engine(metrics, base, cfg), repeats)
+
 
 @dataclass
 class RankEntry:
@@ -79,12 +86,13 @@ def _mean(values: list[float | None]) -> float | None:
 
 
 def averaged(repeats: list[Metrics]) -> Metrics:
-    """First repeat's metrics, with M1/M2 `value` replaced by the mean over repeats."""
+    """First repeat's metrics, with M1/M2 `value` replaced by the mean over repeats and M3 the worst repeat's."""
     if not repeats:
         raise ValueError("averaged() needs at least one repeat")
     first = repeats[0]
     return replace(
         first,
+        m3=max(r.m3 for r in repeats),  # a leak in any repeat fails the gate
         m1=replace(first.m1, value=_mean([r.m1.value for r in repeats])),
         m2=replace(first.m2, value=_mean([r.m2.value for r in repeats])),
     )
@@ -110,7 +118,7 @@ def _promote_tp_by_scenario(runs: list[ScenarioRun]) -> dict[str, tuple[int, int
     return dict(zip(ids, per_scenario_counts(runs, "promote", "TP")))
 
 
-def _diff_ci(
+def _canonical_ci(
     first: str, second: str, runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig
 ) -> tuple[float, float] | None:
     """Bootstrap CI of promote-TP rate(first) - rate(second) over their common scenarios."""
@@ -121,10 +129,6 @@ def _diff_ci(
     return bootstrap_diff(
         [a[s] for s in common], [b[s] for s in common], cfg.stats.bootstrap_iters, cfg.stats.seed
     )
-
-
-def _contains_zero(ci: tuple[float, float] | None) -> bool:
-    return ci is not None and ci[0] <= 0 <= ci[1]
 
 
 def _low(value: float | None) -> float:
@@ -148,30 +152,70 @@ def _tiebreak_keys(m: Metrics) -> dict[str, float]:
     }
 
 
-def _chain(m: Metrics) -> tuple[float, ...]:
-    keys = _tiebreak_keys(m)
-    return tuple(keys[name] for name in TIEBREAKS)
+def _close(a: float, b: float) -> bool:
+    return a == b or abs(a - b) <= EPS
 
 
-def _first_difference(a: Metrics, b: Metrics) -> str:
+def _tiebreak(a: Metrics, b: Metrics) -> tuple[int, str]:
+    """(-1 if a is better, 1 if b is better, 0 if equal; criterion that decided)."""
     ka, kb = _tiebreak_keys(a), _tiebreak_keys(b)
-    return next((name for name in TIEBREAKS if ka[name] != kb[name]), "equal")
+    for name in TIEBREAKS:
+        if not _close(ka[name], kb[name]):
+            return (-1 if ka[name] < kb[name] else 1), name
+    return 0, "equal"
+
+
+class _Pairs:
+    """Pairwise comparison of passed engines, with the bootstrap CI computed once per pair."""
+
+    def __init__(self, runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig) -> None:
+        self._runs, self._cfg = runs, cfg
+        self._cache: dict[tuple[str, str], tuple[float, float] | None] = {}
+
+    def ci(self, a: str, b: str) -> tuple[float, float] | None:
+        """CI of rate(a) - rate(b), derived from one canonical (id-ordered) computation so the
+        answer does not depend on argument order."""
+        lo_id, hi_id = sorted((a, b))
+        key = (lo_id, hi_id)
+        if key not in self._cache:
+            self._cache[key] = _canonical_ci(lo_id, hi_id, self._runs, self._cfg)
+        ci = self._cache[key]
+        if ci is None or a == lo_id:
+            return ci
+        return -ci[1], -ci[0]
+
+    def tied(self, a: str, b: str) -> bool:
+        ci = self.ci(a, b)
+        return ci is not None and ci[0] <= 0 <= ci[1]
+
+    def compare(self, a: EngineScore, b: EngineScore) -> tuple[int, str | None]:
+        """(-1 if a goes first, 1 if b goes first, 0 keep order; tiebreak label or None)."""
+        if not self.tied(a.engine_id, b.engine_id):
+            ma, mb = a.metrics.m2.value, b.metrics.m2.value
+            if _close(ma, mb):
+                return 0, None
+            return (-1 if ma > mb else 1), None
+        return _tiebreak(a.metrics, b.metrics)
 
 
 def rank(
     scores: list[EngineScore], runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig
 ) -> list[RankEntry]:
     """Rank passing engines by M2; engines whose promote-TP difference is indistinguishable
-    (95% bootstrap interval contains 0) are ordered by the tiebreak chain."""
-    passed = [s for s in scores if s.verdict.passed]
-    # Engines with no M2 sample cannot pass, so every value here is a float.
-    order = sorted(passed, key=lambda s: (-s.metrics.m2.value, s.engine_id))
+    (95% bootstrap interval contains 0) are ordered by the tiebreak chain.
 
-    for i in range(1, len(order)):
-        prev, cur = order[i - 1], order[i]
-        if _contains_zero(_diff_ci(prev.engine_id, cur.engine_id, runs, cfg)):
-            if _chain(cur.metrics) < _chain(prev.metrics):
-                order[i - 1], order[i] = cur, prev
+    Stable insertion sort with a pairwise comparator, so each entry's label describes the
+    criterion that actually separates it from the entry right before it."""
+    pairs = _Pairs(runs, cfg)
+    # Engines with no M2 sample cannot pass, so every M2 value here is a float.
+    order: list[EngineScore] = []
+    for score in sorted(
+        (s for s in scores if s.verdict.passed), key=lambda s: (-s.metrics.m2.value, s.engine_id)
+    ):
+        i = len(order)
+        while i > 0 and pairs.compare(score, order[i - 1])[0] < 0:
+            i -= 1
+        order.insert(i, score)
 
     entries = []
     for i, score in enumerate(order):
@@ -179,8 +223,9 @@ def rank(
             entries.append(RankEntry(score.engine_id, 1, False, None, None))
             continue
         prev = order[i - 1]
-        ci = _diff_ci(prev.engine_id, score.engine_id, runs, cfg)
-        tied = _contains_zero(ci)
-        tiebreak = _first_difference(prev.metrics, score.metrics) if tied else None
-        entries.append(RankEntry(score.engine_id, i + 1, tied, tiebreak, ci))
+        tied = pairs.tied(prev.engine_id, score.engine_id)
+        tiebreak = _tiebreak(prev.metrics, score.metrics)[1] if tied else None
+        entries.append(
+            RankEntry(score.engine_id, i + 1, tied, tiebreak, pairs.ci(prev.engine_id, score.engine_id))
+        )
     return entries

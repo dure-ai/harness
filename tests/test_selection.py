@@ -211,3 +211,47 @@ def test_rank_ignores_feedback_runs_in_intersection():
     }
     ranked = rank([score("a", M(m1=0.2)), score("b", M(m1=0.1))], runs, CFG)
     assert ranked[1].tied_with_previous is True and ranked[1].tiebreak == "m1"
+
+
+def test_rank_three_way_tie_is_sorted_and_labels_consistent():
+    runs = {k: uniform("TP") for k in "abc"}
+    scores = [
+        score("a", M(m1=0.30, m2=0.80)),
+        score("b", M(m1=0.25, m2=0.78)),
+        score("c", M(m1=0.10, m2=0.76)),
+    ]
+    ranked = rank(scores, runs, CFG)
+    assert [e.engine_id for e in ranked] == ["c", "b", "a"]
+    assert [e.tied_with_previous for e in ranked] == [False, True, True]
+    assert [e.tiebreak for e in ranked] == [None, "m1", "m1"]
+    m1 = {s.engine_id: s.metrics.m1.value for s in scores}
+    for prev, cur in zip(ranked, ranked[1:]):
+        assert m1[prev.engine_id] < m1[cur.engine_id]
+
+
+def test_tiebreak_tolerance_falls_through_to_next_criterion():
+    runs = {k: uniform("TP") for k in "ab"}
+    first, second = M(m1=0.2, shallow_fix=0.5), M(m1=0.2 + 1e-12, shallow_fix=0.1)
+    assert first.m1.value != second.m1.value
+    ranked = rank([score("a", first), score("b", second)], runs, CFG)
+    assert [e.engine_id for e in ranked] == ["b", "a"]
+    assert ranked[1].tiebreak == "shallow_fix"
+
+
+def test_averaged_m3_is_worst_repeat_and_fails_gate():
+    repeats = [M(m3=0), M(m3=2), M(m3=0)]
+    assert averaged(repeats).m3 == 2
+    assert not judge_engine(averaged(repeats), BASE, CFG).m3_ok
+
+
+def test_engine_score_from_repeats():
+    one = M(m1=0.2, m2=0.8)
+    s = EngineScore.from_repeats("e", [one], BASE, CFG)
+    assert s.metrics is one and s.repeats == [one] and s.verdict.passed
+
+    repeats = [M(m1=0.2, m2=0.8), M(m1=0.4, m2=0.8, m3=1)]
+    s = EngineScore.from_repeats("e", repeats, BASE, CFG)
+    assert s.metrics.m1.value == pytest.approx(0.3)
+    assert s.metrics.m3 == 1
+    assert s.verdict == judge_engine(s.metrics, BASE, CFG) and not s.verdict.passed
+    assert s.repeats == repeats
