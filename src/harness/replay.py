@@ -112,6 +112,7 @@ def run_scenario(
 
     while timeline:
         t, order, item = timeline.pop()
+        query = scenario.query_for(item, cfg.k) if order == PROBE else None  # harness code: not wrapped
         try:
             if order == EVENT:
                 if virtual_clock:
@@ -120,16 +121,15 @@ def run_scenario(
                 engine.record(item.event)
                 run.record_ms.append((time.perf_counter() - start) * 1000)
                 continue
-            query = scenario.query_for(item, cfg.k)
-            engine.flush()
             if virtual_clock:
                 engine.tick(t)
+            engine.flush()
             start = time.perf_counter()
-            raw = engine.search(query)
+            raw = list(engine.search(query))
             search_ms = (time.perf_counter() - start) * 1000
         except Exception as e:
             run.error = f"{type(e).__name__}: {e}"
             return run
-        results = list(raw)[: item.k or cfg.k]
+        results = raw[: item.k or cfg.k]
         run.probes.append(_score_probe(item, results, scenario, events, search_ms))
     return run

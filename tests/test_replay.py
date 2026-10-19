@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from harness.baselines.oracle import OracleEngine
 from harness.baselines.simple import AllStoreEngine
 from harness.config import EvalConfig
@@ -112,7 +114,7 @@ def test_tick_only_when_virtual_clock():
     on = Recorder(virtual_clock=True)
     run_scenario(on, _same_time(), run_id="r", cfg=CFG)
     t = T("10-01 10:00")
-    assert [c[0] for c in on.calls] == ["reset", "tick", "record", "flush", "tick", "search"]
+    assert [c[0] for c in on.calls] == ["reset", "tick", "record", "tick", "flush", "search"]
     assert [c[1] for c in on.calls if c[0] == "tick"] == [t, t]
 
 
@@ -133,6 +135,39 @@ def test_engine_exception_marks_error():
     assert run.error == "RuntimeError: boom"
     assert run.probes == []
     assert len(run.record_ms) == 1
+
+
+def test_search_generator_raising_marks_error():
+    class GenEngine(Recorder):
+        def search(self, query):
+            def gen():
+                yield Result(text="ok")
+                raise ValueError("mid-iteration")
+
+            return gen()
+
+    run = run_scenario(GenEngine(), _same_time(), run_id="r", cfg=CFG)
+    assert run.error == "ValueError: mid-iteration"
+    assert run.probes == []
+
+
+def test_search_returning_none_marks_error():
+    class NoneEngine(Recorder):
+        def search(self, query):
+            return None
+
+    run = run_scenario(NoneEngine(), _same_time(), run_id="r", cfg=CFG)
+    assert run.error.startswith("TypeError")
+
+
+def test_harness_error_is_not_converted_to_engine_error():
+    s = scenario(
+        facts={"f": fact()},
+        events=[],
+        probes=[probe("p", "promote", T("10-02 10:00"), ["f"], user="nobody")],
+    )
+    with pytest.raises(KeyError):
+        run_scenario(Recorder(), s, run_id="r", cfg=CFG)
 
 
 def test_engine_never_sees_hidden_fields():
