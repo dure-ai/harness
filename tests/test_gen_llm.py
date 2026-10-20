@@ -354,6 +354,7 @@ def test_make_client_fake_reads_file(tmp_path: Path) -> None:
     canned.write_text(json.dumps({"k": [{"ok": True}, "{bad"]}), encoding="utf-8")
     cfg = _cfg(provider="fake", model="fake-1", fake_responses=canned)
     client = make_client(cfg, tmp_path / "llm")
+    assert isinstance(client, CachedClient)
     assert client.name == "fake"
     assert client.model == "fake-1"
     assert client.complete_json("k", "s", "u", Out).ok is True
@@ -372,3 +373,20 @@ def test_make_client_wraps_real_providers_in_cache(
     client = make_client(_cfg(provider="openai", model="m"), tmp_path / "llm")
     assert isinstance(client, CachedClient)
     assert (client.name, client.model) == ("openai", "m")
+
+
+def test_make_client_fake_repeat_is_a_cache_hit(tmp_path: Path) -> None:
+    canned = tmp_path / "fake.json"
+    canned.write_text(json.dumps({"k": [{"ok": True}]}), encoding="utf-8")
+    client = make_client(_cfg(provider="fake", model="fake-1", fake_responses=canned), tmp_path / "llm")
+    assert isinstance(client, CachedClient)
+    first = client.complete_json("k", "s", "u", Out)
+    second = client.complete_json("k", "s", "u", Out)
+    assert first == second
+    assert (client.calls, client.hits) == (1, 1)
+
+
+def test_make_client_wraps_anthropic_in_cache(tmp_path: Path) -> None:
+    client = make_client(_cfg(provider="anthropic"), tmp_path / "llm")  # builds the SDK client, no request
+    assert isinstance(client, CachedClient)
+    assert (client.name, client.model) == ("anthropic", "claude-opus-5-5")

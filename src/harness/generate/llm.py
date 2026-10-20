@@ -432,8 +432,9 @@ class OpenAIClient:
 def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
     """Build the client for `cfg.provider`.
 
-    Real providers are wrapped in a `CachedClient`. The fake is not: its replies come from
-    a file that may change between runs, and caching would hide the change.
+    Every provider, the fake included, is wrapped in a `CachedClient`. After editing the
+    `fake_responses` file, clear the cache directory or change `prompt_version`, otherwise
+    earlier replies are served from the cache.
 
     Args:
         cfg: Generation config.
@@ -451,6 +452,6 @@ def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
             canned = json.loads(Path(cfg.fake_responses).read_text(encoding="utf-8"))
         fake = FakeClient(responses=canned)
         fake.model = cfg.model
-        return fake
+        return CachedClient(fake, cache_dir, cfg.prompt_version)
     inner: LLMClient = AnthropicClient(cfg) if cfg.provider == "anthropic" else OpenAIClient(cfg)
     return CachedClient(inner, cache_dir, cfg.prompt_version)
