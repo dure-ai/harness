@@ -136,13 +136,55 @@ class Review(_Strict):
     notes: str = ""
 
 
+class SourceRepo(_Strict):
+    """A repository a scenario's source traces came from, with its license."""
+
+    repo: str
+    license: str
+
+
+class Evidence(_Strict):
+    """Where an event's content comes from in a source trace.
+
+    `origin` is `quoted` when `quote` is copied from the trace message, and `written` when the
+    generator wrote the event itself.
+    """
+
+    event_id: str
+    trace_id: str | None = None
+    message_index: int | None = None
+    quote: str | None = None
+    origin: Literal["quoted", "written"]
+
+
 class Provenance(_Strict):
-    """Where a scenario came from, reported so results can be split by author."""
+    """Where a scenario came from, reported so results can be split by author.
+
+    Hidden: never reaches engines.
+
+    Attributes:
+        author: Who wrote the scenario.
+        source_traces: Identifiers of the traces it was derived from.
+        llm_model: Model that generated it.
+        prompt_version: Prompt revision used.
+        provider: LLM provider that served `llm_model`.
+        source_repos: Repositories (with licenses) the source traces came from.
+        fabricated_facts: Ids of facts the generator invented rather than found in the trace.
+        evidence: Per-event links back to the source traces.
+        reviewer_edited: Whether a human changed the scenario during review.
+        generated_at: When the scenario was generated.
+    """
 
     author: Literal["human", "llm", "generator"]
     source_traces: list[str] = []
     llm_model: str | None = None
     prompt_version: str | None = None
+    provider: str | None = None
+    source_repos: list[SourceRepo] = []
+    fabricated_facts: list[str] = []
+    evidence: list[Evidence] = []
+    reviewer_edited: bool = False
+    generated_at: AwareDatetime | None = None
 
 
 @dataclass(frozen=True)

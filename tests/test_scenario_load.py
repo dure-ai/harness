@@ -1,7 +1,10 @@
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import yaml
 
 from harness.contract import Query
 from harness.scenario.load import ScenarioLoadError, load_scenario, load_set
@@ -261,3 +264,79 @@ def test_explicit_probe_k_is_honoured_and_k_below_one_rejected():
         with pytest.raises(ValidationError):
             probe("p", "block", T("10-14 10:00"), ["f"], k=bad)
     assert Probe.model_fields["k"].default is None
+
+
+PROVENANCE_EXTRA = """\
+  provider: anthropic
+  source_repos:
+    - {repo: acme/shop, license: MIT}
+  fabricated_facts: [f_new]
+  evidence:
+    - {event_id: e1, trace_id: tr1, message_index: 3, quote: "do not modify", origin: quoted}
+    - {event_id: e2, trace_id: null, message_index: null, quote: null, origin: written}
+  reviewer_edited: true
+  generated_at: "2026-10-20T09:00+09:00"
+"""
+
+
+def test_provenance_new_fields_roundtrip(tmp_path):
+    text = EXAMPLE_YAML.replace("  llm_model: null\n", "  llm_model: null\n" + PROVENANCE_EXTRA)
+    s = load_scenario(write(tmp_path, text))
+    prov = s.provenance
+    assert prov.provider == "anthropic"
+    assert [(r.repo, r.license) for r in prov.source_repos] == [("acme/shop", "MIT")]
+    assert prov.fabricated_facts == ["f_new"]
+    assert prov.evidence[0].quote == "do not modify" and prov.evidence[0].origin == "quoted"
+    assert prov.evidence[1].origin == "written" and prov.evidence[1].trace_id is None
+    assert prov.reviewer_edited is True
+    assert prov.generated_at == datetime(2026, 10, 20, 9, tzinfo=KST)
+    again = load_scenario(
+        write(tmp_path, yaml.safe_dump(s.model_dump(mode="json")), "again.yaml")
+    )
+    assert again == s
+
+
+def test_provenance_new_fields_default_empty(tmp_path):
+    prov = load_scenario(write(tmp_path, EXAMPLE_YAML)).provenance
+    assert prov.provider is None and prov.source_repos == [] and prov.evidence == []
+    assert prov.fabricated_facts == [] and prov.reviewer_edited is False
+    assert prov.generated_at is None
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("license: MIT}", "licence: MIT}"),  # SourceRepo
+        ("origin: written}", "origin: written, extra: 1}"),  # Evidence
+    ],
+)
+def test_unknown_key_in_new_provenance_models_is_error(tmp_path, old, new):
+    base = EXAMPLE_YAML.replace("  llm_model: null\n", "  llm_model: null\n" + PROVENANCE_EXTRA)
+    assert old in base
+    with pytest.raises(ScenarioLoadError):
+        load_scenario(write(tmp_path, base.replace(old, new, 1)))
+
+
+def test_provenance_not_in_engine_events(tmp_path):
+    text = EXAMPLE_YAML.replace("  llm_model: null\n", "  llm_model: null\n" + PROVENANCE_EXTRA)
+    s = load_scenario(write(tmp_path, text))
+    for le in s.labeled_events():
+        dumped = le.event.__dict__
+        assert not hasattr(le.event, "provenance")
+        assert "provenance" not in dumped and "evidence" not in dumped
+        assert "quoted" not in repr(le.event) and "acme/shop" not in repr(le.event)
+    for p in s.probes:
+        q = repr(s.query_for(p, 5))
+        assert "acme/shop" not in q and "provenance" not in q
+
+
+def test_core_cli_imports_without_gen_deps():
+    code = (
+        "import sys\n"
+        "for n in ('anthropic', 'openai', 'pyarrow', 'huggingface_hub'):\n"
+        "    sys.modules[n] = None\n"
+        "import harness.cli\n"
+        "import harness.generate.config\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
