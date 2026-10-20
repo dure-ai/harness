@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from harness.generate.config import GenConfig
 
-_HEAD_CHARS = 2000  # first system / first user / other free text of a message
+_HEAD_CHARS = 2000  # first system / first user message
 _ARGS_CHARS = 1000  # all tool-call arguments of one message
 _TOOL_KEEP = 300  # tool output: kept at each end
 _BATCH_ROWS = 8
@@ -163,57 +163,66 @@ def _middle_cut(text: str) -> str:
     return text[:_TOOL_KEEP] + f"…[{cut} chars]…" + text[-_TOOL_KEEP:]
 
 
-def _render(m: TraceMessage) -> str:
-    body = _middle_cut(m.content) if m.role == "tool" else _clip(m.content, _HEAD_CHARS)
+def _render(m: TraceMessage, clip_content: bool) -> str:
+    if m.role == "tool":
+        body = _middle_cut(m.content)
+    else:
+        body = _clip(m.content, _HEAD_CHARS) if clip_content else m.content
     parts = [f"[#{m.index} {m.role}] {body}".rstrip()]
     if m.tool_calls:
         parts.append(_clip("\n".join(m.tool_calls), _ARGS_CHARS))
     return "\n".join(parts)
 
 
-def _omitted(messages: list[TraceMessage], dropped: list[int]) -> str:
-    return f"[… #{messages[dropped[0]].index}-#{messages[dropped[-1]].index} omitted …]"
-
-
-def _join(messages: list[TraceMessage], rendered: list[str], keep: list[bool]) -> str:
-    parts: list[str] = []
-    gap: list[int] = []
-    for i, k in enumerate(keep):
-        if k:
-            if gap:
-                parts.append(_omitted(messages, gap))
-                gap = []
-            parts.append(rendered[i])
-        else:
-            gap.append(i)
-    if gap:
-        parts.append(_omitted(messages, gap))
-    return "\n\n".join(parts)
-
-
 def compress(trace: Trace, budget: int = 15000) -> str:
-    """Shrink a trajectory to fit a prompt.
+    """Shrink a trajectory to fit a prompt, keeping the beginning and cutting the end.
 
-    Text fields are clipped (2,000 chars per message, 1,000 chars of tool-call arguments per message,
-    tool output keeps its first and last 300 chars). If the result is still over `budget`, messages
-    are dropped from the middle outward, keeping the opening and the end. `reasoning_content` is not
-    part of `Trace` and never appears. Every message starts with `[#<original index> <role>]`.
+    The first system and the first user message are always kept, each clipped to 2,000 chars.
+    The other messages are added in original order while they fit in `budget`: assistant content
+    is kept whole, tool-call strings are clipped to 1,000 chars per message, and tool output keeps
+    its first 300 and last 300 chars. The first message that does not fit is truncated to the
+    remaining budget, and one marker `[… #a-#b omitted …]` stands for everything after it, so no
+    later message is kept. The marker and its separator are not counted in `budget`. `reasoning_content` is not part
+    of `Trace` and never appears. Every message starts with `[#<original index> <role>]`.
 
     Args:
         trace: Trajectory to compress.
-        budget: Target length in characters; omission markers may exceed it slightly.
+        budget: Target length in characters, excluding the omission marker. The two always-kept
+            messages are emitted even if they alone exceed it.
 
     Returns:
         The compressed text.
     """
     msgs = trace.messages
-    rendered = [_render(m) for m in msgs]
-    keep = [True] * len(msgs)
-    # The first two messages (system prompt and task) are never dropped.
-    remaining = list(range(2, len(msgs)))
-    while remaining and len(_join(msgs, rendered, keep)) > budget:
-        keep[remaining.pop(len(remaining) // 2)] = False
-    return _join(msgs, rendered, keep)
+    head: dict[int, str] = {}
+    for role in ("system", "user"):
+        pos = next((i for i, m in enumerate(msgs) if m.role == role), None)
+        if pos is not None:
+            head[pos] = _render(msgs[pos], clip_content=True)
+    used = sum(len(t) for t in head.values()) + 2 * max(len(head) - 1, 0)
+
+    kept: dict[int, str] = dict(head)
+    marker = ""
+    rest = [i for i in range(len(msgs)) if i not in head]
+    for n, i in enumerate(rest):
+        text = _render(msgs[i], clip_content=False)
+        cost = len(text) + (2 if kept else 0)
+        if used + cost <= budget:
+            kept[i] = text
+            used += cost
+            continue
+        room = budget - used - (2 if kept else 0)
+        if room > 0:
+            kept[i] = text[:room]
+            n += 1
+        tail = rest[n:]
+        if tail:
+            marker = f"[… #{msgs[tail[0]].index}-#{msgs[tail[-1]].index} omitted …]"
+        break
+    parts = [kept[i] for i in sorted(kept)]
+    if marker:
+        parts.append(marker)
+    return "\n\n".join(parts)
 
 
 def message_text(trace: Trace, index: int) -> str:

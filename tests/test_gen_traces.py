@@ -1,3 +1,5 @@
+import re
+
 from pathlib import Path
 
 from harness.generate.config import load_gen_config
@@ -99,14 +101,44 @@ def test_compress_excludes_reasoning(tmp_path):
     assert "hidden reasoning" not in compress(t)
 
 
-def test_compress_respects_budget():
+def _numbered(n):
     msgs = [_long("system", 0, "s"), _long("user", 1, "u")]
-    for i in range(2, 200):
+    for i in range(2, n):
         msgs.append(_long("assistant" if i % 2 == 0 else "tool", i, f"m{i} " + "w" * 500))
-    out = compress(make_trace(messages=msgs), budget=5000)
-    assert len(out) <= 5000 + 200
-    assert "[#0 system]" in out and "[#1 user]" in out and "[#199 tool]" in out
-    assert "omitted" in out
+    return msgs
+
+
+def test_compress_keeps_early_messages_and_omits_the_rest_with_one_marker():
+    out = compress(make_trace(messages=_numbered(200)), budget=5000)
+    marker = re.findall(r"\[… #(\d+)-#(\d+) omitted …\]", out)
+    assert len(marker) == 1
+    a, b = map(int, marker[0])
+    assert b == 199 and a > 2
+    marker_text = f"[… #{a}-#{b} omitted …]"
+    assert len(out) <= 5000 + 2 + len(marker_text)  # 2 = separator before the marker
+    assert out.endswith(marker_text)
+    assert "[#0 system]" in out and "[#1 user]" in out and "[#2 assistant]" in out
+    assert "[#199 tool]" not in out and f"[#{a} " not in out
+    assert f"[#{a - 1} " in out  # the message that did not fit is truncated, not dropped
+    kept = [int(i) for i in re.findall(r"\[#(\d+) ", out)]
+    assert kept == list(range(a))
+
+
+def test_compress_has_no_marker_when_everything_fits():
+    out = compress(make_trace(messages=_numbered(6)), budget=15000)
+    assert "omitted" not in out and "[#5 tool]" in out
+
+
+def test_compress_keeps_long_assistant_content_unclipped_within_budget():
+    t = make_trace(
+        messages=[
+            _long("system", 0, "s"),
+            _long("user", 1, "u"),
+            _long("assistant", 2, "A" * 5000),
+        ]
+    )
+    out = compress(t)
+    assert "A" * 5000 in out and "omitted" not in out
 
 
 def test_message_text_includes_tool_call_args():
