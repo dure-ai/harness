@@ -190,3 +190,25 @@ def test_negative_delay():
     s = base(mode="feedback", family="echo", probes=[block(feedback=fb), promote()])
     issues = validate_scenario(s)
     assert [(i.level, i.code) for i in issues] == [("error", "negative_delay")]
+
+
+def test_refs_to_earlier_events_are_fine():
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), kind="ci_result", signal="test", outcome="success", refs=["e2"]),
+        ev("e4", T("10-10 09:00"), kind="human_confirm", signal="human", refs=["e3"]),
+    ])
+    assert validate_scenario(s) == []
+
+
+def test_unknown_ref():
+    s = base(events=events() + [ev("e3", T("10-10 09:00"), kind="ci_result", refs=["nope"])])
+    assert codes(s) == {"unknown_ref"}
+
+
+@pytest.mark.parametrize("ref", ["e3", "e4"])
+def test_ref_not_earlier(ref):
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), kind="ci_result", refs=[ref]),
+        ev("e4", T("10-10 09:00")),
+    ])
+    assert codes(s) == {"ref_not_earlier"}

@@ -115,6 +115,14 @@ def validate_scenario(s: Scenario) -> list[Issue]:
                 f"probe {p.id}: feedback template with a negative delay",
             )
 
+    order = {e.id: (e.t, i) for i, e in enumerate(s.events)}
+    for i, e in enumerate(s.events):
+        for ref in e.refs:
+            if ref not in order:
+                error("unknown_ref", f"event {e.id}: refs unknown event {ref!r}")
+            elif order[ref] >= (e.t, i):  # must be replayed before this event
+                error("ref_not_earlier", f"event {e.id}: refs {ref!r}, which is not earlier")
+
     bad_users, messages = _unknown_users(s)
     for message in messages:
         error("unknown_user", message)

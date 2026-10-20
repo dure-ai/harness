@@ -110,7 +110,7 @@ def _config(config: Path) -> EvalConfig:
 
 
 def _load(
-    scenarios: list[Path], config: Path, include_drafts: bool
+    scenarios: list[Path], config: Path, include_drafts: bool, sealed: bool
 ) -> tuple[EvalConfig, ScenarioSet]:
     for root in scenarios:
         if not root.exists():
@@ -119,6 +119,8 @@ def _load(
     try:
         return cfg, load_set(scenarios, include_drafts)
     except ScenarioLoadError as e:
+        if sealed:  # the path and the parser message can reveal scenario content
+            raise _fail("error load: a scenario file failed to load (details hidden by --sealed)", 1) from e
         raise _fail(f"{e.path}: error load {e.message}", 1) from e
 
 
@@ -174,7 +176,7 @@ def selfcheck(
     sealed: SealedOpt = False,
 ) -> None:
     """Check that the four baselines order as designed on these scenarios."""
-    cfg, loaded = _load(scenarios, config, include_drafts)
+    cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     checks, _ = _selfcheck(loaded, cfg, sealed)
     _echo_checks(checks, sealed)
     if not all(c.ok for c in checks):
@@ -241,7 +243,7 @@ def run(
     ] = None,
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
-    cfg, loaded = _load(scenarios, config, include_drafts)
+    cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     checks, base_runs = _selfcheck(loaded, cfg, sealed)
     if not all(c.ok for c in checks):
         _echo_checks(checks, sealed)

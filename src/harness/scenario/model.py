@@ -66,6 +66,7 @@ class ScenarioEvent(_Strict):
     outcome: Outcome
     text: str
     meta: dict[str, str] = {}
+    refs: list[str] = []  # engine-visible: earlier events this one judges
     # Hidden labels: the fact this event states (None = noise), and strings whose appearance in a
     # result shown to someone who cannot see this event counts as a leak.
     fact: str | None = None

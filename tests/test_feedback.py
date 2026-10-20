@@ -4,7 +4,8 @@ from datetime import timedelta
 from harness.baselines.simple import AllStoreEngine, NoneEngine
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineInfo, Result
-from harness.replay import run_scenario
+from harness.agent import Choice
+from harness.replay import feedback_events, run_scenario
 from harness.scenario.model import Feedback, FeedbackTemplate
 from tests.factories import T, ev, fact, probe, scenario
 
@@ -215,3 +216,20 @@ def test_generated_id_collision_gets_suffix():
     assert run.generated_ids[("p1", "action")] == f"{taken}-3"
     ids = [le.event.id for le in run.generated]
     assert len(ids) == len(set(ids))
+
+
+def test_outcome_record_refs_the_followed_result_sources():
+    run = run_scenario(AllStoreEngine(), _scenario(), run_id="r", cfg=CFG)
+    assert gen(run, "p1", "outcome").event.refs == ("e_old",)
+
+
+def test_action_record_has_no_refs():
+    run = run_scenario(AllStoreEngine(), _scenario(), run_id="r", cfg=CFG)
+    assert gen(run, "p1", "action").event.refs == ()
+
+
+def test_empty_basis_counts_as_abstain_like_judge():
+    s = _scenario()
+    slots = feedback_events(s.probes[0], Choice(0, frozenset()), s, CFG)
+    assert [slot for slot, _ in slots] == ["action"]
+    assert slots[0][1].event.text == "gave up on the deploy question"

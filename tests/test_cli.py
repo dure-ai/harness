@@ -405,3 +405,12 @@ def test_check_bad_config_exit2(tmp_path):
     result = runner.invoke(app, ["scenario", "check", str(path), "--config", str(tmp_path / "missing.yaml")])
     assert result.exit_code == 2
     assert "cannot load config" in result.output
+
+
+def test_run_sealed_load_error_hides_path_and_content(tmp_path):
+    d = good_dir(tmp_path)
+    (d / "secret-repo-name.yaml").write_text("id: secret-scenario\nfamily: [", encoding="utf-8")
+    result, _ = run_cli(tmp_path, d, "--sealed")
+    assert result.exit_code == 1
+    assert "secret" not in result.output
+    assert "error load" in result.output

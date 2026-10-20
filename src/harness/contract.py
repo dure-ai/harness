@@ -17,7 +17,12 @@ Outcome = Literal["success", "failure", "unknown"]
 
 
 class Event(BaseModel, frozen=True):
-    """One observation handed to an engine through `record()`. Carries no ground truth."""
+    """One observation handed to an engine through `record()`. Carries no ground truth.
+
+    `refs` are ids of earlier events this one judges, e.g. a CI result about an earlier change.
+    They are written by the scenario author (or, for generated outcome records, taken from the
+    followed result's sources), never derived from hidden labels.
+    """
 
     id: str
     t: AwareDatetime
@@ -31,6 +36,7 @@ class Event(BaseModel, frozen=True):
     outcome: Outcome
     text: str
     meta: dict[str, str] = {}
+    refs: tuple[str, ...] = ()
 
 
 class Query(BaseModel, frozen=True):

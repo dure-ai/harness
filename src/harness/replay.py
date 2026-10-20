@@ -3,7 +3,7 @@
 import hashlib
 import heapq
 import time
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import count
@@ -163,6 +163,7 @@ def _generated(
     event_id: str,
     default_delay,
     scenario: Scenario,
+    refs: Sequence[str] = (),
 ) -> LabeledEvent:
     """Build the agent-side record for `probe`; no marker says it followed a search result."""
     event = Event(
@@ -178,6 +179,7 @@ def _generated(
         outcome=tmpl.outcome,
         text=tmpl.text,
         meta={},
+        refs=tuple(refs),
     )
     return LabeledEvent(event=event, fact=tmpl.fact, secret_markers=())
 
@@ -188,6 +190,7 @@ def feedback_events(
     scenario: Scenario,
     cfg: EvalConfig,
     taken: Collection[str] = (),
+    judged: Sequence[str] = (),
 ) -> list[tuple[str, LabeledEvent]]:
     """Build the records the simulated agent writes after acting on a probe.
 
@@ -197,21 +200,24 @@ def feedback_events(
         scenario: The scenario being replayed.
         cfg: Evaluation config (default delays).
         taken: Ids already in use; generated ids avoid them.
+        judged: Sources of the followed result; the outcome record refs them.
 
     Returns:
         (slot, event) pairs: the action record, then the outcome record when the agent acted.
     """
     used = set(taken)
 
-    def make(tmpl: FeedbackTemplate, slot: str, delay) -> tuple[str, LabeledEvent]:
+    def make(
+        tmpl: FeedbackTemplate, slot: str, delay, refs: Sequence[str] = ()
+    ) -> tuple[str, LabeledEvent]:
         event_id = generated_event_id(scenario, probe, slot, used)
         used.add(event_id)
-        return slot, _generated(probe, tmpl, event_id, delay, scenario)
+        return slot, _generated(probe, tmpl, event_id, delay, scenario, refs)
 
     feedback = probe.feedback
     if feedback is None:
         return []
-    abstained = choice.index is None
+    abstained = choice.index is None or not choice.basis  # same rule as scoring.judge
     if abstained:
         action_tmpl = feedback.abstain
     else:
@@ -229,7 +235,7 @@ def feedback_events(
         else:
             tmpl, delay = feedback.on_true, cfg.feedback.on_true
         if tmpl is not None:
-            generated.append(make(tmpl, "outcome", delay))
+            generated.append(make(tmpl, "outcome", delay, judged))
     return generated
 
 
@@ -312,8 +318,10 @@ def run_scenario(
         record = _score_probe(item, results, scenario, events, search_ms)
         run.probes.append(record)
         if scenario.mode == "feedback" and item.feedback is not None:
+            index = record.choice.index
+            judged = results[index].sources if index is not None else ()
             for slot, generated in feedback_events(
-                item, record.choice, scenario, cfg, events.keys()
+                item, record.choice, scenario, cfg, events.keys(), judged
             ):
                 events[generated.event.id] = generated
                 run.generated.append(generated)

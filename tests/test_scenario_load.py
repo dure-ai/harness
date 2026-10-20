@@ -198,3 +198,13 @@ def test_unknown_key_in_feedback_models_is_error():
         FeedbackTemplate(text="x", delya=None)
     with pytest.raises(ValidationError):
         Feedback(abstian=None)
+
+
+def test_labeled_events_carry_refs():
+    sc = scenario(
+        {},
+        [ev("e1", T("10-01 10:00")), ev("e2", T("10-02 10:00"), kind="ci_result", refs=["e1"])],
+        [],
+    )
+    events = [le.event for le in sc.labeled_events()]
+    assert events[0].refs == () and events[1].refs == ("e1",)
