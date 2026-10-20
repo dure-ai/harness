@@ -13,7 +13,12 @@ from harness.engines import BASELINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import ScenarioRun, run_scenario
 from harness.report import RunMeta, harness_version, machine_info, write_report
-from harness.scenario.load import ScenarioLoadError, ScenarioSet, load_scenario, load_set
+from harness.scenario.load import (
+    ScenarioLoadError,
+    ScenarioSet,
+    load_scenario,
+    load_set,
+)
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue, validate_scenario
 from harness.selection import EngineScore, rank
@@ -26,12 +31,18 @@ scenario_app = typer.Typer(help="Scenario files.", no_args_is_help=True)
 app.add_typer(scenario_app, name="scenario")
 
 ScenariosOpt = Annotated[
-    list[Path], typer.Option("--scenarios", help="Scenario directory or file (repeatable).")
+    list[Path],
+    typer.Option("--scenarios", help="Scenario directory or file (repeatable)."),
 ]
 ConfigOpt = Annotated[Path, typer.Option("--config", help="Evaluation config YAML.")]
-DraftsOpt = Annotated[bool, typer.Option("--include-drafts", help="Also evaluate draft scenarios.")]
+DraftsOpt = Annotated[
+    bool, typer.Option("--include-drafts", help="Also evaluate draft scenarios.")
+]
 SealedOpt = Annotated[
-    bool, typer.Option("--sealed", help="Keep scenario content out of the terminal and the report.")
+    bool,
+    typer.Option(
+        "--sealed", help="Keep scenario content out of the terminal and the report."
+    ),
 ]
 
 
@@ -77,7 +88,9 @@ def scenario_check(
             if scenario.review.status == "rejected":
                 typer.echo(f"{path}: rejected (review status; checked anyway)")
             issues = validate_scenario(scenario)
-            if not any(i.level == "error" for i in issues):  # engines may not cope with a broken scenario
+            if not any(
+                i.level == "error" for i in issues
+            ):  # engines may not cope with a broken scenario
                 issues += check_discrimination(scenario, cfg)
             for issue in issues:
                 _echo_issue(str(path), issue)
@@ -96,7 +109,9 @@ def _config(config: Path) -> EvalConfig:
         raise _fail(f"error: cannot load config {config}: {e}", 2) from e
 
 
-def _load(scenarios: list[Path], config: Path, include_drafts: bool) -> tuple[EvalConfig, ScenarioSet]:
+def _load(
+    scenarios: list[Path], config: Path, include_drafts: bool
+) -> tuple[EvalConfig, ScenarioSet]:
     for root in scenarios:
         if not root.exists():
             raise _fail(f"error: scenario path does not exist: {root}", 2)
@@ -112,7 +127,16 @@ def _validate_all(scenarios: list[Scenario], sealed: bool) -> None:
     found: list[tuple[str, Issue]] = []
     for dup, n in Counter(s.id for s in scenarios).items():
         if n > 1:
-            found.append((dup, Issue("error", "duplicate_scenario_id", f"scenario id appears {n} times")))
+            found.append(
+                (
+                    dup,
+                    Issue(
+                        "error",
+                        "duplicate_scenario_id",
+                        f"scenario id appears {n} times",
+                    ),
+                )
+            )
     for s in scenarios:
         found += [(s.id, issue) for issue in validate_scenario(s)]
     if sealed:
@@ -128,7 +152,9 @@ def _validate_all(scenarios: list[Scenario], sealed: bool) -> None:
 def _echo_checks(checks: list[CheckResult], sealed: bool) -> None:
     for c in checks:
         status = "PASS" if c.ok else "FAIL"
-        typer.echo(f"{status}  {c.name}" if sealed else f"{status}  {c.name}  {c.detail}")
+        typer.echo(
+            f"{status}  {c.name}" if sealed else f"{status}  {c.name}  {c.detail}"
+        )
 
 
 def _selfcheck(
@@ -176,9 +202,18 @@ def _run_extra(
                 if name not in infos:
                     infos[name] = engine.info()
             except Exception as e:
-                if r == 1 and i == 0:  # cannot even build the engine: a usage problem, not a result
-                    raise _fail(f"error: cannot build engine {name!r}: {type(e).__name__}: {e}", 2) from e
-                runs.append(ScenarioRun(s.id, s.family, s.mode, error=f"{type(e).__name__}: {e}"))
+                if (
+                    r == 1 and i == 0
+                ):  # cannot even build the engine: a usage problem, not a result
+                    raise _fail(
+                        f"error: cannot build engine {name!r}: {type(e).__name__}: {e}",
+                        2,
+                    ) from e
+                runs.append(
+                    ScenarioRun(
+                        s.id, s.family, s.mode, error=f"{type(e).__name__}: {e}"
+                    )
+                )
                 continue
             runs.append(run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg))
         all_runs.append(runs)
@@ -190,13 +225,20 @@ def run(
     scenarios: ScenariosOpt,
     engine: Annotated[
         list[str] | None,
-        typer.Option("--engine", help="Extra engine: 'pkg.module:Class' (repeatable). Baselines always run."),
+        typer.Option(
+            "--engine",
+            help="Extra engine: 'pkg.module:Class' (repeatable). Baselines always run.",
+        ),
     ] = None,
     config: ConfigOpt = Path("config/eval-v0.1.yaml"),
-    out: Annotated[Path, typer.Option("--out", help="Directory for run reports.")] = Path("runs"),
+    out: Annotated[
+        Path, typer.Option("--out", help="Directory for run reports.")
+    ] = Path("runs"),
     include_drafts: DraftsOpt = False,
     sealed: SealedOpt = False,
-    repeat: Annotated[int | None, typer.Option("--repeat", min=1, help="Repeats per extra engine.")] = None,
+    repeat: Annotated[
+        int | None, typer.Option("--repeat", min=1, help="Repeats per extra engine.")
+    ] = None,
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
     cfg, loaded = _load(scenarios, config, include_drafts)
@@ -209,11 +251,16 @@ def run(
     run_id = started_at.strftime("%Y%m%d-%H%M%S")
     scenario_list = loaded.scenarios
     by_id = {s.id: s for s in scenario_list}
-    infos = {name: make_engine(name, scenario_list[0], cfg).info() for name in BASELINES}
+    infos = {
+        name: make_engine(name, scenario_list[0], cfg).info() for name in BASELINES
+    }
 
     base_metrics = {name: compute_metrics(base_runs[name], by_id) for name in BASELINES}
     base = base_metrics["all_store"]
-    scores = [EngineScore.from_repeats(name, [base_metrics[name]], base, cfg) for name in BASELINES]
+    scores = [
+        EngineScore.from_repeats(name, [base_metrics[name]], base, cfg)
+        for name in BASELINES
+    ]
     report_runs = dict(base_runs)
     repeat_counts: dict[str, int] = dict.fromkeys(BASELINES, 1)
 
@@ -225,7 +272,9 @@ def run(
         per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos)
         metrics = [compute_metrics(runs, by_id) for runs in per_repeat]
         flip = flip_rate(per_repeat) if repeats > 1 else None
-        candidate_scores.append(EngineScore.from_repeats(name, metrics, base, cfg, flip))
+        candidate_scores.append(
+            EngineScore.from_repeats(name, metrics, base, cfg, flip)
+        )
         candidate_runs[name] = per_repeat[0]
         repeat_counts[name] = repeats
 
@@ -245,5 +294,12 @@ def run(
         repeats=repeat_counts,
     )
     out_dir = out / run_id
-    write_report(out_dir, meta, [*scores, *candidate_scores], ranking, {**report_runs, **candidate_runs}, checks)
+    write_report(
+        out_dir,
+        meta,
+        [*scores, *candidate_scores],
+        ranking,
+        {**report_runs, **candidate_runs},
+        checks,
+    )
     typer.echo(str(out_dir / "report.md"))
