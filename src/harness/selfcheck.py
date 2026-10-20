@@ -1,10 +1,11 @@
 """Harness self-check (do the four baselines order as designed?) and per-scenario discrimination check."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from harness.config import EvalConfig
 from harness.engines import BASELINES, make_engine
-from harness.metrics import Metrics, compute_metrics
+from harness.metrics import FamilyRow, Metrics, compute_metrics
 from harness.replay import ScenarioRun, run_scenario
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue
@@ -62,6 +63,11 @@ def _all_store_max_m1(metrics: dict[str, Metrics]) -> CheckResult:
     return CheckResult("all_store_max_m1", ok, detail)
 
 
+def _family_m1(table: Mapping[str, FamilyRow], family: str) -> Rate | None:
+    row = table.get(family)
+    return None if row is None else row["m1"]
+
+
 def _repeat_n_beats_oracle(
     name: str, family: str, present: bool, repeat_n: Rate | None, oracle: Rate | None
 ) -> CheckResult:
@@ -92,15 +98,15 @@ def run_selfcheck(
             "repeat_n_poison",
             "single_source_poison",
             "single_source_poison" in families,
-            repeat_n.by_family.get("single_source_poison", {}).get("m1"),
-            oracle.by_family.get("single_source_poison", {}).get("m1"),
+            _family_m1(repeat_n.by_family, "single_source_poison"),
+            _family_m1(oracle.by_family, "single_source_poison"),
         ),
         _repeat_n_beats_oracle(
             "repeat_n_echo",
             "echo",
             "echo" in families,
-            repeat_n.feedback_by_family.get("echo", {}).get("m1"),
-            oracle.feedback_by_family.get("echo", {}).get("m1"),
+            _family_m1(repeat_n.feedback_by_family, "echo"),
+            _family_m1(oracle.feedback_by_family, "echo"),
         ),
     ]
     return checks, runs

@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from harness.contract import EngineInfo
 from harness.engines import BASELINES
-from harness.metrics import Metrics
+from harness.metrics import FamilyRow, Metrics
 from harness.replay import ScenarioRun
 from harness.selection import EngineScore, RankEntry, relative_metrics
 from harness.selfcheck import CheckResult
@@ -276,7 +276,7 @@ def _worse_than(m: Metrics, repeat_n: Metrics | None) -> str:
 
 
 def _family_rows(
-    ordered: list[EngineScore], ids: Mapping[str, str], table: Callable[[Metrics], Mapping]
+    ordered: list[EngineScore], ids: Mapping[str, str], table: Callable[[Metrics], Mapping[str, FamilyRow]]
 ) -> list[list[Any]]:
     rows = []
     for s in ordered:

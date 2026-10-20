@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from harness.config import EvalConfig, config_hash, load_config
+from harness.contract import EngineInfo
 from harness.engines import BASELINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import ScenarioRun, run_scenario
@@ -163,7 +164,7 @@ def _run_extra(
     scenarios: list[Scenario],
     cfg: EvalConfig,
     run_id: str,
-    infos: dict,
+    infos: dict[str, EngineInfo],
 ) -> list[list[ScenarioRun]]:
     """One list of scenario runs per repeat; every scenario gets a fresh engine."""
     all_runs: list[list[ScenarioRun]] = []
@@ -214,7 +215,7 @@ def run(
     base = base_metrics["all_store"]
     scores = [EngineScore.from_repeats(name, [base_metrics[name]], base, cfg) for name in BASELINES]
     report_runs = dict(base_runs)
-    repeat_counts = dict.fromkeys(BASELINES, 1)
+    repeat_counts: dict[str, int] = dict.fromkeys(BASELINES, 1)
 
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     candidate_scores: list[EngineScore] = []

@@ -33,9 +33,9 @@ def result_basis(
     if not result.sources:
         return frozenset(_marker_hits(result, scenario, about))
     basis = {
-        events[s].fact
+        fact
         for s in set(result.sources)
-        if s in events and events[s].fact in about
+        if s in events and (fact := events[s].fact) is not None and fact in about
     }
     if len(basis) >= 2:
         narrowed = _marker_hits(result, scenario, basis)

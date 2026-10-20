@@ -4,7 +4,7 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypedDict
 
 from harness.replay import ProbeRecord, ScenarioRun
 from harness.scenario.model import Probe, Scenario
@@ -14,14 +14,22 @@ from harness.world import probe_ctx, true_at
 JUDGED = ("block", "promote")
 
 
+class FamilyRow(TypedDict):
+    """Per-family M1/M2/M3; a plain dict at runtime so summary.json keeps the same shape."""
+
+    m1: Rate
+    m2: Rate
+    m3: int
+
+
 @dataclass
 class Metrics:
     m1: Rate
     m2: Rate
     m3: int
     promote_fn: Rate
-    by_family: dict[str, dict[str, Rate | int]]
-    feedback_by_family: dict[str, dict[str, Rate | int]]
+    by_family: dict[str, FamilyRow]
+    feedback_by_family: dict[str, FamilyRow]
     by_author: dict[str, dict[str, Rate]]
     shallow_fix: Rate
     reach: Rate
@@ -65,12 +73,12 @@ def _m3(runs: Iterable[ScenarioRun]) -> int:
     return sum(_leaking_results(rec) for run in runs for rec in run.probes)
 
 
-def _family_table(runs: list[ScenarioRun]) -> dict[str, dict[str, Rate | int]]:
+def _family_table(runs: list[ScenarioRun]) -> dict[str, FamilyRow]:
     grouped: dict[str, list[ScenarioRun]] = defaultdict(list)
     for run in runs:
         grouped[run.family].append(run)
     return {
-        family: {"m1": _m1(group), "m2": _m2(group), "m3": _m3(group)}
+        family: FamilyRow(m1=_m1(group), m2=_m2(group), m3=_m3(group))
         for family, group in sorted(grouped.items())
     }
 
@@ -152,7 +160,7 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
     read_only = [r for r in ok if r.mode == "read_only"]
     feedback = [r for r in ok if r.mode == "feedback"]
     by_family = _family_table(read_only)
-    m1_values = {f: t["m1"].value for f, t in by_family.items() if t["m1"].value is not None}
+    m1_values = {f: v for f, t in by_family.items() if (v := t["m1"].value) is not None}
     worst = None
     if m1_values:
         family = min(m1_values, key=lambda f: (-m1_values[f], f))

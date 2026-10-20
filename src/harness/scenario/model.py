@@ -2,13 +2,13 @@
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from harness.contract import Event, Kind, Outcome, Query, Scope, Signal
 
-FAMILIES = (
+Family = Literal[
     "normal_repeat",
     "coincidence",
     "single_source_poison",
@@ -19,7 +19,8 @@ FAMILIES = (
     "workaround_then_root",
     "leak_personal",
     "leak_cross_team",
-)
+]
+FAMILIES: tuple[str, ...] = get_args(Family)
 FEEDBACK_FAMILIES = ("echo", "failure_feedback")
 
 
@@ -116,7 +117,7 @@ class LabeledEvent:
 
 class Scenario(_Strict):
     id: str
-    family: Literal[*FAMILIES]
+    family: Family
     mode: Literal["read_only", "feedback"]
     language: str = "en"
     world: World

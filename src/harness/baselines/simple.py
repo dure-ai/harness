@@ -1,10 +1,12 @@
 """Simple baseline engines: none, all_store, and repeat_n. All deterministic, no models."""
 
+from abc import ABC
+
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result, can_see
 from harness.text import BM25, jaccard
 
 
-class _NamespacedEngine(BaseEngine):
+class _NamespacedEngine(BaseEngine, ABC):
     """Keeps a dict of namespace -> stored events; `reset` selects and clears one."""
 
     def __init__(self) -> None:

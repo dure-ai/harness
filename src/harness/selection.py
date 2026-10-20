@@ -88,9 +88,10 @@ def judge_engine(m: Metrics, base: Metrics, cfg: EvalConfig) -> Verdict:
 
 
 def _mean(values: list[float | None]) -> float | None:
-    if any(v is None for v in values):
+    present = [v for v in values if v is not None]
+    if len(present) != len(values):
         return None
-    return sum(values) / len(values)
+    return sum(present) / len(present)
 
 
 def averaged(repeats: list[Metrics]) -> Metrics:
@@ -113,10 +114,11 @@ def relative_metrics(
 ) -> dict[str, float | None]:
     """Observation numbers relative to the none / all_store / oracle baselines."""
     improvement = None
-    if None not in (all_store.m1.value, oracle.m1.value, m.m1.value):
-        denom = all_store.m1.value - oracle.m1.value
+    base_m1, oracle_m1, m1 = all_store.m1.value, oracle.m1.value, m.m1.value
+    if base_m1 is not None and oracle_m1 is not None and m1 is not None:
+        denom = base_m1 - oracle_m1
         if not math.isclose(denom, 0.0, abs_tol=EPS):
-            improvement = (all_store.m1.value - m.m1.value) / denom
+            improvement = (base_m1 - m1) / denom
     reduction = None
     if m.promote_fn.value is not None and none.promote_fn.value:
         reduction = 1 - m.promote_fn.value / none.promote_fn.value
@@ -201,11 +203,19 @@ class _Pairs:
     def compare(self, a: EngineScore, b: EngineScore) -> tuple[int, str | None]:
         """(-1 if a goes first, 1 if b goes first, 0 keep order; tiebreak label or None)."""
         if not self.tied(a.engine_id, b.engine_id):
-            ma, mb = a.metrics.m2.value, b.metrics.m2.value
+            ma, mb = _passed_m2(a), _passed_m2(b)
             if _close(ma, mb):
                 return 0, None
             return (-1 if ma > mb else 1), None
         return _tiebreak(a.metrics, b.metrics)
+
+
+def _passed_m2(score: EngineScore) -> float:
+    """M2 of a passing engine; passing requires an M2 sample, so the value is never None."""
+    value = score.metrics.m2.value
+    if value is None:
+        raise ValueError(f"{score.engine_id}: ranked engine has no M2 sample")
+    return value
 
 
 def rank(
@@ -220,7 +230,7 @@ def rank(
     # Engines with no M2 sample cannot pass, so every M2 value here is a float.
     order: list[EngineScore] = []
     for score in sorted(
-        (s for s in scores if s.verdict.passed), key=lambda s: (-s.metrics.m2.value, s.engine_id)
+        (s for s in scores if s.verdict.passed), key=lambda s: (-_passed_m2(s), s.engine_id)
     ):
         i = len(order)
         while i > 0 and pairs.compare(score, order[i - 1])[0] < 0:
