@@ -47,3 +47,7 @@ YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, �
 ```bash
 uv run pytest -q
 ```
+
+## 라이선스
+
+[Apache License 2.0](LICENSE)
