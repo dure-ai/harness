@@ -156,6 +156,8 @@ MCP 연결은 v0.1에 넣지 않는다. 가상 시계와 초기화가 MCP 도구
   - 읽기 전용 모드의 문항은 `Runtime.handoff`만 부른다. `Runtime.recall`은 건넨 내용을 recall 이벤트로 남기는데 그 이벤트가 엔진마다 달라져, "모든 엔진이 같은 이벤트를 받는다"(15장 1번)가 깨지기 때문이다.
   - 되먹임 모드의 문항은 `Runtime.recall`을 부른다. recall 이벤트 id는 6.2의 생성 기록 id와 같은 방식(출처를 알 수 없는 해시)으로 정한다.
   - `Handoff.sources`(이벤트 id)를 `Result.sources`로, `Handoff.content`를 `Result.text`로 옮긴다.
+  - 질문은 `Caller(user, team, session, at=문항 시각, repo=문항 repo, context=문항 meta)`로 넘긴다. `Caller.repo`·`context`는 10/20 계약에 추가되었고(d88e680), 조건부 사실을 질문 맥락과 맞춰 보는 것은 엔진 몫이다. 되먹임 모드의 recall 이벤트에는 런타임이 같은 repo·context를 남긴다.
+  - 하네스 이벤트의 `meta`는 계약 `Event.conditions`로, `repo`는 `Event.repo`로 옮긴다. 숨은 라벨인 `Fact.conditions`는 넘기지 않는다.
 - **이벤트 대응**
 
   | 하네스 이벤트 | 계약 `kind` | 비고 |
@@ -163,11 +165,12 @@ MCP 연결은 v0.1에 넣지 않는다. 가상 시계와 초기화가 MCP 도구
   | `agent_record` | `record` | `signal="self"` |
   | `ci_result` (앞선 기록을 판정) | `outcome` | 시나리오에 `refs`(판정 대상 id)를 적는다 |
   | `ci_result` (단독 증거) | `record` | `signal="test"`, `outcome` 유지 |
-  | `human_confirm` | `human_confirm` | `refs` 필요 |
+  | `human_confirm` (앞선 기록을 판정) | `human_confirm` | 시나리오에 `refs`를 적는다 |
+  | `human_confirm` (단독 증거) | `record` | `signal="human"`, `outcome` 유지 |
   | `commit` | `commit` | |
   | 문서 근거 | `record` | `signal="doc"` |
 
-  `refs`를 하네스가 숨은 라벨로 자동으로 채우지 않는다. 정답이 엔진에 새는 길이기 때문이다.
+  `Runtime.append`는 `refs`가 빈 `outcome`·`human_confirm` 이벤트를 `ValueError`로 거부한다(10/20, d88e680). 그래서 하네스 시나리오 이벤트에 선택 필드 `refs`(작성자가 적는, 판정 대상 이벤트 id)를 추가하고, 어댑터는 `refs`가 있으면 판정 이벤트로, 없으면 `record`로 넣는다. `refs`는 엔진에게 보이는 관찰 정보이고 숨은 라벨이 아니다. `refs`를 하네스가 숨은 라벨로 자동으로 채우지 않는다. 정답이 엔진에 새는 길이기 때문이다.
 - **범위**: 하네스는 scope를 직접 정하는 신뢰된 호출자다. 팀 지식에 대한 결과 이벤트는 `team`으로 넣어야 런타임 검증을 통과해 강등이 일어난다.
 - **되먹임 기록의 `refs`**: 행동 기록에는 붙이지 않고, 결과 기록에는 따라 한 Handoff id를 붙인다(계약 §3-2와 같음).
 - **판정 기준선**: 팀원 엔진끼리 비교할 때는 같은 런타임 위의 `PromoteAllEngine`이 판정 기준선이다. 하네스 자체 BM25 `all_store`는 자가 검증과 오픈소스 비교에 계속 쓴다. 두 그룹은 검색 방식이 달라서(공용 검색 대 엔진 자체 검색) 리포트에서 따로 해석한다(계약 §1 통제 변인).
@@ -499,8 +502,8 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 8. ~~판정 기준선~~ → 결정(10/20): 팀원 엔진 비교는 런타임 위의 `PromoteAllEngine`, 오픈소스 비교와 자가 검증은 BM25 `all_store` (4.5).
 9. ~~되먹임 기록의 `refs`~~ → 결정(10/20): 결과 기록에만 붙인다 (4.5, 계약 §3-2).
 10. 봉인 모드에서 시나리오 로드 오류가 파일 경로를 출력하는 문제. test 세트를 만들기 전에 고친다 (13장).
-11. 질문 맥락: 계약의 `Caller`에 질문한 곳(`repo`, `context`)이 없어서, 엔진이 조건부 사실을 질문 맥락으로 가를 수 없다. mcp-server PR #1에 추가를 요청했다(10/20).
-12. outcome·human_confirm의 `refs` 필수 규칙을 런타임이 검사할지. PR #1에 질문했고, 답에 따라 `ci_result` 대응(4.5)을 다시 본다.
+11. ~~질문 맥락~~ → 해결(10/20): 계약 `Caller`에 `repo`·`context`가 추가되었다. 하네스는 문항의 `repo`·`meta`로 채운다 (4.5).
+12. ~~outcome `refs` 검사 위치~~ → 해결(10/20): `Runtime.append`가 빈 `refs`를 거부한다. 하네스는 시나리오 이벤트에 `refs`를 추가하고 판정 이벤트와 단독 증거를 나눠 넣는다 (4.5).
 13. HTTP 계약: 보류. Python이 아닌 엔진이나 런타임 밖 서비스 엔진이 생기면 다시 검토한다 (4.3).
 
 ## 15. 공정성과 편향 방지 규칙 [노션 11.2, 12장]
