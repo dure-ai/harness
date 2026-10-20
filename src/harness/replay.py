@@ -4,8 +4,8 @@ import hashlib
 import heapq
 import time
 from collections.abc import Collection
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 from itertools import count
 
 from harness.agent import Choice, choose, result_basis
@@ -96,10 +96,15 @@ def _score_probe(
     )
 
 
-def generated_event_id(scenario: Scenario, probe: Probe, slot: str, taken: Collection[str]) -> str:
+def generated_event_id(
+    scenario: Scenario, probe: Probe, slot: str, taken: Collection[str]
+) -> str:
     """Opaque id for a generated event: it names neither the probe nor the harness. A clash with
     an id in `taken` gets "-2", "-3", ... appended."""
-    base = "e" + hashlib.sha256(f"{scenario.id}:{probe.id}:{slot}".encode()).hexdigest()[:12]
+    base = (
+        "e"
+        + hashlib.sha256(f"{scenario.id}:{probe.id}:{slot}".encode()).hexdigest()[:12]
+    )
     event_id, n = base, 1
     while event_id in taken:
         n += 1
@@ -108,7 +113,11 @@ def generated_event_id(scenario: Scenario, probe: Probe, slot: str, taken: Colle
 
 
 def _generated(
-    probe: Probe, tmpl: FeedbackTemplate, event_id: str, default_delay, scenario: Scenario
+    probe: Probe,
+    tmpl: FeedbackTemplate,
+    event_id: str,
+    default_delay,
+    scenario: Scenario,
 ) -> LabeledEvent:
     """Build the agent-side record for `probe`; no marker says it followed a search result."""
     event = Event(
@@ -129,7 +138,11 @@ def _generated(
 
 
 def feedback_events(
-    probe: Probe, choice: Choice, scenario: Scenario, cfg: EvalConfig, taken: Collection[str] = ()
+    probe: Probe,
+    choice: Choice,
+    scenario: Scenario,
+    cfg: EvalConfig,
+    taken: Collection[str] = (),
 ) -> list[tuple[str, LabeledEvent]]:
     """(slot, event) for the action record and outcome record the simulated agent writes after
     acting on a probe; event ids avoid every id in `taken`."""
@@ -147,7 +160,9 @@ def feedback_events(
     if abstained:
         action_tmpl = feedback.abstain
     else:
-        wrong = sorted(f for f in choice.basis if is_wrong(frozenset({f}), probe, scenario))
+        wrong = sorted(
+            f for f in choice.basis if is_wrong(frozenset({f}), probe, scenario)
+        )
         pick = wrong[0] if wrong else min(choice.basis)
         action_tmpl = feedback.action.get(pick)
     generated = []
@@ -203,7 +218,9 @@ def run_scenario(
                 run.error = f"{type(e).__name__}: {e}"
                 return run
             continue
-        query = scenario.query_for(item, cfg.k)  # harness code: not wrapped, so harness bugs surface
+        query = scenario.query_for(
+            item, cfg.k
+        )  # harness code: not wrapped, so harness bugs surface
         try:
             if virtual_clock:
                 engine.tick(t)
@@ -211,7 +228,9 @@ def run_scenario(
             start = time.perf_counter()
             raw = list(engine.search(query))
             search_ms = (time.perf_counter() - start) * 1000
-            raw = [_as_result(r) for r in raw]  # a malformed return errors this scenario only
+            raw = [
+                _as_result(r) for r in raw
+            ]  # a malformed return errors this scenario only
         except Exception as e:
             run.error = f"{type(e).__name__}: {e}"
             return run
@@ -219,7 +238,9 @@ def run_scenario(
         record = _score_probe(item, results, scenario, events, search_ms)
         run.probes.append(record)
         if scenario.mode == "feedback" and item.feedback is not None:
-            for slot, generated in feedback_events(item, record.choice, scenario, cfg, events.keys()):
+            for slot, generated in feedback_events(
+                item, record.choice, scenario, cfg, events.keys()
+            ):
                 events[generated.event.id] = generated
                 run.generated.append(generated)
                 run.generated_ids[(item.id, slot)] = generated.event.id
