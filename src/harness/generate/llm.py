@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from collections.abc import Callable, Mapping
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
@@ -432,9 +433,10 @@ class OpenAIClient:
 def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
     """Build the client for `cfg.provider`.
 
-    Every provider, the fake included, is wrapped in a `CachedClient`. After editing the
-    `fake_responses` file, clear the cache directory or change `prompt_version`, otherwise
-    earlier replies are served from the cache.
+    Every provider, the fake included, is wrapped in a `CachedClient`. The fake answers
+    `candidates` and `bodies` requests with `fake_candidates` and `fake_slots` once the canned
+    responses for that kind run out. After editing the `fake_responses` file, clear the cache
+    directory or change `prompt_version`, otherwise earlier replies are served from the cache.
 
     Args:
         cfg: Generation config.
@@ -447,10 +449,16 @@ def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
         LLMError: Fatal, if a required API key is missing.
     """
     if cfg.provider == "fake":
+        # Looked up by name: both modules depend on this one, and basedpyright reports a
+        # static import as a cycle even inside a function.
+        responders = {
+            "candidates": import_module("harness.generate.candidates").fake_candidates,
+            "bodies": import_module("harness.generate.slots").fake_slots,
+        }
         canned: dict[str, list[dict[str, Any] | str]] = {}
         if cfg.fake_responses is not None and Path(cfg.fake_responses).is_file():
             canned = json.loads(Path(cfg.fake_responses).read_text(encoding="utf-8"))
-        fake = FakeClient(responses=canned)
+        fake = FakeClient(responses=canned, responders=responders)
         fake.model = cfg.model
         return CachedClient(fake, cache_dir, cfg.prompt_version)
     inner: LLMClient = AnthropicClient(cfg) if cfg.provider == "anthropic" else OpenAIClient(cfg)
