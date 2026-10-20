@@ -6,7 +6,12 @@ from datetime import timedelta
 from typing import Literal
 
 from harness.contract import can_see
-from harness.scenario.model import FEEDBACK_FAMILIES, Feedback, FeedbackTemplate, Scenario
+from harness.scenario.model import (
+    FEEDBACK_FAMILIES,
+    Feedback,
+    FeedbackTemplate,
+    Scenario,
+)
 from harness.world import probe_ctx, true_at
 
 
@@ -27,8 +32,10 @@ def _unknown_users(s: Scenario) -> tuple[set[str], list[str]]:
     memberships = Counter(u for members in s.world.teams.values() for u in set(members))
     bad: set[str] = {u for u, n in memberships.items() if n > 1}
     messages = [f"user {u!r} is in more than one team" for u in sorted(bad)]
-    for where, user in [*((f"event {e.id}", e.user) for e in s.events),
-                        *((f"probe {p.id}", p.user) for p in s.probes)]:
+    for where, user in [
+        *((f"event {e.id}", e.user) for e in s.events),
+        *((f"probe {p.id}", p.user) for p in s.probes),
+    ]:
         if user not in memberships:
             bad.add(user)
             messages.append(f"{where}: user {user!r} is not in any team")
@@ -41,7 +48,10 @@ def validate_scenario(s: Scenario) -> list[Issue]:
     def error(code: str, message: str) -> None:
         issues.append(Issue("error", code, message))
 
-    for kind, ids in (("event", [e.id for e in s.events]), ("probe", [p.id for p in s.probes])):
+    for kind, ids in (
+        ("event", [e.id for e in s.events]),
+        ("probe", [p.id for p in s.probes]),
+    ):
         for dup, n in Counter(ids).items():
             if n > 1:
                 error("duplicate_id", f"{kind} id {dup!r} appears {n} times")
@@ -52,14 +62,23 @@ def validate_scenario(s: Scenario) -> list[Issue]:
     for p in s.probes:
         for fid in p.about:
             if fid not in s.facts:
-                error("unknown_fact", f"probe {p.id}: about references unknown fact {fid!r}")
+                error(
+                    "unknown_fact",
+                    f"probe {p.id}: about references unknown fact {fid!r}",
+                )
         if p.feedback is not None:
             for key in p.feedback.action:
                 if key not in s.facts:
-                    error("unknown_fact", f"probe {p.id}: feedback action key {key!r} is not a fact")
+                    error(
+                        "unknown_fact",
+                        f"probe {p.id}: feedback action key {key!r} is not a fact",
+                    )
             for tpl in _templates(p.feedback):
                 if tpl.fact is not None and tpl.fact not in s.facts:
-                    error("unknown_fact", f"probe {p.id}: feedback template references unknown fact {tpl.fact!r}")
+                    error(
+                        "unknown_fact",
+                        f"probe {p.id}: feedback template references unknown fact {tpl.fact!r}",
+                    )
 
     for fid, f in s.facts.items():
         if any(not m.strip() for m in f.markers):
@@ -69,17 +88,27 @@ def validate_scenario(s: Scenario) -> list[Issue]:
             error("empty_marker", f"event {e.id}: empty secret marker")
     for p in s.probes:
         if p.feedback is not None and any(
-            t.delay is not None and t.delay < timedelta(0) for t in _templates(p.feedback)
+            t.delay is not None and t.delay < timedelta(0)
+            for t in _templates(p.feedback)
         ):
-            error("negative_delay", f"probe {p.id}: feedback template with a negative delay")
+            error(
+                "negative_delay",
+                f"probe {p.id}: feedback template with a negative delay",
+            )
 
     bad_users, messages = _unknown_users(s)
     for message in messages:
         error("unknown_user", message)
 
     for fid, f in s.facts.items():
-        if f.valid_from is not None and f.valid_until is not None and f.valid_from >= f.valid_until:
-            error("interval_inverted", f"fact {fid}: valid_from is not before valid_until")
+        if (
+            f.valid_from is not None
+            and f.valid_until is not None
+            and f.valid_from >= f.valid_until
+        ):
+            error(
+                "interval_inverted", f"fact {fid}: valid_from is not before valid_until"
+            )
 
     feedback_family = s.family in FEEDBACK_FAMILIES
     if feedback_family != (s.mode == "feedback"):
@@ -88,7 +117,10 @@ def validate_scenario(s: Scenario) -> list[Issue]:
     if s.mode == "read_only":
         for p in s.probes:
             if p.feedback is not None:
-                error("feedback_in_read_only", f"probe {p.id}: feedback in a read_only scenario")
+                error(
+                    "feedback_in_read_only",
+                    f"probe {p.id}: feedback in a read_only scenario",
+                )
 
     if s.family != "normal_repeat":
         kinds = {p.kind for p in s.probes}
@@ -98,7 +130,9 @@ def validate_scenario(s: Scenario) -> list[Issue]:
             error("pairing_missing", "no promote probe")
 
     # Checks below need the probe's user and the event users resolvable to a team.
-    known_events = s.model_copy(update={"events": [e for e in s.events if e.user not in bad_users]})
+    known_events = s.model_copy(
+        update={"events": [e for e in s.events if e.user not in bad_users]}
+    )
     labeled = known_events.labeled_events()
 
     for p in s.probes:
@@ -109,22 +143,37 @@ def validate_scenario(s: Scenario) -> list[Issue]:
         about = {fid: s.facts[fid] for fid in p.about}
         recorded = [le for le in labeled if le.fact in about and le.event.t <= p.t]
 
-        if p.kind == "block" and not any(not true_at(f, p.t, ctx) for f in about.values()):
-            error("block_without_false", f"probe {p.id}: no about fact is false at the probe time and context")
+        if p.kind == "block" and not any(
+            not true_at(f, p.t, ctx) for f in about.values()
+        ):
+            error(
+                "block_without_false",
+                f"probe {p.id}: no about fact is false at the probe time and context",
+            )
         elif p.kind == "promote":
             seen_true = {
-                le.fact for le in recorded
+                le.fact
+                for le in recorded
                 if can_see(le.event, p.user, team) and true_at(about[le.fact], p.t, ctx)
             }
             if not seen_true:
-                error("promote_without_seen_true",
-                      f"probe {p.id}: no true about fact has been recorded visibly to the asker by the probe time")
-        elif p.kind == "leak" and all(can_see(le.event, p.user, team) for le in recorded):
-            error("leak_without_hidden", f"probe {p.id}: no recorded about fact is hidden from the asker")
+                error(
+                    "promote_without_seen_true",
+                    f"probe {p.id}: no true about fact has been recorded visibly to the asker by the probe time",
+                )
+        elif p.kind == "leak" and all(
+            can_see(le.event, p.user, team) for le in recorded
+        ):
+            error(
+                "leak_without_hidden",
+                f"probe {p.id}: no recorded about fact is hidden from the asker",
+            )
 
     used = dict.fromkeys(fid for p in s.probes for fid in p.about if fid in s.facts)
     for fid in used:
         if not s.facts[fid].markers:
-            issues.append(Issue("warning", "markers_missing", f"fact {fid}: no markers"))
+            issues.append(
+                Issue("warning", "markers_missing", f"fact {fid}: no markers")
+            )
 
     return issues
