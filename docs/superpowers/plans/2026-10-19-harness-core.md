@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.14, uv, pydantic v2, PyYAML, typer, pytest.
 
-**Spec:** `docs/superpowers/specs/2026-10-19-memory-eval-harness-design.md` (이하 "설계"). 이 계획은 설계의 1~9, 12, 13, 15장을 구현한다. 생성 파이프라인(11장)과 검토 CLI는 계획 2, 오픈소스 어댑터(10장)는 계획 3, HTTP 계약(4.3의 2번)은 11월 초 계획 4에서 다룬다.
+**Spec:** `docs/specs/2026-10-19-memory-eval-harness-design.md` (이하 "설계"). 이 계획은 설계의 1~9, 12, 13, 15장을 구현한다. 생성 파이프라인(11장)과 검토 CLI는 계획 2, 오픈소스 어댑터(10장)는 계획 3, HTTP 계약(4.3의 2번)은 11월 초 계획 4에서 다룬다.
 
 ## Global Constraints
 

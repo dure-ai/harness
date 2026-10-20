@@ -1,6 +1,6 @@
 # 하네스 구조
 
-코드를 처음 읽는 사람을 위한 지도입니다. 무엇을 왜 재는지는 설계 문서([specs/2026-10-19-memory-eval-harness-design.md](superpowers/specs/2026-10-19-memory-eval-harness-design.md))와 노션 [평가 하네스 설계](https://app.notion.com/p/3fd215ecaad881cea1f7e30c3ff39267)에 있습니다. 이 문서는 그 정의가 **코드의 어디에 있고 어떻게 흐르는지**만 다룹니다. 함수 단위 설명은 각 모듈의 docstring(Google 스타일)에 있습니다.
+코드를 처음 읽는 사람을 위한 지도입니다. 무엇을 왜 재는지는 설계 문서([specs/2026-10-19-memory-eval-harness-design.md](specs/2026-10-19-memory-eval-harness-design.md))와 노션 [평가 하네스 설계](https://app.notion.com/p/3fd215ecaad881cea1f7e30c3ff39267)에 있습니다. 이 문서는 그 정의가 **코드의 어디에 있고 어떻게 흐르는지**만 다룹니다. 함수 단위 설명은 각 모듈의 docstring(Google 스타일)에 있습니다.
 
 ## 한 줄 요약
 
