@@ -12,6 +12,21 @@ BASELINES = ("none", "all_store", "repeat_n", "oracle")
 
 
 def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
+    """Build a fresh engine instance for one scenario.
+
+    Args:
+        name: A baseline name (`BASELINES` or "all_store_noacl"), or "package.module:ClassName"
+            for a Python engine constructed with no arguments.
+        scenario: The scenario the engine will run; only the oracle reads it.
+        cfg: Evaluation config (repeat_n parameters).
+
+    Returns:
+        A new engine; callers must not reuse it across scenarios.
+
+    Raises:
+        ValueError: If `name` is not a known baseline and has no ":".
+        TypeError: If the imported class does not produce a `BaseEngine`.
+    """
     if ":" in name:
         module_name, _, class_name = name.partition(":")
         engine = getattr(importlib.import_module(module_name), class_name)()

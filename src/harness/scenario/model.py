@@ -1,4 +1,9 @@
-"""Scenario data model: what a scenario file contains, including the hidden labels."""
+"""Scenario data model: what a scenario file contains, including the hidden labels.
+
+Hidden labels are the ground truth used only for scoring and are never sent to engines:
+`ScenarioEvent.fact` and `.secret_markers`, every `Fact`, and the probe's `kind`, `about` and
+`feedback`. `labeled_events()` and `query_for()` build the engine-facing objects without them.
+"""
 
 from dataclasses import dataclass
 from datetime import timedelta
@@ -31,6 +36,12 @@ class _Strict(BaseModel):
 
 
 class Fact(_Strict):
+    """A statement about the world and when it holds (see `world.true_at`).
+
+    `markers` are strings that show a result states this fact, used when an engine returns no
+    sources.
+    """
+
     text: str
     valid_from: AwareDatetime | None = None
     valid_until: AwareDatetime | None = None
@@ -55,11 +66,15 @@ class ScenarioEvent(_Strict):
     outcome: Outcome
     text: str
     meta: dict[str, str] = {}
+    # Hidden labels: the fact this event states (None = noise), and strings whose appearance in a
+    # result shown to someone who cannot see this event counts as a leak.
     fact: str | None = None
     secret_markers: list[str] = []
 
 
 class FeedbackTemplate(_Strict):
+    """An event the harness writes back in feedback mode; `fact` is its hidden label."""
+
     text: str
     fact: str | None = None
     delay: timedelta | None = None
@@ -70,6 +85,15 @@ class FeedbackTemplate(_Strict):
 
 
 class Feedback(_Strict):
+    """Templates of the records the simulated agent writes in feedback mode.
+
+    Attributes:
+        action: Action record keyed by the fact the agent followed.
+        abstain: Action record when it followed nothing.
+        on_false: Outcome record after acting on a wrong basis.
+        on_true: Outcome record after acting on a right basis.
+    """
+
     action: dict[str, FeedbackTemplate] = {}
     abstain: FeedbackTemplate | None = None
     on_false: FeedbackTemplate | None = None
@@ -77,6 +101,12 @@ class Feedback(_Strict):
 
 
 class Probe(_Strict):
+    """A question the simulated agent asks at time `t`.
+
+    `kind`, `about` (facts that make a result relevant) and `feedback` are hidden labels and
+    never reach the engine; see `Scenario.query_for`.
+    """
+
     id: str
     kind: Literal["block", "promote", "leak"]
     t: AwareDatetime
@@ -91,17 +121,23 @@ class Probe(_Strict):
 
 
 class World(_Strict):
+    """Who is on which team, and the timezone times are written in."""
+
     timezone: str = "Asia/Seoul"
     teams: dict[str, list[str]]
 
 
 class Review(_Strict):
+    """Human review state; only approved scenarios are evaluated by default."""
+
     status: Literal["draft", "approved", "rejected"] = "draft"
     reviewer: str | None = None
     notes: str = ""
 
 
 class Provenance(_Strict):
+    """Where a scenario came from, reported so results can be split by author."""
+
     author: Literal["human", "llm", "generator"]
     source_traces: list[str] = []
     llm_model: str | None = None
@@ -110,12 +146,19 @@ class Provenance(_Strict):
 
 @dataclass(frozen=True)
 class LabeledEvent:
+    """The engine-facing `event` plus its hidden labels.
+
+    Scoring keeps these; engines get only `.event`.
+    """
+
     event: Event
     fact: str | None
     secret_markers: tuple[str, ...]
 
 
 class Scenario(_Strict):
+    """One evaluation scenario: a world, its facts, the events engines see, and probes."""
+
     id: str
     family: Family
     mode: Literal["read_only", "feedback"]
@@ -128,12 +171,21 @@ class Scenario(_Strict):
     provenance: Provenance
 
     def team_of(self, user: str) -> str:
+        """Return the team `user` belongs to.
+
+        Raises:
+            KeyError: If the user is on no team.
+        """
         for team, members in self.world.teams.items():
             if user in members:
                 return team
         raise KeyError(user)
 
     def labeled_events(self) -> list[LabeledEvent]:
+        """Return engine-facing events in file order with hidden labels split off.
+
+        An event's `team` defaults to its author's team.
+        """
         labeled = []
         for se in self.events:
             fields = se.model_dump(exclude={"fact", "secret_markers", "team"})
@@ -142,6 +194,7 @@ class Scenario(_Strict):
         return labeled
 
     def query_for(self, probe: Probe, k: int) -> Query:
+        """The engine-facing query for `probe`; `kind`, `about` and `feedback` are left out."""
         return Query(
             text=probe.query,
             user=probe.user,

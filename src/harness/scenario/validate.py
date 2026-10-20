@@ -17,6 +17,14 @@ from harness.world import probe_ctx, true_at
 
 @dataclass(frozen=True)
 class Issue:
+    """One validation finding.
+
+    Attributes:
+        level: "error" blocks evaluation; "warning" only flags a weak spot.
+        code: Stable identifier such as "block_without_false".
+        message: Human-readable detail naming the probe, event or fact.
+    """
+
     level: Literal["error", "warning"]
     code: str
     message: str
@@ -43,6 +51,17 @@ def _unknown_users(s: Scenario) -> tuple[set[str], list[str]]:
 
 
 def validate_scenario(s: Scenario) -> list[Issue]:
+    """Check a scenario's structure and labels before it is used.
+
+    Each problem yields exactly one code: checks that need a resolvable user or a known fact
+    skip the probes and events that already failed those checks.
+
+    Args:
+        s: The scenario to check.
+
+    Returns:
+        Issues in a stable order; empty when the scenario is clean.
+    """
     issues: list[Issue] = []
 
     def error(code: str, message: str) -> None:

@@ -6,7 +6,16 @@ from dataclasses import dataclass
 
 
 def wilson(k: int, n: int, z: float = 1.959964) -> tuple[float, float] | None:
-    """Wilson score interval for k successes in n trials; None when n == 0."""
+    """Wilson score interval for k successes in n trials.
+
+    Args:
+        k: Successes.
+        n: Trials.
+        z: Normal quantile; the default gives a 95% interval.
+
+    Returns:
+        (low, high) clamped to [0, 1], or None when n is 0.
+    """
     if n == 0:
         return None
     p = k / n
@@ -19,6 +28,15 @@ def wilson(k: int, n: int, z: float = 1.959964) -> tuple[float, float] | None:
 
 @dataclass(frozen=True)
 class Rate:
+    """A proportion with its sample size and interval.
+
+    Attributes:
+        k: Numerator.
+        n: Denominator.
+        value: k / n, or None when n is 0 (no sample).
+        ci: Wilson 95% interval, or None when n is 0.
+    """
+
     k: int
     n: int
     value: float | None
@@ -26,6 +44,7 @@ class Rate:
 
 
 def rate(k: int, n: int) -> Rate:
+    """Build a `Rate` from a count; see `Rate`."""
     return Rate(k, n, k / n if n else None, wilson(k, n))
 
 
@@ -33,7 +52,10 @@ def rate(k: int, n: int) -> Rate:
 class Delay:
     """Time until a fact stopped (retraction) or started (reflection) showing up in the basis.
 
-    `seconds` is None when that never happened.
+    Attributes:
+        fact: Fact id.
+        scenario_id: Scenario the measurement comes from.
+        seconds: Delay from the fact's validity edge, or None when it never happened.
     """
 
     fact: str
@@ -52,7 +74,19 @@ def bootstrap_diff(
 ) -> tuple[float, float]:
     """95% bootstrap interval of pooled_rate(a) - pooled_rate(b), resampling scenarios.
 
-    `a` and `b` hold (numerator, denominator) per scenario in the same scenario order.
+    Both lists are resampled with the same indices, so the comparison is paired by scenario.
+
+    Args:
+        a: (numerator, denominator) per scenario for the first engine.
+        b: The same for the second engine, in the same scenario order.
+        iters: Number of resamples.
+        seed: Random seed.
+
+    Returns:
+        (low, high) of the difference.
+
+    Raises:
+        ValueError: If the lists are empty or of different lengths.
     """
     if not a or len(a) != len(b):
         raise ValueError("a and b must be non-empty and the same length")

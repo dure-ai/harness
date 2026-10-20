@@ -31,6 +31,23 @@ DRAFTS_WARNING = "> ⚠️ 초안 포함 — 발표 수치로 쓰지 않음"
 
 @dataclass
 class RunMeta:
+    """Run-level facts written to the report header and summary.json.
+
+    Attributes:
+        run_id: Timestamp id of the run, also the output directory name.
+        started_at: Start time.
+        harness_version: Short git commit of the harness.
+        config_hash: See `config.config_hash`.
+        scenario_set_hash: See `ScenarioSet.hash`.
+        n_scenarios: Number of scenarios evaluated.
+        machine: Platform and Python version.
+        engine_infos: Engine name to its self-description.
+        sealed: Scenario and probe ids are kept out of the report.
+        include_drafts: Draft scenarios were included (the report is marked as not for publication).
+        scenario_roots: The --scenarios arguments.
+        repeats: Engine name to runs per scenario.
+    """
+
     run_id: str
     started_at: datetime
     harness_version: str
@@ -42,7 +59,7 @@ class RunMeta:
     sealed: bool
     include_drafts: bool
     scenario_roots: list[str]
-    repeats: dict[str, int]  # engine name -> runs per scenario
+    repeats: dict[str, int]
 
 
 def harness_version() -> str:
@@ -62,6 +79,7 @@ def harness_version() -> str:
 
 
 def machine_info() -> str:
+    """Return the platform and Python version, for the report."""
     return f"{platform.platform()} / Python {platform.python_version()}"
 
 
@@ -500,9 +518,20 @@ def write_report(
     selfcheck: list[CheckResult],
     blind_seed: int | None = None,
 ) -> None:
-    """Write the four report files. Engine names other than the baselines become blind ids
-    (seeded by `blind_seed`, default a fresh random seed) everywhere but engine_ids.json, which
-    alone records the seed."""
+    """Write report.md, summary.json, results.jsonl and engine_ids.json to `out_dir`.
+
+    Engine names other than the baselines become blind ids everywhere except engine_ids.json,
+    which alone records the mapping and the seed.
+
+    Args:
+        out_dir: Directory to create and write into.
+        meta: Run-level facts.
+        scores: Every engine's metrics and verdict.
+        ranking: Ranked candidates, see `selection.rank`.
+        runs: Engine name to its scenario runs (first repeat), for results.jsonl.
+        selfcheck: Self-check results.
+        blind_seed: Seed of the blind-id shuffle; a fresh random seed by default.
+    """
     if blind_seed is None:
         blind_seed = secrets.randbits(64)
     names = {

@@ -17,6 +17,17 @@ TIEBREAKS = ("m1", "shallow_fix", "retraction", "reach", "context_chars")
 
 @dataclass
 class Verdict:
+    """Pass/fail against the pre-registered criteria.
+
+    Attributes:
+        m1_ok: M1 is within the limit; None when there is no block sample.
+        m2_ok: M2 is above the floor; None when there is no promote sample.
+        m3_ok: Nothing leaked.
+        abs_cap_ok: M1 is under the absolute cap; None when no cap is set.
+        passed: Every criterion holds and no scenario errored.
+        reasons: Why it did not pass (empty when it passed).
+    """
+
     m1_ok: bool | None
     m2_ok: bool | None
     m3_ok: bool
@@ -27,11 +38,21 @@ class Verdict:
 
 @dataclass
 class EngineScore:
+    """An engine's metrics and verdict.
+
+    Attributes:
+        engine_id: Engine name (blinded later in the report).
+        metrics: The run's metrics, averaged over repeats when there are several.
+        verdict: Judgment of `metrics` against all_store.
+        repeats: Per-repeat metrics.
+        flip: Re-run flip rate; None for an engine run once.
+    """
+
     engine_id: str
     metrics: Metrics
     verdict: Verdict
     repeats: list[Metrics]
-    flip: Rate | None = None  # re-run flip rate; None for an engine run once
+    flip: Rate | None = None
 
     @classmethod
     def from_repeats(
@@ -42,12 +63,23 @@ class EngineScore:
         cfg: EvalConfig,
         flip: Rate | None = None,
     ) -> "EngineScore":
+        """Average the repeats (see `averaged`) and judge the result against `base`."""
         metrics = averaged(repeats) if len(repeats) > 1 else repeats[0]
         return cls(engine_id, metrics, judge_engine(metrics, base, cfg), repeats, flip)
 
 
 @dataclass
 class RankEntry:
+    """One position in the ranking.
+
+    Attributes:
+        engine_id: The engine.
+        position: 1-based position.
+        tied_with_previous: The M2 difference from the previous entry is not significant.
+        tiebreak: The tiebreak that separated it from the previous entry, or None.
+        diff_ci: Bootstrap interval of the promote-TP difference from the previous entry.
+    """
+
     engine_id: str
     position: int
     tied_with_previous: bool
@@ -95,8 +127,14 @@ def _mean(values: list[float | None]) -> float | None:
 
 
 def averaged(repeats: list[Metrics]) -> Metrics:
-    """First repeat's metrics, with M1/M2 `value` replaced by the mean over repeats, M3 the worst
-    repeat's and `errors` every scenario that errored in any repeat."""
+    """Combine repeats of one engine into one `Metrics`.
+
+    The first repeat's metrics are kept, except that M1/M2 `value` is the mean over repeats,
+    M3 is the worst repeat's, and `errors` lists every scenario that errored in any repeat.
+
+    Raises:
+        ValueError: If `repeats` is empty.
+    """
     if not repeats:
         raise ValueError("averaged() needs at least one repeat")
     first = repeats[0]
@@ -185,8 +223,11 @@ class _Pairs:
         self._cache: dict[tuple[str, str], tuple[float, float] | None] = {}
 
     def ci(self, a: str, b: str) -> tuple[float, float] | None:
-        """CI of rate(a) - rate(b), derived from one canonical (id-ordered) computation so the
-        answer does not depend on argument order."""
+        """Return the CI of rate(a) - rate(b).
+
+        It is derived from one canonical (id-ordered) computation, so the answer does not
+        depend on argument order.
+        """
         lo_id, hi_id = sorted((a, b))
         key = (lo_id, hi_id)
         if key not in self._cache:
@@ -221,11 +262,21 @@ def _passed_m2(score: EngineScore) -> float:
 def rank(
     scores: list[EngineScore], runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig
 ) -> list[RankEntry]:
-    """Rank passing engines by M2; engines whose promote-TP difference is indistinguishable
-    (95% bootstrap interval contains 0) are ordered by the tiebreak chain.
+    """Rank passing engines by M2.
 
-    Stable insertion sort with a pairwise comparator, so each entry's label describes the
-    criterion that actually separates it from the entry right before it."""
+    Engines whose promote-TP difference is indistinguishable (95% bootstrap interval contains
+    0) are ordered by the tiebreak chain `TIEBREAKS`. This is a stable insertion sort with a
+    pairwise comparator, so each entry's label describes the criterion that actually separates
+    it from the entry right before it.
+
+    Args:
+        scores: Candidate engines; those that did not pass are left out.
+        runs: Engine name to scenario runs, for the bootstrap.
+        cfg: Evaluation config (bootstrap settings).
+
+    Returns:
+        Ranked entries, best first.
+    """
     pairs = _Pairs(runs, cfg)
     # Engines with no M2 sample cannot pass, so every M2 value here is a float.
     order: list[EngineScore] = []

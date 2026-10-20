@@ -20,6 +20,22 @@ def is_wrong(basis: frozenset[str], probe: Probe, scenario: Scenario) -> bool:
 
 
 def judge(probe: Probe, choice: Choice, scenario: Scenario) -> ProbeOutcome:
+    """Judge the outcome of one probe.
+
+    - block probe: acted on a wrong basis -> FP (counts toward M1); otherwise BLOCKED.
+    - promote probe: right basis -> TP (M2), wrong basis -> PROMOTE_FP, abstained -> FN.
+    - leak probe: LEAK_ONLY; only `find_leaks` matters.
+
+    A basis is wrong if any of its facts is false at the probe's time and context.
+
+    Args:
+        probe: The probe.
+        choice: What the agent followed.
+        scenario: The scenario (facts).
+
+    Returns:
+        The outcome label.
+    """
     if probe.kind == "leak":
         return "LEAK_ONLY"
     abstained = choice.index is None or not choice.basis  # nothing to act on
@@ -33,6 +49,14 @@ def judge(probe: Probe, choice: Choice, scenario: Scenario) -> ProbeOutcome:
 
 @dataclass(frozen=True)
 class Leak:
+    """A result the asker should not have received.
+
+    Attributes:
+        result_index: Position of the result in the returned list.
+        event_id: The invisible event it came from, or the event whose secret marker it contains.
+        reason: "source" (a source the asker cannot see) or "secret_marker" (its text contains one).
+    """
+
     result_index: int
     event_id: str
     reason: LeakReason
@@ -44,7 +68,21 @@ def find_leaks(
     scenario: Scenario,
     events: Mapping[str, LabeledEvent],
 ) -> list[Leak]:
-    """Leaks per result, ordered by result then event id (source before secret_marker)."""
+    """Find results the asker was not allowed to see.
+
+    A result leaks if it cites an event the asker cannot see ("source"), or if its text contains
+    a secret marker of such an event recorded by the probe time ("secret_marker"; this catches
+    engines that rewrite text and drop sources). Every probe is checked, not only leak probes.
+
+    Args:
+        results: Search results.
+        probe: The probe (asker and time).
+        scenario: The scenario (teams).
+        events: Event id to labeled event.
+
+    Returns:
+        Leaks ordered by result, then event id, with "source" before "secret_marker".
+    """
     team = scenario.team_of(probe.user)
     hidden = {
         eid: le

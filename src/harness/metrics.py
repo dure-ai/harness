@@ -24,6 +24,35 @@ class FamilyRow(TypedDict):
 
 @dataclass
 class Metrics:
+    """Everything measured for one engine over one run of the scenario set.
+
+    The headline metrics and their breakdowns use read_only scenarios only; feedback scenarios
+    are reported separately in `feedback_by_family`. Errored scenarios are left out of the
+    rates but listed in `errors`, and their leaks still count toward M3.
+
+    Attributes:
+        m1: Block FP rate, the share of block probes where the agent acted on a false fact.
+        m2: Promote TP rate, the share of promote probes where it acted on a true one.
+        m3: Number of leaked results (must be 0).
+        promote_fn: Share of promote probes where it acted on nothing.
+        by_family: M1/M2/M3 per scenario family (read_only).
+        feedback_by_family: The same for feedback scenarios.
+        by_author: M1/M2 per scenario provenance author (human, llm, generator).
+        shallow_fix: Of probes where a root-cause fix is true, the share that followed a workaround.
+        reach: Share of promote probes with at least one result whose basis is all true.
+        contamination: Share of block/promote probes with at least one result carrying a false fact.
+        sourceless: Share of all results that came back without `sources`.
+        retraction: Per fact with `valid_until`, how long it kept showing up in the basis.
+        reflection: Per fact with `valid_from`, how long until it first showed up.
+        worst_family: (family, M1) of the family with the highest M1, or None.
+        errors: Ids of scenarios that errored.
+        context_chars_mean: Mean characters handed over per probe.
+        record_ms_p50: Median `record` latency.
+        record_ms_p95: 95th-percentile `record` latency.
+        search_ms_p50: Median `search` latency.
+        search_ms_p95: 95th-percentile `search` latency.
+    """
+
     m1: Rate
     m2: Rate
     m3: int
@@ -120,8 +149,12 @@ def _shallow_fix(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) -> 
 def _delays(
     runs: list[ScenarioRun], scenarios: Mapping[str, Scenario], *, retraction: bool
 ) -> list[Delay]:
-    """Retraction: first probe at/after valid_until with f in no basis. Reflection: first
-    probe at/after valid_from with f in some basis. `seconds` is None if that never happens."""
+    """Measure how fast facts leave or enter the basis.
+
+    Retraction is the first probe at or after `valid_until` with the fact in no basis.
+    Reflection is the first probe at or after `valid_from` with the fact in some basis.
+    `seconds` is None if that never happens.
+    """
     delays = []
     for run in sorted(runs, key=lambda r: r.scenario_id):
         scenario = scenarios[run.scenario_id]
@@ -155,6 +188,15 @@ def _percentile(values: list[float], p: int) -> float | None:
 
 
 def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) -> Metrics:
+    """Aggregate one engine's scenario runs into `Metrics`.
+
+    Args:
+        runs: One run per scenario, errored ones included.
+        scenarios: Scenario id to scenario, for the hidden labels.
+
+    Returns:
+        The engine's metrics.
+    """
     ok = [r for r in runs if r.error is None]
     errors = sorted(r.scenario_id for r in runs if r.error is not None)
     read_only = [r for r in ok if r.mode == "read_only"]

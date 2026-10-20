@@ -7,7 +7,14 @@ from harness.world import probe_ctx, true_at
 
 
 class OracleEngine(_NamespacedEngine):
-    """Upper bound for the metrics; it is the only engine allowed to see scenario labels."""
+    """Upper bound for the metrics; it is the only engine allowed to see scenario labels.
+
+    For each `about` fact of the probe that is true at the query time, it hands over the most
+    recent visible event stating that fact. Self-check expects M1 = 0 and M2 = 1 from it.
+
+    Args:
+        scenario: The scenario being replayed (its hidden labels).
+    """
 
     def __init__(self, scenario: Scenario) -> None:
         super().__init__()
@@ -18,13 +25,16 @@ class OracleEngine(_NamespacedEngine):
             self._probes.setdefault((p.t, p.user, p.query), p)  # first in file order wins
 
     def info(self) -> EngineInfo:
+        """Return the oracle's engine info."""
         return EngineInfo(name="oracle", version="0.1", sources=True, scopes=True)
 
     def record(self, event: Event) -> None:
+        """Store scenario events; harness-generated feedback events have no label and are ignored."""
         if event.id in self._labeled:  # ignore harness-generated feedback events
             super().record(event)
 
     def search(self, query: Query) -> list[Result]:
+        """Hand over the currently true, visible event for each `about` fact of the matching probe."""
         recorded = self._store()
         probe = self._probes.get((query.t, query.user, query.text))
         if probe is None:

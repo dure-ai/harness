@@ -16,6 +16,14 @@ RUN_ID = "selfcheck"
 
 @dataclass
 class CheckResult:
+    """One self-check.
+
+    Attributes:
+        name: Check name, such as "oracle_perfect".
+        ok: Whether it passed.
+        detail: The measured values (hidden in sealed mode).
+    """
+
     name: str
     ok: bool
     detail: str
@@ -83,6 +91,18 @@ def _repeat_n_beats_oracle(
 def run_selfcheck(
     scenarios: list[Scenario], cfg: EvalConfig
 ) -> tuple[list[CheckResult], dict[str, list[ScenarioRun]]]:
+    """Run the four baselines and check that they order as designed.
+
+    If the baselines do not behave as expected, the scenarios or the harness are wrong, and no
+    engine result on this set should be trusted.
+
+    Args:
+        scenarios: The scenario set.
+        cfg: Evaluation config.
+
+    Returns:
+        The checks, and each baseline's runs (reused for the report).
+    """
     runs = {name: _run_all(name, scenarios, cfg) for name in BASELINES}
     by_id = {s.id: s for s in scenarios}
     metrics = {name: compute_metrics(rs, by_id) for name, rs in runs.items()}

@@ -11,6 +11,13 @@ from harness.scenario.model import Scenario
 
 
 class ScenarioLoadError(Exception):
+    """A scenario file could not be read or validated.
+
+    Attributes:
+        path: The offending file; its name prefixes the message.
+        message: What went wrong.
+    """
+
     def __init__(self, path: Path, message: str):
         super().__init__(f"{path.name}: {message}")
         self.path = path
@@ -19,12 +26,33 @@ class ScenarioLoadError(Exception):
 
 @dataclass
 class ScenarioSet:
+    """The scenarios selected for one run.
+
+    Attributes:
+        scenarios: Loaded scenarios in file order.
+        paths: Their files, in the same order.
+        hash: SHA-256 over (relative path, content hash) of the included files, recorded in
+            reports so a result can be tied to the exact scenario set.
+    """
+
     scenarios: list[Scenario]
     paths: list[Path]
     hash: str
 
 
 def load_scenario(path: Path) -> Scenario:
+    """Read and validate one scenario file.
+
+    Args:
+        path: YAML file to read.
+
+    Returns:
+        The validated scenario.
+
+    Raises:
+        ScenarioLoadError: If the file cannot be read, is not valid YAML, or fails validation
+            (including unknown keys and times without a timezone).
+    """
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as e:
@@ -36,6 +64,20 @@ def load_scenario(path: Path) -> Scenario:
 
 
 def load_set(roots: list[Path], include_drafts: bool) -> ScenarioSet:
+    """Load every scenario under `roots` that is eligible for evaluation.
+
+    Rejected scenarios are always skipped; drafts only with `include_drafts`.
+
+    Args:
+        roots: Directories (searched recursively for *.yaml) or single files.
+        include_drafts: Whether draft scenarios are included.
+
+    Returns:
+        The selected scenarios with their set hash.
+
+    Raises:
+        ScenarioLoadError: If any file fails to load.
+    """
     included = {"approved", "draft"} if include_drafts else {"approved"}
     scenarios: list[Scenario] = []
     paths: list[Path] = []

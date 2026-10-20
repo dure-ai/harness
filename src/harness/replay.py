@@ -19,6 +19,22 @@ EVENT, PROBE = 0, 1  # tie-break order: events at the same time come before prob
 
 @dataclass
 class ProbeRecord:
+    """What happened at one probe.
+
+    Attributes:
+        probe_id: The probe.
+        kind: "block", "promote" or "leak".
+        results: The first k results the engine returned.
+        choice: Which result the agent followed and the facts it acted on.
+        outcome: The judged outcome, see `scoring.judge`.
+        leaks: Results the asker was not allowed to see.
+        bases: Facts each result is judged to state, in result order.
+        contaminated: Some result states a false fact.
+        reached: Some result states only true facts.
+        search_ms: `search` latency.
+        context_chars: Total text length handed over.
+    """
+
     probe_id: str
     kind: str
     results: list[Result]
@@ -34,6 +50,20 @@ class ProbeRecord:
 
 @dataclass
 class ScenarioRun:
+    """One engine's replay of one scenario.
+
+    Attributes:
+        scenario_id: The scenario.
+        family: Its family.
+        mode: "read_only" or "feedback".
+        probes: Probe records in time order.
+        record_ms: Latency of every `record` call.
+        generated: Events the harness generated in feedback mode.
+        error: "ExceptionType: message" if the engine failed; the run stops there.
+        generated_ids: (probe id, "action" | "outcome") to generated event id; harness-side
+            only, never sent to engines.
+    """
+
     scenario_id: str
     family: str
     mode: str
@@ -41,7 +71,6 @@ class ScenarioRun:
     record_ms: list[float] = field(default_factory=list)
     generated: list[LabeledEvent] = field(default_factory=list)
     error: str | None = None
-    # (probe id, "action" | "outcome") -> generated event id; harness-side only, never sent to engines
     generated_ids: dict[tuple[str, str], str] = field(default_factory=dict)
 
 
@@ -53,9 +82,11 @@ class Timeline:
         self._seq = count()
 
     def push(self, t: datetime, order: int, item: LabeledEvent | Probe) -> None:
+        """Add `item` at time `t`; `order` is EVENT or PROBE."""
         heapq.heappush(self._heap, (t, order, next(self._seq), item))
 
     def pop(self) -> tuple[datetime, LabeledEvent | Probe]:
+        """Remove and return the earliest (time, item)."""
         t, _, _, item = heapq.heappop(self._heap)
         return t, item
 
@@ -64,10 +95,12 @@ class Timeline:
 
 
 def push_event(timeline: Timeline, labeled: LabeledEvent) -> None:
+    """Schedule an event at its own time."""
     timeline.push(labeled.event.t, EVENT, labeled)
 
 
 def push_probe(timeline: Timeline, probe: Probe) -> None:
+    """Schedule a probe; it runs after events with the same time."""
     timeline.push(probe.t, PROBE, probe)
 
 
@@ -99,8 +132,20 @@ def _score_probe(
 def generated_event_id(
     scenario: Scenario, probe: Probe, slot: str, taken: Collection[str]
 ) -> str:
-    """Opaque id for a generated event: it names neither the probe nor the harness. A clash with
-    an id in `taken` gets "-2", "-3", ... appended."""
+    """Return an opaque id for a generated event.
+
+    The id names neither the probe nor the harness, so an engine cannot tell generated events
+    apart from scenario events.
+
+    Args:
+        scenario: The scenario being replayed.
+        probe: The probe the event follows.
+        slot: "action" or "outcome".
+        taken: Ids already in use; a clash gets "-2", "-3", ... appended.
+
+    Returns:
+        "e" followed by 12 hex digits, plus a suffix if needed.
+    """
     base = (
         "e"
         + hashlib.sha256(f"{scenario.id}:{probe.id}:{slot}".encode()).hexdigest()[:12]
@@ -144,8 +189,18 @@ def feedback_events(
     cfg: EvalConfig,
     taken: Collection[str] = (),
 ) -> list[tuple[str, LabeledEvent]]:
-    """(slot, event) for the action record and outcome record the simulated agent writes after
-    acting on a probe; event ids avoid every id in `taken`."""
+    """Build the records the simulated agent writes after acting on a probe.
+
+    Args:
+        probe: The probe that was just answered.
+        choice: What the agent followed.
+        scenario: The scenario being replayed.
+        cfg: Evaluation config (default delays).
+        taken: Ids already in use; generated ids avoid them.
+
+    Returns:
+        (slot, event) pairs: the action record, then the outcome record when the agent acted.
+    """
     used = set(taken)
 
     def make(tmpl: FeedbackTemplate, slot: str, delay) -> tuple[str, LabeledEvent]:
@@ -189,6 +244,25 @@ def _as_result(item: object) -> Result:
 def run_scenario(
     engine: BaseEngine, scenario: Scenario, *, run_id: str, cfg: EvalConfig
 ) -> ScenarioRun:
+    """Replay one scenario against a fresh engine in virtual-time order.
+
+    Events and probes are merged on one timeline (events first at equal times). Each event is
+    passed to `record`; each probe calls `flush` then `search`, and the agent's choice is scored.
+    In feedback mode the agent's records are scheduled back onto the timeline. `tick` is called
+    before each step when the engine asks for a virtual clock.
+
+    Errors raised by the engine end this scenario only and are kept in `ScenarioRun.error`;
+    errors in harness code are not caught.
+
+    Args:
+        engine: A new engine instance; `reset` is called with "{run_id}:{scenario id}".
+        scenario: The scenario to replay.
+        run_id: Run identifier used in the namespace.
+        cfg: Evaluation config.
+
+    Returns:
+        The scenario run, partial if the engine failed.
+    """
     run = ScenarioRun(scenario.id, scenario.family, scenario.mode)
     labeled = scenario.labeled_events()
     events: dict[str, LabeledEvent] = {le.event.id: le for le in labeled}
