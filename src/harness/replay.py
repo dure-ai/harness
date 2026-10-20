@@ -4,6 +4,7 @@ import hashlib
 import heapq
 import time
 from collections.abc import Collection
+from datetime import datetime
 from dataclasses import dataclass, field
 from itertools import count
 
@@ -48,15 +49,15 @@ class Timeline:
     """Priority queue keyed by (t, order, seq); seq keeps insertion order and avoids comparing items."""
 
     def __init__(self) -> None:
-        self._heap: list[tuple] = []
+        self._heap: list[tuple[datetime, int, int, LabeledEvent | Probe]] = []
         self._seq = count()
 
-    def push(self, t, order: int, item: LabeledEvent | Probe) -> None:
+    def push(self, t: datetime, order: int, item: LabeledEvent | Probe) -> None:
         heapq.heappush(self._heap, (t, order, next(self._seq), item))
 
-    def pop(self) -> tuple:
-        t, order, _, item = heapq.heappop(self._heap)
-        return t, order, item
+    def pop(self) -> tuple[datetime, LabeledEvent | Probe]:
+        t, _, _, item = heapq.heappop(self._heap)
+        return t, item
 
     def __bool__(self) -> bool:
         return bool(self._heap)
@@ -190,16 +191,20 @@ def run_scenario(
         return run
 
     while timeline:
-        t, order, item = timeline.pop()
-        query = scenario.query_for(item, cfg.k) if order == PROBE else None  # harness code: not wrapped
-        try:
-            if order == EVENT:
+        t, item = timeline.pop()
+        if isinstance(item, LabeledEvent):
+            try:
                 if virtual_clock:
                     engine.tick(t)
                 start = time.perf_counter()
                 engine.record(item.event)
                 run.record_ms.append((time.perf_counter() - start) * 1000)
-                continue
+            except Exception as e:
+                run.error = f"{type(e).__name__}: {e}"
+                return run
+            continue
+        query = scenario.query_for(item, cfg.k)  # harness code: not wrapped, so harness bugs surface
+        try:
             if virtual_clock:
                 engine.tick(t)
             engine.flush()

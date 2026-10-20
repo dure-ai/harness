@@ -154,7 +154,9 @@ def validate_scenario(s: Scenario) -> list[Issue]:
             seen_true = {
                 le.fact
                 for le in recorded
-                if can_see(le.event, p.user, team) and true_at(about[le.fact], p.t, ctx)
+                if le.fact is not None
+                and can_see(le.event, p.user, team)
+                and true_at(about[le.fact], p.t, ctx)
             }
             if not seen_true:
                 error(
