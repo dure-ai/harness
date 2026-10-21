@@ -335,9 +335,10 @@ export OPENAI_API_KEY=...
 export HARNESS_LLM_MODEL=gpt-4.1-mini
 export HARNESS_EMBEDDING_MODEL=text-embedding-3-small
 
-# 2. 두 엔진을 같이 띄운다 (Mem0는 처음에 GitHub에서 서버 코드를 받아 빌드)
-docker compose -f engines/docker/hindsight/compose.yaml up -d
-docker compose -f engines/docker/mem0/compose.yaml up -d --build
+# 2. 두 엔진을 같이 띄운다. --wait는 healthcheck가 통과할 때까지 기다린다
+#    (Mem0는 처음에 GitHub에서 서버 코드를 받아 빌드하므로 첫 번째만 --build를 붙인다)
+docker compose -f engines/docker/hindsight/compose.yaml up -d --wait
+docker compose -f engines/docker/mem0/compose.yaml up -d --wait --build
 
 # 3. 한 번의 실행에 두 엔진을 넣는다 (리포트에는 블라인드 id E1, E2로 나온다)
 uv run harness run --scenarios scenarios/dev --engine hindsight --engine mem0
@@ -347,6 +348,16 @@ docker compose -f engines/docker/hindsight/compose.yaml down -v
 docker compose -f engines/docker/mem0/compose.yaml down -v
 ```
 
+- **측정 전에 첫 실제 연결 점검을 하세요.** 한 번도 실제 컨테이너로 돌려 보지 않은 가정이 있습니다. 2번 직후, 3번 전에 아래를 확인하고 결과를 남깁니다.
+  - [ ] Mem0: 질문하는 사람의 개인 기록과 팀 기록은 `OR` 필터로 나오고, 다른 사람의 개인 기록은 나오지 않는다.
+  - [ ] Hindsight: 태그 범위(`any_strict`)가 같은 결과를 낸다. 위와 같은 세 기록으로 확인한다.
+  - [ ] 두 컨테이너를 같이 띄운 메모리 사용량(`docker stats --no-stream`)이 이 컴퓨터에 충분하다.
+  - [ ] 두 이미지가 arm64(Apple Silicon)에서 받아지고 에뮬레이션 없이 돈다.
+  - [ ] Hindsight가 임베딩 차원 설정을 따로 요구하는지 본다(`text-embedding-3-small`은 1536차원). 요구하면 compose에 넣는다.
+  - [ ] 시나리오 하나가 끝나는 데 걸리는 시간을 재서 전체 실행 시간(시나리오 수 x 반복 x 엔진 2개)을 어림한다.
+  - [ ] Hindsight가 실제로 쓰는 모델은 API로 읽을 수 없어 확인하지 못한다. 환경 변수와 컨테이너 설정이 같은지 눈으로 대조한다.
+
+  앞의 두 항목은 `HARNESS_LIVE_OSS=1 uv run pytest tests/test_oss_live.py`의 범위 시험(`test_live_scope_isolation`)이 자동으로 확인합니다.
 - 시나리오가 아직 초안이면 3번에 `--include-drafts`가 필요합니다. 승인된 시나리오만 있으면 빼세요.
 - 포트는 `127.0.0.1:8888`(Hindsight)과 `127.0.0.1:8890`(Mem0)에만 열립니다. 주소를 바꾸려면 `HARNESS_HINDSIGHT_URL`, `HARNESS_MEM0_URL`을 쓰며, 어댑터는 `localhost`, `127.0.0.1`, `[::1]` 밖의 주소와 37701, 37777 포트를 거부합니다.
 - 어댑터는 시작할 때 `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`이 `config/eval-v0.1.yaml`의 `llm` 값과 같은지 확인하고, 다르면 실행 전에 멈춥니다. 키 값은 코드, 로그, 리포트 어디에도 남지 않습니다.
