@@ -216,6 +216,92 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 uv run harness scenario new --family truth_change --seed 1 [--out scenarios/dev]
 ```
 
+## 처음부터 끝까지: 생성 → 검토 → 실행 → 판단
+
+실제 궤적으로 초안을 만들고, 사람이 검토하고, 승인한 세트로 하네스를 돌려 결과를 보는 순서입니다. 첫 묶음은 작게 만들어 초안 품질과 비용을 본 뒤 목표 개수를 정합니다.
+
+### 0. 준비
+
+```bash
+uv sync --extra gen
+export ANTHROPIC_API_KEY=...        # 키는 각자 셸에만 넣습니다. 파일·커밋에 남기지 않습니다
+uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 보여 주고 부르지 않음: 프롬프트와 설정 확인
+```
+
+### 1. 첫 묶음 만들기 (계열당 1개)
+
+```bash
+uv run harness traces fetch --config v1.2 --split minisweagent --shard 0   # 처음 한 번
+uv run harness generate --family all --n 1 --max-traces 10 --seed 20261020
+```
+
+끝나면 요약이 나옵니다.
+
+```
+요청 10개 중 8개 생성
+  거절 5건: ~/.cache/t5-harness/runs/<실행 id>/rejected.jsonl
+  부족 <계열>: 0 of 1 made; looked at 10 traces and 4 candidates; 3 drafts rejected
+  --max-traces 10에서 후보 뽑기를 멈췄습니다. 더 만들려면 값을 올리세요.
+  first LLM error: ...
+저장 위치: scenarios/dev
+```
+
+| 줄 | 뜻과 할 일 |
+|---|---|
+| `요청 N개 중 M개 생성` | 초안은 `scenarios/dev/<계열>/<id>.yaml`(`draft`)에 저장됩니다 |
+| `거절 N건: <경로>` | 자동 검증에서 버려진 후보와 초안. 한 줄에 `stage`, `code`, `message`, `trace_id`, `family`. 예: `jq -r '[.family, .code] \| @tsv' <경로> \| sort \| uniq -c` |
+| `부족 <계열>: ...` | 목표를 못 채운 계열과 이유(궤적이 맞지 않음, 초안 거절, `--max-attempts` 한도) |
+| `--max-traces ...에서 멈췄습니다` | 후보를 뽑을 궤적 수 한도에 닿음. 첫 묶음에서는 정상이고, 더 만들 때 값을 올립니다 |
+| `이미 검토된 파일이라 건너뜀` | 승인·거절했거나 검토자가 고친 파일은 다시 생성해도 덮어쓰지 않습니다 |
+| `first LLM error:` | 처음 난 LLM 오류. 인증·모델 이름·연결 오류면 실행이 바로 멈춥니다(종료 코드 2) |
+
+같은 시드와 같은 캐시로 다시 돌리면 같은 id와 같은 초안이 나옵니다(파일마다 다른 것은 `generated_at` 한 줄). LLM 응답은 캐시(`~/.cache/t5-harness/llm/`)에서 다시 쓰므로 비용이 다시 들지 않습니다. 새 초안이 필요하면 `--seed`를 바꿉니다.
+
+### 2. 검토하기
+
+```bash
+uv run harness review list          # 초안 목록과 자동 검증 경고
+uv run harness review show <id>     # 정답표, 이벤트·문항 흐름, 기준선 미리보기
+uv run harness review edit <id>     # 글만 고침
+uv run harness review set <id> approved --reviewer 이름
+uv run harness review set <id> rejected --reviewer 이름 --note "이유"
+```
+
+`show`에서 볼 것:
+
+- **정답표가 말이 되는가**: 사실마다 참인 기간과 조건, 지어낸 사실 표시가 계열 설명과 맞는지.
+- **본문에 정답 단서가 없는가**: "outdated", "rumor"처럼 답을 알려 주는 말이 없는지(자동 검사도 하지만 사람이 한 번 더).
+- **판정 문자열(`markers`)이 본문 표현과 맞는가**: 출처를 안 주는 엔진은 이 문자열로 채점됩니다.
+- **기준선 미리보기**: `oracle`은 모든 문항을 맞히고, `all_store`는 막아야 할 문항에서 틀려야 변별력이 있습니다.
+
+정답 구조가 틀렸으면 고치지 말고 거절합니다. 검토가 끝난 파일은 git으로 모읍니다(`scenarios/dev/`를 커밋).
+
+### 3. 첫 묶음으로 목표 정하기
+
+첫 묶음 초안 중 **사람 검토에서 절반 넘게 거절되면 목표를 15쌍으로 줄이고**, 아니면 `--n 4`로 다시 생성해 40쌍 안팎을 만든 뒤 30쌍을 승인합니다(설계 1장).
+
+```bash
+uv run harness generate --family all --n 4 --seed 20261020 --max-traces 100
+```
+
+- 자동 거절이 많은 계열은 `rejected.jsonl`의 `code`를 보고 원인을 찾습니다. 같은 이유가 반복되면 그 계열의 후보나 프롬프트 문제입니다.
+- 같은 시드면 첫 묶음과 같은 id가 다시 나옵니다. 이미 검토한 파일은 건너뛰고 목표 개수에 포함되며, 검토하지 않은 초안은 같은 내용으로 다시 써집니다.
+
+### 4. 승인한 세트로 하네스 돌리기
+
+```bash
+uv run harness scenario check scenarios/dev
+uv run harness selfcheck --scenarios scenarios/dev
+uv run harness run --scenarios scenarios/dev --out runs
+```
+
+`--include-drafts` 없이 돌리면 승인한 시나리오만 들어가고, 리포트 맨 위에 초안 경고가 붙지 않습니다. 결과를 읽는 법은 위 [동작 확인과 결과 읽기](#동작-확인과-결과-읽기)를 보세요. 생성한 세트에서 특히 확인할 것:
+
+- **자가 검증이 모두 `PASS`**: 실패하면 그 검사에 걸린 계열의 시나리오를 `review show`의 기준선 미리보기로 다시 봅니다. 예를 들어 `oracle_perfect`가 실패하면 정답표와 판정 문자열이 맞지 않는 시나리오가 있다는 뜻입니다.
+- **기준선 판정이 예시 세트와 같은 모양**: `oracle`만 통과하고 `none`·`all_store`·`repeat_n`은 탈락.
+- **계열별 표에 모든 계열이 있는가**: 빠진 계열은 생성이나 검토에서 다 떨어진 것입니다.
+- **출처별 표**: 생성기로 만든 것(`llm`)과 사람이 쓴 것(`human`)의 M1·M2가 크게 다르면 생성 초안이 너무 쉽거나 어렵다는 신호입니다.
+
 ## 시나리오 형식
 
 YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, 문항(`block` / `promote` / `leak`)의 형식과 계열별 틀은 설계 문서 [5장](docs/specs/2026-10-19-memory-eval-harness-design.md#5-시나리오-형식)을 보세요. 시각은 모두 시간대를 포함해야 합니다(예: `2026-10-09T14:00+09:00`). 시나리오 `id`는 영문자·숫자로 시작하고 영문자·숫자·`.`·`_`·`-`만 쓰며 120자 이하입니다. 같은 키를 두 번 쓰면(중복 키) 로드 오류입니다.
