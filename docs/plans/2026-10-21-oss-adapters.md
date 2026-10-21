@@ -22,7 +22,7 @@
 - 모델: `llm.provider: openai`, `llm.model: gpt-4.1-mini`, `llm.embedding_model: text-embedding-3-small`. 환경 변수 `OPENAI_API_KEY`, `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`, 선택 `OPENAI_BASE_URL`. 키 값은 코드, 로그, 리포트, 커밋 어디에도 남기지 않는다.
 - 어댑터 주소 환경 변수: `HARNESS_HINDSIGHT_URL`(기본 `http://127.0.0.1:8888`), `HARNESS_MEM0_URL`(기본 `http://127.0.0.1:8890`).
 - HTTP: 요청 시간 제한 120초. 429·502·503·504·연결 실패·시간 초과는 2, 8, 30초 간격으로 최대 세 번 다시 시도한다. 그 밖의 오류는 바로 `EngineHTTPError`.
-- 모든 공개 함수·클래스는 Google 스타일 docstring(ruff `D` 규칙). 검사: `uv run ruff check`, `uv run basedpyright`, `uv run pytest -q`가 모두 통과해야 한다.
+- 모든 공개 함수·클래스는 Google 스타일 docstring(ruff `D` 규칙). 검사: `uvx ruff check`, `uvx basedpyright`, `uv run pytest -q`가 모두 통과해야 한다.
 - 커밋 메시지 끝에 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - 사용자의 실제 claude-mem이나 다른 실제 메모리에 연결하지 않는다. 테스트는 실제 네트워크를 쓰지 않는다(실제 연결 점검 테스트 제외).
 
@@ -129,7 +129,7 @@ def test_units():
 
 - [ ] **Step 2: 실패 확인** — Run: `uv run pytest tests/test_oss_text.py -q` / Expected: `ModuleNotFoundError: harness.oss`
 - [ ] **Step 3: 구현** — 위 Interfaces의 다섯 함수. 신호 문구는 모듈 상수 dict `(signal, outcome) -> str`.
-- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_text.py -q && uv run ruff check src/harness/oss` / Expected: 모두 통과
+- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_text.py -q && uvx ruff check src/harness/oss` / Expected: 모두 통과
 - [ ] **Step 5: 커밋** — `git add src/harness/oss tests/test_oss_text.py && git commit -m "feat: shared body format and namespace hash for OSS adapters"`
 
 ---
@@ -219,7 +219,7 @@ def test_models_env_mismatch():
 
 - [ ] **Step 2: 실패 확인** — Run: `uv run pytest tests/test_oss_http.py -q` / Expected: import 오류
 - [ ] **Step 3: 구현** — `urllib.request.urlopen(req, timeout=...)`. `HTTPError`는 상태 코드로, `URLError`·`TimeoutError`·`ConnectionError`는 `status=None`으로 다룬다. 재시도 대상이면 `retry_delays`의 다음 값만큼 `sleep` 후 다시 보낸다.
-- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_http.py -q && uv run ruff check src/harness/oss && uv run basedpyright src/harness/oss` / Expected: 모두 통과
+- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_http.py -q && uvx ruff check src/harness/oss && uvx basedpyright src/harness/oss` / Expected: 모두 통과
 - [ ] **Step 5: 커밋** — `git add src/harness/oss tests/oss_fakes.py tests/test_oss_http.py && git commit -m "feat: local-only JSON client with bounded retries and model check"`
 
 ---
@@ -319,7 +319,7 @@ def test_info(engine):
 
 - [ ] **Step 2: 실패 확인** — Run: `uv run pytest tests/test_oss_hindsight.py -q` / Expected: import 오류
 - [ ] **Step 3: 구현** — 위 동작. 이벤트 id 집합은 `reset`에서 비우고 `record`에서 채운다.
-- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_hindsight.py tests/test_oss_http.py -q && uv run ruff check && uv run basedpyright` / Expected: 모두 통과
+- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_hindsight.py tests/test_oss_http.py -q && uvx ruff check && uvx basedpyright` / Expected: 모두 통과
 - [ ] **Step 5: 커밋** — `git add src/harness/oss/hindsight.py tests/oss_fakes.py tests/test_oss_hindsight.py && git commit -m "feat: Hindsight adapter with tag scopes and document-id sources"`
 
 ---
@@ -388,7 +388,7 @@ def test_info(engine):
 
 - [ ] **Step 2: 실패 확인** — Run: `uv run pytest tests/test_oss_mem0.py -q` / Expected: import 오류
 - [ ] **Step 3: 구현** — 위 동작.
-- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_mem0.py -q && uv run ruff check && uv run basedpyright` / Expected: 모두 통과
+- [ ] **Step 4: 통과 확인** — Run: `uv run pytest tests/test_oss_mem0.py -q && uvx ruff check && uvx basedpyright` / Expected: 모두 통과
 - [ ] **Step 5: 커밋** — `git add src/harness/oss/mem0.py tests/oss_fakes.py tests/test_oss_mem0.py && git commit -m "feat: Mem0 adapter with run_id scenarios and metadata sources"`
 
 ---
@@ -440,7 +440,7 @@ def test_no_hidden_labels_reach_engines(tmp_path, fakes_env, hindsight_fake, mem
 
 - [ ] **Step 2: 실패 확인** — Run: `uv run pytest tests/test_oss_cli.py -q` / Expected: `unknown engine 'hindsight'`로 실패
 - [ ] **Step 3: 구현** — `engines.py`의 `match`에 두 이름 추가, 설정 파일 변경, `--engine` 도움말을 `"Extra engine: 'hindsight', 'mem0' or 'pkg.module:Class' (repeatable). Baselines always run."`으로.
-- [ ] **Step 4: 통과 확인** — Run: `uv run pytest -q && uv run ruff check && uv run basedpyright` / Expected: 전체 통과(기존 테스트 포함)
+- [ ] **Step 4: 통과 확인** — Run: `uv run pytest -q && uvx ruff check && uvx basedpyright` / Expected: 전체 통과(기존 테스트 포함)
 - [ ] **Step 5: 커밋** — `git add -A src config tests && git commit -m "feat: register hindsight and mem0 engines; eval config pins OpenAI models"`
 
 ---
@@ -480,7 +480,7 @@ def test_live_examples_both_engines(tmp_path):
   - `docs/ARCHITECTURE.md`에 `harness.oss` 패키지 한 단락(공통 부분과 어댑터 두 개, 가짜 서버 테스트).
   - 설계 문서: 1장 6번과 10장 제목·첫 줄을 "Hindsight, Mem0(설계 3 참고)"로, 10장 본문 맨 위에 "구현 세부와 변경은 `2026-10-21-oss-adapters-design.md`를 따른다", 14장 6번을 "(Graphiti, Letta, Cognee, claude-mem)"으로, 17장 일정 행의 Graphiti를 Mem0로.
   - 설계 3 4장의 Mem0 위치 줄을 `engines/docker/mem0/compose.yaml`(빌드 정의는 `dockerfile_inline`), `engines/docker/mem0/init-db.sh`로 고친다.
-- [ ] **Step 6: 전체 확인** — Run: `uv run pytest -q && uv run ruff check && uv run basedpyright` / Expected: 전체 통과, live 1개 skipped
+- [ ] **Step 6: 전체 확인** — Run: `uv run pytest -q && uvx ruff check && uvx basedpyright` / Expected: 전체 통과, live 1개 skipped
 - [ ] **Step 7: 커밋** — `git add engines tests/test_oss_live.py README.md docs && git commit -m "feat: docker setup, live check and docs for Hindsight and Mem0"`
 
 ---
