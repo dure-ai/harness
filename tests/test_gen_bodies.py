@@ -95,6 +95,16 @@ def test_evidence_and_provenance_written() -> None:
     assert p.fabricated_facts == sk.scenario.provenance.fabricated_facts
 
 
+def test_provenance_records_the_model_that_served_the_reply() -> None:
+    sk = _skeleton()
+    client = _client(_reply(sk))
+    client.last_model = "fallback-model-7"
+    s = write_bodies(client, sk, _cand(), [], _gen())
+    assert s.provenance.llm_model == "fallback-model-7"
+    plain = write_bodies(_client(_reply(sk)), sk, _cand(), [], _gen())
+    assert plain.provenance.llm_model == "fake"  # nothing reported: the configured model
+
+
 def test_quoted_evidence_without_traces_has_no_trace_id() -> None:
     sk = _skeleton(traces=[])
     reply = _reply(sk)

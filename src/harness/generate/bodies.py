@@ -53,8 +53,8 @@ def write_bodies(
         gen: Generation config (prompt version and banned cue words).
 
     Returns:
-        The scenario with text filled in and provenance written: author `llm`, provider, model,
-        prompt version, time of generation and one evidence record per event.
+        The scenario with text filled in and provenance written: author `llm`, provider, the model
+        that served the reply (the configured one when the provider does not say), prompt version, time of generation and one evidence record per event.
 
     Raises:
         LLMError: If the call fails or the reply is still invalid after one retry.
@@ -83,7 +83,7 @@ def write_bodies(
     prov = s.provenance
     prov.author = "llm"
     prov.provider = client.name
-    prov.llm_model = client.model
+    prov.llm_model = client.last_model or client.model
     prov.prompt_version = gen.prompt_version
     prov.generated_at = datetime.now(UTC)
     prov.evidence = evidence

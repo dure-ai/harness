@@ -444,3 +444,66 @@ def test_timeouts_are_not_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(LLMError) as exc:
         OpenAIClient(_cfg(provider="openai"), sdk=sdk).complete_json("k", "s", "u", Out)
     assert exc.value.fatal is False
+
+
+# ---- empty and truncated replies ----------------------------------------------------------------
+
+
+def test_openai_empty_choices_is_a_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    sdk, rec = _openai_sdk(SimpleNamespace(choices=[], model="m"), [])
+    with pytest.raises(LLMError, match="no choices") as exc:
+        OpenAIClient(_cfg(provider="openai"), sdk=sdk).complete_json("k", "s", "u", Out)
+    assert exc.value.fatal is False
+    assert len(rec.calls) == 1
+
+
+def test_anthropic_max_tokens_is_truncation_without_retry() -> None:
+    sdk, rec = _anthropic_sdk(_anthropic_reply('{"ok": tr', stop_reason="max_tokens"))
+    with pytest.raises(LLMError, match="reply truncated at max_output_tokens") as exc:
+        AnthropicClient(_cfg(), sdk=sdk).complete_json("k", "s", "u", Out)
+    assert exc.value.fatal is False
+    assert len(rec.calls) == 1
+
+
+def test_openai_length_is_truncation_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    choice = SimpleNamespace(message=SimpleNamespace(content='{"ok": tr'), finish_reason="length")
+    sdk, rec = _openai_sdk(SimpleNamespace(choices=[choice], model="m"), [])
+    with pytest.raises(LLMError, match="reply truncated at max_output_tokens") as exc:
+        OpenAIClient(_cfg(provider="openai"), sdk=sdk).complete_json("k", "s", "u", Out)
+    assert exc.value.fatal is False
+    assert len(rec.calls) == 1
+
+
+# ---- the model that served the reply ------------------------------------------------------------
+
+
+def test_anthropic_and_openai_report_the_served_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply = _anthropic_reply('{"ok": true}')
+    reply.model = "claude-fallback-1"
+    sdk, _ = _anthropic_sdk(reply)
+    client = AnthropicClient(_cfg(), sdk=sdk)
+    assert client.last_model is None
+    client.complete_json("k", "s", "u", Out)
+    assert client.last_model == "claude-fallback-1"
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    oreply = _openai_reply('{"ok": true}')
+    oreply.model = "gpt-served-2"
+    sdk, _ = _openai_sdk(oreply, [])
+    oclient = OpenAIClient(_cfg(provider="openai"), sdk=sdk)
+    oclient.complete_json("k", "s", "u", Out)
+    assert oclient.last_model == "gpt-served-2"
+
+
+def test_cache_keeps_the_served_model(tmp_path: Path) -> None:
+    inner = FakeClient(responders={"k": lambda s, u: {"ok": True}})
+    inner.last_model = "served-1"
+    first = CachedClient(inner, tmp_path, "v1")
+    first.complete_json("k", "s", "u", Out)
+    assert first.last_model == "served-1"
+    inner.last_model = None
+    again = CachedClient(inner, tmp_path, "v1")
+    assert again.complete_json("k", "s", "u", Out) == Out(ok=True)
+    assert again.hits == 1 and again.last_model == "served-1"

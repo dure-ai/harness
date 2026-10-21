@@ -26,6 +26,7 @@ _FATAL_ERRORS = {
 }
 """SDK errors (both providers) after which every other request would fail the same way."""
 _TRANSIENT_ERRORS = frozenset({"APITimeoutError"})  # a subclass of APIConnectionError
+_TRUNCATED = "reply truncated at max_output_tokens"
 
 
 class LLMError(Exception):
@@ -53,10 +54,13 @@ class LLMClient(Protocol):
     Attributes:
         name: Provider name (`anthropic`, `openai`, `fake`).
         model: Model name.
+        last_model: Model that served the last reply, when the provider reported it (a
+            server-side fallback can answer with another model); None otherwise.
     """
 
     name: str
     model: str
+    last_model: str | None
 
     def complete_json(
         self,
@@ -125,6 +129,7 @@ class FakeClient:
     Attributes:
         name: Always `fake`.
         model: Always `fake`.
+        last_model: None unless a test sets it.
         requests: Every `(kind, system, user)` asked, retries included.
     """
 
@@ -146,6 +151,7 @@ class FakeClient:
         self._queues = {kind: list(items) for kind, items in (responses or {}).items()}
         self._responders = dict(responders or {})
         self.requests: list[tuple[str, str, str]] = []
+        self.last_model: str | None = None
 
     def complete_json(
         self,
@@ -188,12 +194,13 @@ class FakeClient:
 class CachedClient:
     """Stores validated replies on disk so a repeated request is free.
 
-    Only replies that passed the schema and `validate` are stored. A stored reply that
-    fails the current `validate` counts as a miss.
+    Only replies that passed the schema and `validate` are stored, together with the model
+    that served them. A stored reply that fails the current `validate` counts as a miss.
 
     Attributes:
         name: Provider name of the wrapped client.
         model: Model name of the wrapped client.
+        last_model: Model that served the last reply, from the wrapped client or the cache.
         calls: Requests forwarded to the wrapped client.
         hits: Requests answered from disk.
     """
@@ -211,6 +218,7 @@ class CachedClient:
         self._prompt_version = prompt_version
         self.name = inner.name
         self.model = inner.model
+        self.last_model: str | None = None
         self.calls = 0
         self.hits = 0
 
@@ -252,25 +260,36 @@ class CachedClient:
         path = self._dir / f"{self._key(kind, system, user, schema)}.json"
         if path.is_file():
             try:
-                cached = schema.model_validate_json(path.read_text(encoding="utf-8"))
+                entry = json.loads(path.read_text(encoding="utf-8"))
+                cached = schema.model_validate(entry["reply"])
+                served = entry.get("served_model")
                 if validate is not None:
                     validate(cached)
-            except (ValueError, OSError):
+            except (ValueError, OSError, KeyError, TypeError, AttributeError):
                 pass  # unreadable, stale or no longer valid: ask again
             else:
                 self.hits += 1
+                self.last_model = served if isinstance(served, str) else None
                 return cached
         self.calls += 1
         value = self._inner.complete_json(kind, system, user, schema, validate)
+        self.last_model = self._inner.last_model
+        entry = {"served_model": self.last_model, "reply": value.model_dump(mode="json")}
         self._dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(value.model_dump_json(), encoding="utf-8")
+        tmp.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
         return value
 
 
 def _is_auth_error(exc: BaseException) -> bool:
     return any(cls.__name__ in _AUTH_ERRORS for cls in type(exc).__mro__)
+
+
+def _served(reply: Any) -> str | None:
+    """The model an SDK reply names, if it names one."""
+    model = getattr(reply, "model", None)
+    return model if isinstance(model, str) and model else None
 
 
 def _api_error(provider: str, exc: Exception) -> LLMError:
@@ -292,6 +311,7 @@ class AnthropicClient:
     Attributes:
         name: Always `anthropic`.
         model: Model name from the config.
+        last_model: Model named in the last reply (`message.model`).
     """
 
     name = "anthropic"
@@ -309,6 +329,7 @@ class AnthropicClient:
             import anthropic as sdk
         self._cfg = cfg
         self.model = cfg.model
+        self.last_model: str | None = None
         self._client = sdk.Anthropic(**({"base_url": cfg.base_url} if cfg.base_url else {}))
 
     def _send(self, system: str, user: str, schema: dict[str, Any]) -> str:
@@ -333,8 +354,11 @@ class AnthropicClient:
                     f"anthropic: authentication failed; set {self._KEY_HINT}", fatal=True
                 ) from exc
             raise _api_error("anthropic", exc) from exc
+        self.last_model = _served(reply)
         if reply.stop_reason == "refusal":
             raise LLMError("anthropic: the model refused this request")
+        if reply.stop_reason == "max_tokens":
+            raise LLMError(f"anthropic: {_TRUNCATED} ({self._cfg.max_output_tokens})")
         return "".join(block.text for block in reply.content if block.type == "text")
 
     def complete_json(
@@ -373,6 +397,7 @@ class OpenAIClient:
     Attributes:
         name: Always `openai`.
         model: Model name from the config.
+        last_model: Model named in the last reply (`completion.model`).
     """
 
     name = "openai"
@@ -396,6 +421,7 @@ class OpenAIClient:
             import openai as sdk
         self._cfg = cfg
         self.model = cfg.model
+        self.last_model: str | None = None
         self._client = sdk.OpenAI(base_url=cfg.base_url, api_key=key)
 
     def _send(self, system: str, user: str) -> str:
@@ -415,7 +441,13 @@ class OpenAIClient:
                     f"openai: authentication failed; check {self._env}", fatal=True
                 ) from exc
             raise _api_error("openai", exc) from exc
-        return reply.choices[0].message.content or ""
+        self.last_model = _served(reply)
+        if not reply.choices:
+            raise LLMError("openai: the reply has no choices")
+        choice = reply.choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            raise LLMError(f"openai: {_TRUNCATED}")
+        return choice.message.content or ""
 
     def complete_json(
         self,

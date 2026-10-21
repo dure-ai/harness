@@ -101,6 +101,7 @@ class DryRunClient:
     Attributes:
         name: Provider name shown for the run.
         model: Model name shown for the run.
+        last_model: Always None.
     """
 
     def __init__(self, name: str, model: str) -> None:
@@ -112,6 +113,7 @@ class DryRunClient:
         """
         self.name = name
         self.model = model
+        self.last_model: str | None = None
 
     def complete_json(
         self,
