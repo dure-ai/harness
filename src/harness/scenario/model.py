@@ -6,7 +6,7 @@ Hidden labels are the ground truth used only for scoring and are never sent to e
 """
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
@@ -206,3 +206,22 @@ class Scenario(_Strict):
             k=probe.k or k,
             meta=probe.meta,
         )
+
+
+QueryKey = tuple[datetime, str, str, str, str, tuple[tuple[str, str], ...]]
+
+
+def query_key(query: Query) -> QueryKey:
+    """Identify a question by everything an engine sees of it except `k` and the asker's team.
+
+    Two probes with the same key are the same question to an engine, so they must not carry
+    different labels (`validate_scenario` rejects them). `meta` is sorted so key order does not
+    matter.
+    """
+    return (query.t, query.user, query.session, query.repo, query.text, tuple(sorted(query.meta.items())))
+
+
+def probe_key(probe: Probe) -> QueryKey:
+    """The `query_key` of the query this probe produces (see `Scenario.query_for`)."""
+    return (probe.t, probe.user, probe.session, probe.repo, probe.query, tuple(sorted(probe.meta.items())))
+

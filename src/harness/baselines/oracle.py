@@ -2,7 +2,7 @@
 
 from harness.baselines.simple import _NamespacedEngine
 from harness.contract import EngineInfo, Event, Query, Result, can_see
-from harness.scenario.model import LabeledEvent, Scenario
+from harness.scenario.model import LabeledEvent, Probe, QueryKey, Scenario, probe_key, query_key
 from harness.world import probe_ctx, true_at
 
 
@@ -20,9 +20,8 @@ class OracleEngine(_NamespacedEngine):
         super().__init__()
         self._scenario = scenario
         self._labeled: dict[str, LabeledEvent] = {le.event.id: le for le in scenario.labeled_events()}
-        self._probes = {}
-        for p in scenario.probes:
-            self._probes.setdefault((p.t, p.user, p.query), p)  # first in file order wins
+        # Probes with the same key are rejected by validate_scenario, so the key is unique.
+        self._probes: dict[QueryKey, Probe] = {probe_key(p): p for p in scenario.probes}
 
     def info(self) -> EngineInfo:
         """Return the oracle's engine info."""
@@ -36,7 +35,7 @@ class OracleEngine(_NamespacedEngine):
     def search(self, query: Query) -> list[Result]:
         """Hand over the currently true, visible event for each `about` fact of the matching probe."""
         recorded = self._store()
-        probe = self._probes.get((query.t, query.user, query.text))
+        probe = self._probes.get(query_key(query))
         if probe is None:
             return []
         ctx = probe_ctx(probe)

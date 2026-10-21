@@ -10,7 +10,9 @@ from harness.scenario.model import (
     FEEDBACK_FAMILIES,
     Feedback,
     FeedbackTemplate,
+    QueryKey,
     Scenario,
+    probe_key,
 )
 from harness.world import probe_ctx, true_at
 
@@ -74,6 +76,17 @@ def validate_scenario(s: Scenario) -> list[Issue]:
         for dup, n in Counter(ids).items():
             if n > 1:
                 error("duplicate_id", f"{kind} id {dup!r} appears {n} times")
+
+    same_context: dict[QueryKey, list[str]] = {}
+    for p in s.probes:
+        same_context.setdefault(probe_key(p), []).append(p.id)
+    for ids in same_context.values():
+        if len(ids) > 1:
+            error(
+                "duplicate_probe_context",
+                f"probes {', '.join(ids)} ask the same question in the same context "
+                "(time, user, session, repo, query, meta); an engine cannot tell them apart",
+            )
 
     for e in s.events:
         if e.fact is not None and e.fact not in s.facts:

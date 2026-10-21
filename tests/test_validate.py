@@ -212,3 +212,29 @@ def test_ref_not_earlier(ref):
         ev("e4", T("10-10 09:00")),
     ])
     assert codes(s) == {"ref_not_earlier"}
+
+
+def errors(s) -> list[Issue]:
+    return [i for i in validate_scenario(s) if i.level == "error"]
+
+
+def twin(**kw):
+    """A second probe asked at the same time and by the same user as `promote()`."""
+    return probe("p_twin", "promote", T("10-14 11:00"), kw.pop("about", ["f_new"]), **kw)
+
+
+@pytest.mark.parametrize("first, second", [
+    ({}, {"about": ["f_new", "f_old"]}),                                  # only about differs
+    ({"meta": {"a": "1", "b": "2"}}, {"meta": {"b": "2", "a": "1"}}),  # only meta order differs
+    ({}, {"k": 3}),                                                    # only k differs
+    ({}, {}),                                                          # labels identical too
+])
+def test_probes_with_same_query_context_are_rejected(first, second):
+    found = errors(base(probes=[block(), promote(query="same", **first), twin(query="same", **second)]))
+    assert [i.code for i in found] == ["duplicate_probe_context"]
+    assert "p_promote" in found[0].message and "p_twin" in found[0].message
+
+
+@pytest.mark.parametrize("context", [{"repo": "r2"}, {"session": "s2"}, {"meta": {"service": "api"}}])
+def test_probes_in_other_context_are_not_duplicates(context):
+    assert errors(base(probes=[block(), promote(query="same"), twin(query="same", **context)])) == []

@@ -2,6 +2,7 @@ import pytest
 
 from harness.baselines.oracle import OracleEngine
 from harness.contract import Event
+from harness.scenario.validate import validate_scenario
 from tests.factories import T, ev, fact, probe, scenario
 
 
@@ -100,17 +101,31 @@ def test_oracle_k_limit_and_about_order():
     assert [r.sources for r in eng.search(q)] == [["e2"], ["e0"]]
 
 
-def test_oracle_first_probe_wins_on_duplicate_key():
+@pytest.mark.parametrize("context", [{"repo": "r2"}, {"session": "s2"}, {"meta": {"service": "api"}}])
+def test_oracle_tells_apart_probes_with_same_text_in_other_context(context):
     facts = {"f1": fact(text="a"), "f2": fact(text="b")}
     events = [ev("e1", T("10-01 10:00"), fact="f1"), ev("e2", T("10-01 10:00"), fact="f2")]
     probes = [
-        probe("p1", "block", T("10-14 10:00"), ["f1"], query="same"),
-        probe("p2", "block", T("10-14 10:00"), ["f2"], query="same"),
+        probe("p1", "promote", T("10-14 10:00"), ["f1"], query="same"),
+        probe("p2", "promote", T("10-14 10:00"), ["f2"], query="same", **context),
     ]
-    sc = scenario(facts, events, probes)
+    sc = scenario(facts, events, probes, family="normal_repeat")
+    assert [i for i in validate_scenario(sc) if i.level == "error"] == []
     eng = OracleEngine(sc)
     record_all(eng, sc)
-    assert [r.sources for r in eng.search(sc.query_for(sc.probes[1], 5))] == [["e1"]]
+    assert [r.sources for r in eng.search(sc.query_for(sc.probes[0], 5))] == [["e1"]]
+    assert [r.sources for r in eng.search(sc.query_for(sc.probes[1], 5))] == [["e2"]]
+
+
+def test_oracle_key_ignores_meta_order():
+    facts = {"f1": fact(text="a")}
+    events = [ev("e1", T("10-01 10:00"), fact="f1")]
+    probes = [probe("p1", "promote", T("10-14 10:00"), ["f1"], query="q", meta={"a": "1", "b": "2"})]
+    sc = scenario(facts, events, probes, family="normal_repeat")
+    eng = OracleEngine(sc)
+    record_all(eng, sc)
+    q = sc.query_for(sc.probes[0], 5).model_copy(update={"meta": {"b": "2", "a": "1"}})
+    assert [r.sources for r in eng.search(q)] == [["e1"]]
 
 
 def test_oracle_requires_reset():
