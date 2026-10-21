@@ -96,6 +96,31 @@ def test_edit_label_change_reverted(tmp_path):
     assert path.read_bytes() == before
 
 
+def test_reverted_edit_is_kept_in_the_cache(tmp_path, monkeypatch):
+    import re
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    body = "path.write_text(text.replace('valid: true', 'valid: false', 1).replace('vendor v2 is required now', 'my careful rewrite'))"
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "reverted"
+    assert path.read_bytes() == before
+    kept = result.kept_copy
+    assert kept is not None and kept.parent == tmp_path / "cache" / "review"
+    assert re.fullmatch(r"tc-\d{8}-\d{6}\.yaml", kept.name)
+    text = kept.read_text(encoding="utf-8")
+    assert "my careful rewrite" in text and "valid: false" in text
+
+
+def test_reverted_edit_without_changes_keeps_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    path = draft(tmp_path)
+    result = edit_draft(path, editor(tmp_path, "pass", exit_code=1), CFG, GEN)
+    assert result.status == "reverted" and result.kept_copy is None
+    assert not (tmp_path / "cache" / "review").exists()
+
+
 def test_edit_swapping_same_time_events_reverted(tmp_path):
     s = scenario(
         {"f": fact(text="use tool", markers=["tool"])},

@@ -864,6 +864,7 @@ def test_cli_review_show(tmp_path):
 def test_cli_review_edit(tmp_path, monkeypatch):
     from tests.test_review import editor
 
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
     root = review_root(tmp_path)
     path = root / "truth_change" / "tc-a.yaml"
     monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))"))
@@ -878,6 +879,8 @@ def test_cli_review_edit(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "facts.f_old.valid" in result.output and "reject the draft" in result.output
     assert path.read_bytes() == before
+    kept = next((tmp_path / "cache" / "review").glob("tc-a-*.yaml"))
+    assert f"your edit was kept at {kept}" in result.output
 
 
 def test_cli_review_edit_defaults_to_vi(tmp_path, monkeypatch):

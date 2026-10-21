@@ -23,7 +23,7 @@ from rich.text import Text
 from harness.config import EvalConfig
 from harness.engines import make_engine
 from harness.generate.checks import blocking, check_draft, secret_events
-from harness.generate.config import GenConfig
+from harness.generate.config import GenConfig, cache_root
 from harness.generate.pipeline import save_draft
 from harness.replay import ScenarioRun, run_scenario
 from harness.scenario.labels import changed_label_fields
@@ -81,6 +81,8 @@ class EditResult:
         reason: Why the edit was reverted.
         reset_to_draft: True when the file was approved or rejected and the saved edit put it
             back to draft, so it needs approval again.
+        kept_copy: Where the reviewer's edited text was kept when the edit was reverted
+            (`cache_root()/review/<id>-<YYYYmmdd-HHMMSS>.yaml`); None when nothing was kept.
     """
 
     status: Literal["unchanged", "saved", "reverted"]
@@ -88,6 +90,7 @@ class EditResult:
     changed_fields: list[str] = field(default_factory=list)
     reason: str = ""
     reset_to_draft: bool = False
+    kept_copy: Path | None = None
 
 
 # ---- list and find ------------------------------------------------------------------------------
@@ -141,7 +144,8 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     The editor works on a copy of the file, so the original stays untouched unless the edit is
     accepted. The edit is thrown away when the editor fails, when the result is not a valid
     scenario, when a ground-truth label moved (`changed_label_fields`; the review status and
-    reviewer only change through `set_status`). Otherwise the draft is saved with
+    reviewer only change through `set_status`). A thrown-away edit that changed the file is
+    copied to `cache_root()/review/` first, so the reviewer's text is not lost. Otherwise the draft is saved with
     `provenance.reviewer_edited` set and checked again. A saved edit of an approved or rejected
     file puts it back to draft (reviewer cleared, notes kept): the approval was for the old
     content.
@@ -160,28 +164,36 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
         ScenarioLoadError: If `path` does not load before the edit.
     """
     original = load_scenario(path)
+    before = path.read_bytes()
+
+    def revert(reason: str, after: bytes | None, changed: list[str] | None = None) -> EditResult:
+        kept = _keep_edit(original.id, after) if after is not None and after != before else None
+        return EditResult("reverted", changed_fields=changed or [], reason=reason, kept_copy=kept)
+
     with tempfile.TemporaryDirectory() as scratch:
         copy = Path(scratch) / path.name
-        copy.write_bytes(path.read_bytes())
+        copy.write_bytes(before)
         try:
             done = subprocess.run([*shlex.split(editor), str(copy)], check=False)
         except (OSError, ValueError) as e:
-            return EditResult("reverted", reason=f"cannot run editor {editor!r}: {e}")
+            return revert(f"cannot run editor {editor!r}: {e}", None)
+        try:
+            after = copy.read_bytes()
+        except OSError:
+            after = None
         if done.returncode != 0:
-            return EditResult("reverted", reason=f"editor exited with code {done.returncode}")
+            return revert(f"editor exited with code {done.returncode}", after)
         try:
             edited = load_scenario(copy)
         except ScenarioLoadError as e:
-            return EditResult("reverted", reason=f"the file no longer loads: {e.message}")
+            return revert(f"the file no longer loads: {e.message}", after)
     if edited.model_dump(mode="json") == original.model_dump(mode="json"):
         return EditResult("unchanged")
     if (edited.review.status, edited.review.reviewer) != (original.review.status, original.review.reviewer):
-        return EditResult("reverted", reason="review status and reviewer change only with `harness review set`")
+        return revert("review status and reviewer change only with `harness review set`", after)
     if changed := changed_label_fields(original, edited):
-        return EditResult(
-            "reverted",
-            changed_fields=changed,
-            reason="ground-truth fields cannot be edited; if the labels are wrong, reject the draft",
+        return revert(
+            "ground-truth fields cannot be edited; if the labels are wrong, reject the draft", after, changed
         )
     edited.provenance.reviewer_edited = True
     reset = edited.review.status != "draft"
@@ -189,6 +201,19 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
         edited.review = Review(status="draft", reviewer=None, notes=edited.review.notes)
     save_draft(edited, path)
     return EditResult("saved", issues=check_draft(edited, cfg, gen, secret_events(edited)), reset_to_draft=reset)
+
+
+def _keep_edit(scenario_id: str, text: bytes) -> Path:
+    """Save a reverted edit to `cache_root()/review/<id>-<YYYYmmdd-HHMMSS>.yaml` and return the path."""
+    folder = cache_root() / "review"
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = f"{scenario_id}-{datetime.now().astimezone().strftime('%Y%m%d-%H%M%S')}"
+    target, n = folder / f"{stem}.yaml", 1
+    while target.exists():  # a second revert within the same second
+        n += 1
+        target = folder / f"{stem}-{n}.yaml"
+    target.write_bytes(text)
+    return target
 
 
 def set_status(

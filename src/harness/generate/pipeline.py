@@ -49,8 +49,9 @@ class GenerateReport(BaseModel):
     Attributes:
         requested: Drafts wanted, summed over the families.
         written: Ids of the drafts saved (an earlier draft with the same id is replaced).
-        skipped_existing: Ids that already exist as a reviewed (not draft) file; left untouched.
-            They count toward the target.
+        skipped_existing: Ids whose file a person already worked on (status not draft, edited by
+            a reviewer, or not written by the LLM) or that cannot be read; left untouched. They
+            count toward the target.
         trace_cap_hit: True when extraction stopped at `max_traces` while a family still needed
             drafts.
         rejected: Number of rejections logged: bad quotes, near-duplicate candidates, failed
@@ -253,14 +254,20 @@ class _Run:
         return [trace, *others]
 
 
-def _existing_status(path: Path) -> str | None:
-    """Review status of the file at `path`; "unreadable" when it cannot be loaded, None when absent."""
+def _is_reviewed(path: Path) -> bool:
+    """Whether the file at `path` belongs to a person and must not be replaced by a new draft.
+
+    That is the case when its review status is not draft, a reviewer edited it
+    (`provenance.reviewer_edited`), a person wrote it (`provenance.author` is not `llm`), or it
+    cannot be loaded. An absent file, or an untouched LLM draft, may be replaced.
+    """
     if not path.exists():
-        return None
+        return False
     try:
-        return load_scenario(path).review.status
+        s = load_scenario(path)
     except (ScenarioLoadError, UnicodeDecodeError, OSError, ValueError):
-        return "unreadable"
+        return True
+    return s.review.status != "draft" or s.provenance.reviewer_edited or s.provenance.author != "llm"
 
 
 def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tally) -> tuple[str, str] | None:
@@ -273,8 +280,7 @@ def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tall
         return None
     sid = sk.scenario.id
     path = run.out_dir / family / f"{sid}.yaml"
-    status = _existing_status(path)
-    if status is not None and status != "draft":
+    if _is_reviewed(path):
         return "skipped", sid
 
     def reject(stage: str, code: str, message: str) -> None:
@@ -317,7 +323,8 @@ def generate(
     are extracted at most once and shared by all families; a family uses each of them once. A
     draft is saved to `out_dir/<family>/<id>.yaml` only if `check_draft` finds no error and no
     `too_easy` warning; otherwise a `Rejection` goes to `run_dir/rejected.jsonl`. A file with the
-    same id whose review status is not draft is never touched.
+    same id is replaced only when it is an untouched LLM draft (status draft, author `llm`, not
+    reviewer-edited); any other file is never touched.
 
     Args:
         families: Families to make, each a key of `TEMPLATES`.

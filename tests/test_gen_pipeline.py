@@ -133,6 +133,39 @@ def test_generate_does_not_overwrite_reviewed(tmp_path: Path) -> None:
     assert kept.read_bytes() == before
 
 
+def test_generate_keeps_a_reviewer_edited_draft(tmp_path: Path) -> None:
+    client = fake_client(tmp_path)
+    first = run(tmp_path, client, ["truth_change"], 2)
+    kept = tmp_path / "out" / "truth_change" / f"{first.written[0]}.yaml"
+    data = yaml.safe_load(kept.read_text(encoding="utf-8"))
+    assert data["review"]["status"] == "draft"
+    data["provenance"]["reviewer_edited"] = True
+    fid = next(iter(data["facts"]))
+    data["facts"][fid]["text"] += " (edited by a reviewer)"
+    kept.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    before = kept.read_bytes()
+
+    again = run(tmp_path, client, ["truth_change"], 2)
+    assert again.skipped_existing == [first.written[0]]
+    assert again.written == [first.written[1]]
+    assert kept.read_bytes() == before
+
+
+def test_generate_keeps_a_human_authored_draft(tmp_path: Path) -> None:
+    client = fake_client(tmp_path)
+    first = run(tmp_path, client, ["truth_change"], 1)
+    kept = tmp_path / "out" / "truth_change" / f"{first.written[0]}.yaml"
+    data = yaml.safe_load(kept.read_text(encoding="utf-8"))
+    data["provenance"]["author"] = "human"
+    kept.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    before = kept.read_bytes()
+
+    again = run(tmp_path, client, ["truth_change"], 1)
+    assert again.skipped_existing == [first.written[0]]
+    assert again.written == []
+    assert kept.read_bytes() == before
+
+
 def test_generate_overwrites_an_older_draft(tmp_path: Path) -> None:
     client = fake_client(tmp_path)
     first = run(tmp_path, client, ["truth_change"], 1)

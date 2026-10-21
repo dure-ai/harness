@@ -647,6 +647,8 @@ def review_edit(
         typer.echo(f"reverted: {result.reason}")
         for name in result.changed_fields:
             typer.echo(f"  changed {name}")
+        if result.kept_copy is not None:
+            typer.echo(f"your edit was kept at {result.kept_copy}")
         raise typer.Exit(1)
     else:
         typer.echo(f"saved {path} (provenance.reviewer_edited: true)")
