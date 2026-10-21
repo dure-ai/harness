@@ -222,7 +222,7 @@ flowchart LR
   temperature: 0.2             # openai only
   base_url: null               # openai only, e.g. Upstage endpoint
   api_key_env: null            # openai only
-  prompt_version: gen-v0.1
+  prompt_version: gen-v0.2   # 10/21: 본문 프롬프트 규칙 보강으로 올림
   max_candidates_per_trace: 5
   banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated]
   ```
