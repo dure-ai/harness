@@ -173,10 +173,11 @@ uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하�
 ```
 
 - `--family all`은 10개 계열 전부이고, 짝 문항이 없는 `normal_repeat`는 `n // 2`개(최소 1)만 만듭니다.
-- 자동 검증(`check_draft`)에서 오류가 나거나 `too_easy` 경고가 뜬 초안은 저장하지 않고 거절 로그에 남깁니다. 이미 검토된(draft가 아닌) 같은 id의 파일은 덮어쓰지 않습니다.
+- 자동 검증(`check_draft`)에서 오류가 나거나 `too_easy` 경고가 뜬 초안은 저장하지 않고 거절 로그에 남깁니다. 같은 id의 파일은 손대지 않은 LLM 초안일 때만 새로 씁니다. 상태가 draft가 아니거나, 검토자가 고쳤거나(`provenance.reviewer_edited: true`), 사람이 쓴(`provenance.author`가 `llm`이 아닌) 파일, 읽을 수 없는 파일은 덮어쓰지 않고 요약에 "건너뜀"으로 보여 줍니다.
 - 후보 뽑기에 보내는 궤적은 한 번 실행에 최대 `--max-traces`(기본 100)개입니다. 한도에 닿으면 요약에 표시됩니다.
+- 본문 쓰기 시도는 계열마다 최대 `--max-attempts`(기본: 그 계열 목표 개수 × 3)번입니다. 한도에 닿으면 그 계열을 멈추고 부족 사유에 "stopped at --max-attempts N"이 나옵니다.
 - 같은 입력·시드면 같은 id가 나오고, LLM 응답은 캐시되어 다시 돌려도 호출하지 않습니다.
-- 키가 없거나 인증이 거부되면 전체가 멈추고(종료 코드 2), 그 밖의 LLM 오류는 해당 초안만 거절합니다.
+- 키가 없거나 인증이 거부되거나, 모델 이름이 틀렸거나(NotFoundError), 요청이 거부되거나(BadRequestError), 서버에 닿지 않으면(APIConnectionError) 전체가 멈춥니다(종료 코드 2). 그 밖의 LLM 오류(시간 초과, 잘린 응답 등)는 해당 후보나 초안만 거절하지만, 연달아 3번 나면 마지막 오류와 함께 실행을 멈춥니다(종료 코드 2). 요약에는 실행 중 처음 난 LLM 오류가 `first LLM error:`로 나옵니다.
 
 캐시 위치(`T5_HARNESS_CACHE`, 기본 `~/.cache/t5-harness`):
 
@@ -185,6 +186,7 @@ uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하�
 | `traces/<config>/<split>/` | 받은 parquet 조각 |
 | `llm/` | LLM 응답 캐시 |
 | `runs/<run_id>/` | `candidates.jsonl`(사실 후보), `rejected.jsonl`(거절 사유) |
+| `review/` | `review edit`에서 되돌린 편집본(`<id>-<YYYYmmdd-HHMMSS>.yaml`) |
 
 **출처 표기**: 궤적은 [nvidia/Open-SWE-Traces](https://huggingface.co/datasets/nvidia/Open-SWE-Traces)(CC BY 4.0)에서 가져오며, 초안의 `provenance`에 원본 궤적 id, 저장소, 라이선스를 남깁니다. 원본 저장소 라이선스가 허용 목록에 있는 python 궤적만 씁니다.
 
@@ -202,9 +204,9 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 
 - `show`: 머리(id, 계열, 모드, 원본 저장소·궤적, 공급자·모델, 자동 검증 경고), 정답표(사실마다 참인 기간, 조건, `valid`, `fix`, 지어낸 사실 여부, 마커, 문장), 시각 순서의 이벤트·문항 흐름(근거의 `origin`과 인용, 문항 시점에 참인 사실), 기준선 미리보기(oracle, all_store, 누출 계열은 all_store_noacl의 문항별 결과와 누출 수)를 한 화면에 보여 줍니다.
 - `edit`에서 **고칠 수 있는 것**: 사실의 `text`·`markers`, 이벤트의 `text`·`secret_markers`, 문항의 `query`, 되먹임 틀의 `text`, `review.notes`.
-- **고칠 수 없는 것**: 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열·모드·언어·세계·`provenance`, 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속합니다), `review.status`와 `reviewer`(`review set`으로만 바꿉니다). 건드리면 어느 필드인지 보여 주고 파일을 원래대로 되돌립니다(종료 코드 1). 정답이 틀렸다면 고치지 말고 거절하세요.
+- **고칠 수 없는 것**: 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열·모드·언어·세계·`provenance`, 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속합니다), `review.status`와 `reviewer`(`review set`으로만 바꿉니다). 건드리면 어느 필드인지 보여 주고 파일을 원래대로 되돌립니다(종료 코드 1). 고친 내용은 버리지 않고 캐시의 `review/<id>-<YYYYmmdd-HHMMSS>.yaml`에 남기며 그 경로를 "your edit was kept at …"으로 알려 줍니다. 정답이 틀렸다면 고치지 말고 거절하세요.
 - 이미 승인·거절된 파일을 고쳐 저장하면 `review`가 `draft`로 돌아가고(`reviewer`는 비워지고 `notes`는 남음) 다시 승인받아야 합니다.
-- 저장되면 `provenance.reviewer_edited: true`가 되고 자동 검증 결과가 나옵니다. 오류가 있어도 저장은 되지만 승인은 막힙니다. 편집기가 0이 아닌 코드로 끝나거나 YAML이 깨져도 원래대로 돌아갑니다.
+- 저장되면 `provenance.reviewer_edited: true`가 되고 자동 검증 결과가 나옵니다. 오류가 있어도 저장은 되지만 승인은 막힙니다. 편집기가 0이 아닌 코드로 끝나거나 YAML이 깨져도 원래대로 돌아갑니다(바뀐 내용이 있으면 마찬가지로 `review/`에 남깁니다).
 - `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
 - id가 없거나 같은 id의 파일이 여럿이면 종료 코드 1입니다. 다른 위치는 `--root`로 지정합니다.
 

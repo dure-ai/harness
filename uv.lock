@@ -650,6 +650,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "typer" },
 ]
 
@@ -678,6 +679,7 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'gen'", specifier = ">=26.0" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pyyaml", specifier = ">=6" },
+    { name = "rich", specifier = ">=13" },
     { name = "typer", specifier = ">=0.12" },
 ]
 provides-extras = ["gen"]

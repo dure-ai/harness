@@ -364,3 +364,12 @@ def test_cli_import_is_lazy():
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_rich_is_a_declared_dependency():
+    import re
+    import tomllib
+
+    project = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8"))
+    names = {re.split(r"[<>=!~ \[;]", d, maxsplit=1)[0].lower() for d in project["project"]["dependencies"]}
+    assert "rich" in names  # cli.py and review.py import it directly
