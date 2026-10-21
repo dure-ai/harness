@@ -784,3 +784,169 @@ def test_cli_generate_max_traces_is_reported(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "stopped at --max-traces 1" in result.output and "--max-traces 1" in result.output.splitlines()[-2]
     assert runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--max-traces", "0")).exit_code == 2
+
+
+# ---- review and scenario new -------------------------------------------------------------------
+
+
+def review_root(tmp_path: Path) -> Path:
+    from harness.generate.pipeline import save_draft
+
+    root = tmp_path / "dev"
+    save_draft(truth_change("tc-a"), root / "truth_change" / "tc-a.yaml")
+    save_draft(truth_change("tc-b"), root / "truth_change" / "tc-b.yaml")
+    save_draft(too_easy().model_copy(update={"id": "tc-easy"}), root / "truth_change" / "tc-easy.yaml")
+    return root
+
+
+def test_cli_review_list_and_set(tmp_path):
+    root = review_root(tmp_path)
+    result = runner.invoke(app, ["review", "list", str(root)])
+    assert result.exit_code == 0, result.output
+    for sid in ("tc-a", "tc-b", "tc-easy"):
+        assert sid in result.output
+    assert result.output.count("draft") >= 3
+
+    ok = runner.invoke(app, ["review", "set", "tc-a", "approved", "--reviewer", "kim", "--note", "fine", "--root", str(root)])
+    assert ok.exit_code == 0, ok.output
+    assert "approved" in ok.output
+    rej = runner.invoke(app, ["review", "set", "tc-b", "rejected", "--reviewer", "kim", "--root", str(root)])
+    assert rej.exit_code == 0, rej.output
+    listing = runner.invoke(app, ["review", "list", str(root)]).output
+    assert [line.split()[2] for line in listing.splitlines() if line.startswith("tc-")] == ["approved", "rejected", "draft"]
+
+
+def test_cli_review_set_approved_blocked_exit1(tmp_path):
+    root = review_root(tmp_path)
+    path = root / "truth_change" / "tc-easy.yaml"
+    before = path.read_bytes()
+    result = runner.invoke(app, ["review", "set", "tc-easy", "approved", "--reviewer", "kim", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "too_easy" in result.output
+    assert path.read_bytes() == before
+
+
+def test_cli_review_set_bad_status_exit2(tmp_path):
+    root = review_root(tmp_path)
+    result = runner.invoke(app, ["review", "set", "tc-a", "maybe", "--reviewer", "kim", "--root", str(root)])
+    assert result.exit_code == 2
+
+
+def test_cli_review_unknown_id_exit1(tmp_path):
+    root = review_root(tmp_path)
+    for argv in (
+        ["show", "nope"],
+        ["edit", "nope"],
+        ["set", "nope", "rejected", "--reviewer", "kim"],
+    ):
+        result = runner.invoke(app, ["review", *argv, "--root", str(root)])
+        assert result.exit_code == 1, (argv, result.output)
+        assert "nope" in result.output
+
+
+def test_cli_review_duplicate_id_exit1(tmp_path):
+    root = review_root(tmp_path)
+    (root / "other").mkdir()
+    (root / "other" / "copy.yaml").write_bytes((root / "truth_change" / "tc-a.yaml").read_bytes())
+    result = runner.invoke(app, ["review", "show", "tc-a", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "copy.yaml" in result.output and "tc-a.yaml" in result.output
+
+
+def test_cli_review_show(tmp_path):
+    root = review_root(tmp_path)
+    result = runner.invoke(app, ["review", "show", "tc-a", "--root", str(root)], terminal_width=200)
+    assert result.exit_code == 0, result.output
+    for word in ("tc-a", "truth_change", "valid_until", "oracle", "all_store", "p_block"):
+        assert word in result.output
+
+
+def test_cli_review_edit(tmp_path, monkeypatch):
+    from tests.test_review import editor
+
+    root = review_root(tmp_path)
+    path = root / "truth_change" / "tc-a.yaml"
+    monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))"))
+    result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
+    assert result.exit_code == 0, result.output
+    assert "reviewer_edited" in path.read_text(encoding="utf-8")
+
+    before = path.read_bytes()
+    monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('valid: true', 'valid: false', 1))"))
+    result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "facts.f_old.valid" in result.output and "reject the draft" in result.output
+    assert path.read_bytes() == before
+
+
+def test_cli_review_edit_defaults_to_vi(tmp_path, monkeypatch):
+    from harness import review
+
+    seen: list[str] = []
+    monkeypatch.delenv("EDITOR", raising=False)
+    monkeypatch.setattr(review, "edit_draft", lambda path, editor, cfg, gen: seen.append(editor) or review.EditResult("unchanged"))
+    root = review_root(tmp_path)
+    assert runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)]).exit_code == 0
+    assert seen == ["vi"]
+
+
+def test_cli_review_works_without_gen_deps(tmp_path, monkeypatch):
+    for dep in ("anthropic", "openai", "pyarrow", "huggingface_hub"):
+        monkeypatch.setitem(sys.modules, dep, None)
+    root = review_root(tmp_path)
+    assert runner.invoke(app, ["review", "list", str(root)]).exit_code == 0
+    assert runner.invoke(app, ["review", "set", "tc-a", "approved", "--reviewer", "kim", "--root", str(root)]).exit_code == 0
+    assert runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "1", "--out", str(tmp_path / "n")]).exit_code == 0
+
+
+def test_scenario_new_writes_empty_skeleton(tmp_path):
+    from harness.scenario.load import load_scenario
+
+    out = tmp_path / "new"
+    result = runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "7", "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    (path,) = list(out.rglob("*.yaml"))
+    assert path.parent.name == "truth_change" and path.name == f"{path.stem}.yaml"
+    assert str(path) in result.output
+    s = load_scenario(path)
+    assert path.stem == s.id and s.id.startswith("truth_change-manual-")
+    assert s.provenance.author == "human" and s.review.status == "draft"
+    assert s.provenance.source_traces == [] and s.provenance.source_repos == []
+    assert all(f.text == "" and f.markers == [] for f in s.facts.values())
+    assert all(e.text == "" and e.secret_markers == [] for e in s.events)
+    assert all(p.query == "" for p in s.probes)
+    assert any(f.valid_until is not None for f in s.facts.values())  # labels come from the template
+    assert all(e.fact in s.facts for e in s.events if e.fact)
+
+
+def test_scenario_new_every_family(tmp_path):
+    from harness.generate.families import TEMPLATES
+
+    for family in TEMPLATES:
+        result = runner.invoke(app, ["scenario", "new", "--family", family, "--seed", "3", "--out", str(tmp_path)])
+        assert result.exit_code == 0, (family, result.output)
+        assert len(list((tmp_path / family).glob("*.yaml"))) == 1
+
+
+def test_scenario_new_workaround_family_sets_fix(tmp_path):
+    from harness.scenario.load import load_scenario
+
+    runner.invoke(app, ["scenario", "new", "--family", "workaround_then_root", "--seed", "3", "--out", str(tmp_path)])
+    (path,) = list(tmp_path.rglob("*.yaml"))
+    assert {f.fix for f in load_scenario(path).facts.values()} >= {"workaround", "root"}
+
+
+def test_scenario_new_refuses_to_overwrite(tmp_path):
+    argv = ["scenario", "new", "--family", "truth_change", "--seed", "7", "--out", str(tmp_path)]
+    assert runner.invoke(app, argv).exit_code == 0
+    (path,) = list(tmp_path.rglob("*.yaml"))
+    path.write_text(path.read_text(encoding="utf-8") + "# my work\n", encoding="utf-8")
+    again = runner.invoke(app, argv)
+    assert again.exit_code == 1
+    assert "# my work" in path.read_text(encoding="utf-8")
+
+
+def test_scenario_new_unknown_family_exit2(tmp_path):
+    result = runner.invoke(app, ["scenario", "new", "--family", "nope", "--seed", "1", "--out", str(tmp_path)])
+    assert result.exit_code == 2
+    assert "nope" in result.output

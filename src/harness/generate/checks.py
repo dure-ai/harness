@@ -90,6 +90,18 @@ def _evidence_issues(s: Scenario) -> list[Issue]:
     ]
 
 
+def blocking(issues: Sequence[Issue]) -> list[Issue]:
+    """The findings that keep a draft from being saved or approved.
+
+    Args:
+        issues: Findings of `check_draft`.
+
+    Returns:
+        Every error, and the `too_easy` warning (a draft that does not discriminate is useless).
+    """
+    return [i for i in issues if i.level == "error" or i.code == "too_easy"]
+
+
 def check_draft(
     s: Scenario,
     cfg: EvalConfig,

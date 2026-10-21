@@ -188,6 +188,31 @@ uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하�
 
 **출처 표기**: 궤적은 [nvidia/Open-SWE-Traces](https://huggingface.co/datasets/nvidia/Open-SWE-Traces)(CC BY 4.0)에서 가져오며, 초안의 `provenance`에 원본 궤적 id, 저장소, 라이선스를 남깁니다. 원본 저장소 라이선스가 허용 목록에 있는 python 궤적만 씁니다.
 
+## 초안 검토하기
+
+초안(`review.status: draft`)은 사람이 보고 `approved`나 `rejected`로 바꿔야 평가에 들어갑니다. 검토는 시나리오 YAML만 있으면 되므로 각자 노트북에서 하면 되고, `uv sync --extra gen`도 필요 없습니다.
+
+```bash
+uv run harness review list                        # 기본 scenarios/dev. id, 계열, 상태, 생성 시각, 경고, 경로
+uv run harness review show <id>                   # 보기
+uv run harness review edit <id>                   # 고치기: $EDITOR(없으면 vi)로 연다
+uv run harness review set <id> approved --reviewer 이름   # 승인
+uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀림"   # 거절(이유 권장)
+```
+
+- `show`: 머리(id, 계열, 모드, 원본 저장소·궤적, 공급자·모델, 자동 검증 경고), 정답표(사실마다 참인 기간, 조건, `valid`, `fix`, 지어낸 사실 여부, 마커, 문장), 시각 순서의 이벤트·문항 흐름(근거의 `origin`과 인용, 문항 시점에 참인 사실), 기준선 미리보기(oracle, all_store, 누출 계열은 all_store_noacl의 문항별 결과와 누출 수)를 한 화면에 보여 줍니다.
+- `edit`에서 **고칠 수 있는 것**: 사실의 `text`·`markers`, 이벤트의 `text`·`secret_markers`, 문항의 `query`, 되먹임 틀의 `text`, `review.notes`.
+- **고칠 수 없는 것**: 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열·모드·언어·세계·`provenance`, 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속합니다), `review.status`와 `reviewer`(`review set`으로만 바꿉니다). 건드리면 어느 필드인지 보여 주고 파일을 원래대로 되돌립니다(종료 코드 1). 정답이 틀렸다면 고치지 말고 거절하세요.
+- 저장되면 `provenance.reviewer_edited: true`가 되고 자동 검증 결과가 나옵니다. 오류가 있어도 저장은 되지만 승인은 막힙니다. 편집기가 0이 아닌 코드로 끝나거나 YAML이 깨져도 원래대로 돌아갑니다.
+- `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
+- id가 없거나 같은 id의 파일이 여럿이면 종료 코드 1입니다. 다른 위치는 `--root`로 지정합니다.
+
+처음부터 손으로 쓰려면 빈 틀을 만듭니다. 라벨은 계열 틀이 정하고 글은 모두 비어 있으며(`provenance.author: human`, `draft`), 이어서 `review edit`로 채웁니다. 이미 있는 파일은 덮어쓰지 않습니다.
+
+```bash
+uv run harness scenario new --family truth_change --seed 1 [--out scenarios/dev]
+```
+
 ## 시나리오 형식
 
 YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, 문항(`block` / `promote` / `leak`)의 형식과 계열별 틀은 설계 문서 [5장](docs/specs/2026-10-19-memory-eval-harness-design.md#5-시나리오-형식)을 보세요. 시각은 모두 시간대를 포함해야 합니다(예: `2026-10-09T14:00+09:00`). 시나리오 `id`는 영문자·숫자로 시작하고 영문자·숫자·`.`·`_`·`-`만 쓰며 120자 이하입니다. 같은 키를 두 번 쓰면(중복 키) 로드 오류입니다.

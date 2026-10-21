@@ -1,7 +1,9 @@
 """Label fingerprint: a hash of the fields of a scenario that a reviewer may not change.
 
 Ground-truth labels decide scores, so `review edit` compares the fingerprint before and after
-an edit and undoes the edit when it moved (generation design 7.2). Text the reviewer may fix
+an edit and undoes the edit when it moved (generation design 7.2). The order of events and probes
+in the file counts as a label (events at the same time are replayed in file order), and so does
+`language`. Text the reviewer may fix
 (fact text and markers, event text and secret markers, probe queries, feedback template text)
 and the whole `review` section are left out, as is `provenance.reviewer_edited`, which the
 harness itself writes.
@@ -46,10 +48,13 @@ def _label_view(s: Scenario) -> dict[str, Any]:
         "id": s.id,
         "family": s.family,
         "mode": s.mode,
+        "language": s.language,
         "world": s.world.model_dump(mode="json"),
         "provenance": s.provenance.model_dump(mode="json", exclude={"reviewer_edited"}),
         "facts": {fid: f.model_dump(mode="json", include=_FACT) for fid, f in s.facts.items()},
+        "event_order": [e.id for e in s.events],
         "events": {e.id: e.model_dump(mode="json", include=_EVENT) for e in s.events},
+        "probe_order": [p.id for p in s.probes],
         "probes": {p.id: _probe_view(p) for p in s.probes},
     }
 
@@ -87,7 +92,8 @@ def changed_label_fields(a: Scenario, b: Scenario) -> list[str]:
         Sorted dotted paths such as `facts.f_old.valid_until`, `events.e3.refs` or
         `probes.p_block.about`. A fact, event or probe present on one side only is reported as
         its own path (`events.e9`); a list or mapping-valued field such as `refs`, `meta` or
-        `provenance.evidence` is reported as one path.
+        `provenance.evidence` is reported as one path. A reordering is reported as `event_order`
+        or `probe_order`.
     """
     out: list[str] = []
     _diff(_label_view(a), _label_view(b), "", out)

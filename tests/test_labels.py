@@ -90,5 +90,26 @@ def test_added_and_removed_slots_are_reported() -> None:
     removed = b.events.pop()
     b.probes[0].feedback = Feedback(abstain=FeedbackTemplate(text="x"))
     assert changed_label_fields(a, b) == sorted(
-        [f"events.{removed.id}", f"probes.{a.probes[0].id}.feedback"]
+        ["event_order", f"events.{removed.id}", f"probes.{a.probes[0].id}.feedback"]
     )
+
+
+def test_swapping_same_timestamp_events_is_a_label_change() -> None:
+    a = scenario(
+        {"f": fact(markers=["m"])},
+        [ev("e1", T("10-01 10:00"), fact="f"), ev("e2", T("10-01 10:00"), fact="f")],
+        [probe("p", "promote", T("10-02 10:00"), ["f"])],
+    )
+    b = a.model_copy(update={"events": list(reversed(a.events))})
+    assert label_fingerprint(a) != label_fingerprint(b)
+    assert changed_label_fields(a, b) == ["event_order"]
+
+
+def test_probe_order_and_language_are_label_fields() -> None:
+    a = scenario(
+        {"f": fact(markers=["m"])},
+        [ev("e1", T("10-01 10:00"), fact="f")],
+        [probe("p1", "promote", T("10-02 10:00"), ["f"]), probe("p2", "promote", T("10-02 10:00"), ["f"])],
+    )
+    b = a.model_copy(update={"probes": list(reversed(a.probes)), "language": "ko"})
+    assert changed_label_fields(a, b) == ["language", "probe_order"]

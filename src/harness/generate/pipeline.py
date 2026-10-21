@@ -19,7 +19,7 @@ from harness.generate.candidates import (
     dedupe,
     extract_candidates,
 )
-from harness.generate.checks import check_draft
+from harness.generate.checks import blocking, check_draft
 from harness.generate.config import GenConfig
 from harness.generate.families import TEMPLATES, why_not
 from harness.generate.families.base import repo_name
@@ -288,13 +288,9 @@ def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tall
             raise
         reject("bodies", "llm_error", str(e))
         return None
-    blocking = [
-        i
-        for i in check_draft(s, run.cfg, run.gen, sk.secret_event_ids)
-        if i.level == "error" or i.code == "too_easy"
-    ]
-    if blocking:
-        reject("checks", blocking[0].code, "; ".join(f"{i.code}: {i.message}" for i in blocking))
+    stop = blocking(check_draft(s, run.cfg, run.gen, sk.secret_event_ids))
+    if stop:
+        reject("checks", stop[0].code, "; ".join(f"{i.code}: {i.message}" for i in stop))
         return None
     save_draft(s, path)
     return "written", sid

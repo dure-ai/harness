@@ -1,7 +1,8 @@
-"""The `harness` command line: scenario check, selfcheck and run."""
+"""The `harness` command line: scenario check and new, selfcheck, run, review, traces and generate."""
 
 import json
 import secrets
+import os
 import tempfile
 from collections import Counter
 from collections.abc import Iterator
@@ -12,6 +13,9 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
+from rich.console import Console
+
+from harness import review as review_mod
 from harness.config import EvalConfig, config_hash, load_config
 from harness.contract import BaseEngine, EngineInfo
 from harness.engines import BASELINES, make_engine
@@ -39,6 +43,8 @@ _GEN_DEPS = frozenset({"anthropic", "openai", "pyarrow", "huggingface_hub"})
 app = typer.Typer(help="Memory evaluation harness.", no_args_is_help=True)
 scenario_app = typer.Typer(help="Scenario files.", no_args_is_help=True)
 app.add_typer(scenario_app, name="scenario")
+review_app = typer.Typer(help="Review drafts: list, show, edit, approve or reject.", no_args_is_help=True)
+app.add_typer(review_app, name="review")
 traces_app = typer.Typer(help="Source trajectories for scenario generation.", no_args_is_help=True)
 app.add_typer(traces_app, name="traces")
 
@@ -47,6 +53,8 @@ ScenariosOpt = Annotated[
     typer.Option("--scenarios", help="Scenario directory or file (repeatable)."),
 ]
 ConfigOpt = Annotated[Path, typer.Option("--config", help="Evaluation config YAML.")]
+GenConfigOpt = Annotated[Path, typer.Option("--gen-config", help="Generation config YAML.")]
+RootOpt = Annotated[Path, typer.Option("--root", help="Directory (or file) with the drafts.")]
 DraftsOpt = Annotated[
     bool, typer.Option("--include-drafts", help="Also evaluate draft scenarios.")
 ]
@@ -524,3 +532,142 @@ def generate_cmd(
         if report.trace_cap_hit:
             typer.echo(f"  --max-traces {max_traces}에서 후보 뽑기를 멈췄습니다. 더 만들려면 값을 올리세요.")
         typer.echo(f"저장 위치: {out}")
+
+
+# ---- scenario new -------------------------------------------------------------------------------
+
+
+@scenario_app.command("new")
+def scenario_new(
+    family: Annotated[str, typer.Option(help="Family name.")],
+    seed: Annotated[int, typer.Option(help="Seed of dates, users and the id.")],
+    out: Annotated[Path, typer.Option(help="Directory for the skeleton.")] = Path("scenarios/dev"),
+) -> None:
+    """Write an empty skeleton of a family (labels set, all text empty) to fill in with `review edit`."""
+    from harness.generate.candidates import FactCandidate
+    from harness.generate.families import TEMPLATES
+    from harness.generate.pipeline import save_draft
+
+    if family not in TEMPLATES:
+        raise _fail(f"error: unknown family {family!r}; choose one of {', '.join(TEMPLATES)}", 2)
+    fix = "workaround" if family == "workaround_then_root" else None
+    blank = FactCandidate(statement="", kind="other", quote="", message_index=0, fix=fix)
+    skeleton = TEMPLATES[family](blank, [], seed)
+    if skeleton is None:
+        raise _fail(f"error: the {family} template cannot build a skeleton without a trace", 2)
+    s = skeleton.scenario
+    s.provenance.author = "human"
+    path = out / family / f"{s.id}.yaml"
+    if path.exists():
+        raise _fail(f"error: {path} already exists; not overwriting it", 1)
+    save_draft(s, path)
+    typer.echo(str(path))
+    typer.echo("글을 채우려면: harness review edit " + s.id)
+
+
+# ---- review -------------------------------------------------------------------------------------
+
+
+def _review_root(root: Path) -> Path:
+    if not root.exists():
+        raise _fail(f"error: no such directory: {root}", 2)
+    return root
+
+
+def _draft_path(root: Path, scenario_id: str) -> Path:
+    """The one file holding `scenario_id`; exit 1 when there is none or several."""
+    found = review_mod.find_draft(_review_root(root), scenario_id)
+    if not found:
+        raise _fail(f"error: no scenario with id {scenario_id!r} under {root}", 1)
+    if len(found) > 1:
+        raise _fail(f"error: id {scenario_id!r} is in several files: {', '.join(str(p) for p in found)}", 1)
+    return found[0]
+
+
+def _echo_findings(issues: list[Issue]) -> None:
+    for issue in issues:
+        typer.echo(f"  {issue.level} {issue.code} {issue.message}")
+
+
+@review_app.command("list")
+def review_list(
+    root: Annotated[Path, typer.Argument(help="Directory (or file) with the drafts.")] = Path("scenarios/dev"),
+) -> None:
+    """List the scenario files: id, family, status, generation time, warnings and path."""
+    rows = review_mod.list_drafts(_review_root(root))
+    if not rows:
+        typer.echo(f"no scenario files under {root}")
+        return
+    for r in rows:
+        when = r.generated_at.astimezone().strftime("%Y-%m-%d %H:%M") if r.generated_at else "-"
+        typer.echo(f"{r.id}  {r.family}  {r.status}  {when}  {','.join(r.warnings) or '-'}  {r.path}")
+
+
+@review_app.command("show")
+def review_show(
+    scenario_id: Annotated[str, typer.Argument(metavar="ID", help="Scenario id.")],
+    root: RootOpt = Path("scenarios/dev"),
+    config: ConfigOpt = Path("config/eval-v0.1.yaml"),
+    gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
+) -> None:
+    """Show a draft: header, labels, timeline and the baselines' results."""
+    path = _draft_path(root, scenario_id)
+    cfg, gen = _config(config), _gen_config(gen_config)
+    try:
+        s = load_scenario(path)
+    except ScenarioLoadError as e:
+        raise _fail(f"{path}: error load {e.message}", 1) from e
+    Console().print(review_mod.render_show(s, cfg, gen))
+
+
+@review_app.command("edit")
+def review_edit(
+    scenario_id: Annotated[str, typer.Argument(metavar="ID", help="Scenario id.")],
+    root: RootOpt = Path("scenarios/dev"),
+    config: ConfigOpt = Path("config/eval-v0.1.yaml"),
+    gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
+) -> None:
+    """Edit a draft in $EDITOR (default vi). Text can change; labels cannot, and such edits are undone."""
+    path = _draft_path(root, scenario_id)
+    cfg, gen = _config(config), _gen_config(gen_config)
+    try:
+        result = review_mod.edit_draft(path, os.environ.get("EDITOR") or "vi", cfg, gen)
+    except ScenarioLoadError as e:
+        raise _fail(f"{path}: error load {e.message}", 1) from e
+    if result.status == "unchanged":
+        typer.echo("no changes")
+    elif result.status == "reverted":
+        typer.echo(f"reverted: {result.reason}")
+        for name in result.changed_fields:
+            typer.echo(f"  changed {name}")
+        raise typer.Exit(1)
+    else:
+        typer.echo(f"saved {path} (provenance.reviewer_edited: true)")
+        _echo_findings(result.issues)
+
+
+@review_app.command("set")
+def review_set(
+    scenario_id: Annotated[str, typer.Argument(metavar="ID", help="Scenario id.")],
+    status: Annotated[str, typer.Argument(help="approved or rejected.")],
+    reviewer: Annotated[str, typer.Option(help="Your name, kept in review.reviewer.")],
+    note: Annotated[str | None, typer.Option(help="Why; recommended for a rejection.")] = None,
+    root: RootOpt = Path("scenarios/dev"),
+    config: ConfigOpt = Path("config/eval-v0.1.yaml"),
+    gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
+) -> None:
+    """Approve (only if every automatic check passes) or reject a draft."""
+    if status not in ("approved", "rejected"):
+        raise _fail(f"error: status must be approved or rejected, not {status!r}", 2)
+    path = _draft_path(root, scenario_id)
+    cfg, gen = _config(config), _gen_config(gen_config)
+    try:
+        issues = review_mod.set_status(path, status, reviewer, note, cfg, gen)
+    except ScenarioLoadError as e:
+        raise _fail(f"{path}: error load {e.message}", 1) from e
+    if review_mod.blocking(issues):
+        typer.echo(f"not approved: {path} is unchanged")
+        _echo_findings(issues)
+        raise typer.Exit(1)
+    typer.echo(f"{status} {path}")
+    _echo_findings(issues)

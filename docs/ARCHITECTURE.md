@@ -38,7 +38,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 | 층 | 모듈 | 역할 |
 |---|---|---|
-| 진입점 | `cli.py` | `scenario check`, `selfcheck`, `run` 세 명령. 단계들을 이어 붙이기만 하고 판단 로직은 없음 |
+| 진입점 | `cli.py` | 평가 명령(`scenario check`, `selfcheck`, `run`)과 초안 명령(`scenario new`, `review`, `traces`, `generate`). 단계들을 이어 붙이기만 하고 판단 로직은 없음 |
 | 산출 | `report.py` | 네 개의 리포트 파일, 엔진 이름 가리기(blind id), sealed 모드 |
 | 판정 | `selection.py` | 사전 등록 기준으로 통과/실패(`judge_engine`), 반복 평균(`averaged`), 순위(`rank`) |
 | | `selfcheck.py` | 기준선 순서 검사(`run_selfcheck`), 시나리오 변별력 검사(`check_discrimination`) |
@@ -55,6 +55,9 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | | `engines.py` | 이름 → 엔진 인스턴스(`make_engine`) |
 | | `baselines/` | `none`, `all_store`(+`all_store_noacl`), `repeat_n`, `oracle` |
 | | `text.py` | 기준선용 토큰화·Jaccard·BM25(결정적) |
+| 초안 | `generate/` | 궤적에서 시나리오 초안 만들기(`traces`·`generate` 명령, `gen` 선택 설치 필요). 계열 틀 `families/`가 정답 라벨을 정하고 LLM은 본문만 씀. `checks.py`의 `check_draft`가 저장·승인 전 자동 검증 |
+| | `review.py` | 초안 검토: `list_drafts`, `render_show`(rich), `edit_draft`(정답 지문이 바뀌면 되돌림), `set_status`(승인은 자동 검증 통과 시에만). `gen` 없이 동작 |
+| | `scenario/labels.py` | 정답 지문 `label_fingerprint`·`changed_label_fields`(고칠 수 없는 필드의 해시와 차이) |
 
 추천 읽기 순서: `contract.py` → `scenario/model.py` → `world.py` → `agent.py` → `scoring.py` → `replay.py` → `metrics.py` → `selection.py` → `selfcheck.py` → `cli.py`. 예시 시나리오(`scenarios/examples/*.yaml`) 하나를 옆에 펴 두고 읽으면 빠릅니다.
 

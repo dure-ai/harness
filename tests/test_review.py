@@ -1,0 +1,293 @@
+"""Tests for the review commands: list, show, edit (label protection) and set."""
+
+import io
+import shlex
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+import yaml
+from rich.console import Console
+
+from harness.config import EvalConfig
+from harness.generate.config import GenConfig
+from harness.generate.pipeline import save_draft
+from harness.review import blocking, edit_draft, find_draft, list_drafts, render_show, set_status
+from harness.scenario.load import load_scenario
+from harness.scenario.model import Evidence, Scenario
+from tests.factories import T, ev, fact, probe, scenario
+from tests.test_cli import too_easy
+from tests.test_selfcheck import truth_change
+
+CFG = EvalConfig()
+GEN = GenConfig(
+    provider="fake",
+    model="m",
+    prompt_version="gen-test",
+    license_allowlist=["MIT"],
+    banned_cue_words=["outdated", "no longer", "rumor", "deprecated"],
+)
+
+
+def draft(tmp_path: Path, s: Scenario | None = None, name: str = "d.yaml") -> Path:
+    s = s or truth_change()
+    path = tmp_path / name
+    save_draft(s, path)
+    return path
+
+
+def editor(tmp_path: Path, body: str, exit_code: int = 0) -> str:
+    """An EDITOR command: a python script that receives the file path as `path`."""
+    script = tmp_path / "editor.py"
+    script.write_text(
+        "import sys\nfrom pathlib import Path\npath = Path(sys.argv[1])\ntext = path.read_text(encoding='utf-8')\n"
+        + textwrap.dedent(body)
+        + f"\nsys.exit({exit_code})\n",
+        encoding="utf-8",
+    )
+    return shlex.join([sys.executable, str(script)])
+
+
+def test_edit_text_saves_and_marks_edited(tmp_path):
+    path = draft(tmp_path)
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))")
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "saved"
+    assert result.changed_fields == []
+    assert [i for i in result.issues if i.level == "error"] == []
+    saved = load_scenario(path)
+    assert saved.provenance.reviewer_edited is True
+    assert next(e for e in saved.events if e.id == "tc_n").text == "vendor v2 is the requirement"
+
+
+def test_edit_saved_result_carries_check_issues(tmp_path):
+    path = draft(tmp_path)
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'nothing useful here'))")
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "saved"
+    assert [i.code for i in result.issues if i.level == "error"] == ["marker_not_in_body"]
+
+
+def test_edit_without_changes_is_unchanged(tmp_path):
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    result = edit_draft(path, editor(tmp_path, "pass"), CFG, GEN)
+    assert result.status == "unchanged"
+    assert path.read_bytes() == before
+    assert load_scenario(path).provenance.reviewer_edited is False
+
+
+def test_edit_that_only_reformats_is_unchanged(tmp_path):
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    result = edit_draft(path, editor(tmp_path, "path.write_text('# a comment\\n' + text)"), CFG, GEN)
+    assert result.status == "unchanged"
+    assert path.read_bytes() == before
+
+
+def test_edit_label_change_reverted(tmp_path):
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    cmd = editor(tmp_path, "path.write_text(text.replace('valid: true', 'valid: false', 1))")
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "reverted"
+    assert result.changed_fields == ["facts.f_old.valid"]
+    assert path.read_bytes() == before
+
+
+def test_edit_swapping_same_time_events_reverted(tmp_path):
+    s = scenario(
+        {"f": fact(text="use tool", markers=["tool"])},
+        [ev("e1", T("10-01 10:00"), fact="f", text="use the tool"), ev("e2", T("10-01 10:00"), fact="f", text="tool again")],
+        [probe("p", "promote", T("10-02 10:00"), ["f"])],
+    )
+    path = draft(tmp_path, s)
+    before = path.read_bytes()
+    body = """
+        data = __import__('yaml').safe_load(text)
+        data['events'].reverse()
+        path.write_text(__import__('yaml').safe_dump(data, sort_keys=False))
+    """
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "reverted"
+    assert "event_order" in result.changed_fields
+    assert path.read_bytes() == before
+
+
+def test_edit_review_status_reverted(tmp_path):
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    result = edit_draft(path, editor(tmp_path, "path.write_text(text.replace('status: draft', 'status: approved'))"), CFG, GEN)
+    assert result.status == "reverted"
+    assert "review set" in result.reason
+    assert path.read_bytes() == before
+
+
+def test_edit_notes_is_allowed(tmp_path):
+    path = draft(tmp_path)
+    result = edit_draft(path, editor(tmp_path, "path.write_text(text.replace('notes: \\'\\'', 'notes: checked'))"), CFG, GEN)
+    assert result.status == "saved"
+    assert load_scenario(path).review.notes == "checked"
+
+
+def test_edit_broken_yaml_reverted(tmp_path):
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    result = edit_draft(path, editor(tmp_path, "path.write_text('facts: [unclosed')"), CFG, GEN)
+    assert result.status == "reverted"
+    assert result.reason
+    assert path.read_bytes() == before
+
+
+def test_edit_schema_error_reverted(tmp_path):
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    result = edit_draft(path, editor(tmp_path, "path.write_text(text + 'bogus_key: 1\\n')"), CFG, GEN)
+    assert result.status == "reverted"
+    assert path.read_bytes() == before
+
+
+def test_edit_editor_nonzero_reverted(tmp_path):
+    path = draft(tmp_path)
+    before = path.read_bytes()
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'changed'))", exit_code=3)
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "reverted"
+    assert "3" in result.reason
+    assert path.read_bytes() == before
+
+
+def test_edit_missing_editor_reverted(tmp_path):
+    path = draft(tmp_path)
+    result = edit_draft(path, "definitely-not-an-editor-xyz", CFG, GEN)
+    assert result.status == "reverted"
+    assert "definitely-not-an-editor-xyz" in result.reason
+
+
+def test_set_approved_blocked_by_issues(tmp_path):
+    s = truth_change()
+    events = [e.model_copy(update={"text": "nothing useful here"}) if e.id == "tc_o1" else e for e in s.events]
+    path = draft(tmp_path, s.model_copy(update={"events": events}))
+    before = path.read_bytes()
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues if i.level == "error"] == ["marker_not_in_body"]
+    assert blocking(issues)
+    assert path.read_bytes() == before
+    assert load_scenario(path).review.status == "draft"
+
+
+def test_set_approved_blocked_by_too_easy(tmp_path):
+    path = draft(tmp_path, too_easy())
+    before = path.read_bytes()
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["too_easy"]
+    assert blocking(issues)
+    assert path.read_bytes() == before
+
+
+def test_set_approved_when_clean(tmp_path):
+    path = draft(tmp_path)
+    issues = set_status(path, "approved", "kim", "looks right", CFG, GEN)
+    assert not blocking(issues)
+    review = load_scenario(path).review
+    assert (review.status, review.reviewer, review.notes) == ("approved", "kim", "looks right")
+
+
+def test_set_approved_keeps_existing_notes_without_note(tmp_path):
+    s = truth_change()
+    s.review.notes = "earlier note"
+    path = draft(tmp_path, s)
+    set_status(path, "approved", "kim", None, CFG, GEN)
+    assert load_scenario(path).review.notes == "earlier note"
+
+
+def test_set_rejected_always(tmp_path):
+    path = draft(tmp_path, too_easy())
+    assert set_status(path, "rejected", "kim", "labels are wrong", CFG, GEN) == []
+    review = load_scenario(path).review
+    assert (review.status, review.reviewer, review.notes) == ("rejected", "kim", "labels are wrong")
+
+
+def test_saved_yaml_keeps_key_order_and_iso_times(tmp_path):
+    path = draft(tmp_path)
+    set_status(path, "rejected", "kim", None, CFG, GEN)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert list(data)[:4] == ["id", "family", "mode", "language"]
+    assert "+09:00" in path.read_text(encoding="utf-8")
+
+
+def test_list_and_find_drafts(tmp_path):
+    a = draft(tmp_path, truth_change("tc-a"), "tc-a.yaml")
+    sub = tmp_path / "truth_change"
+    sub.mkdir()
+    b = draft(sub, truth_change("tc-b"), "tc-b.yaml")
+    set_status(b, "rejected", "kim", None, CFG, GEN)
+    (tmp_path / "broken.yaml").write_text("facts: [unclosed", encoding="utf-8")
+    rows = {r.id: r for r in list_drafts(tmp_path)}
+    assert set(rows) == {"tc-a", "tc-b", "broken"}
+    assert (rows["tc-a"].status, rows["tc-a"].family, rows["tc-a"].path) == ("draft", "truth_change", a)
+    assert rows["tc-b"].status == "rejected"
+    assert rows["broken"].status == "unreadable" and rows["broken"].warnings
+    assert find_draft(tmp_path, "tc-b") == [b]
+    assert find_draft(tmp_path, "nope") == []
+
+
+def test_list_drafts_reports_generated_at_and_warnings(tmp_path):
+    s = truth_change("tc-w")
+    s.facts["f_new"].markers = []
+    path = draft(tmp_path, s, "tc-w.yaml")
+    (row,) = list_drafts(path.parent)
+    assert row.generated_at is None
+    assert row.warnings == ["markers_missing"]
+
+
+def render(s: Scenario, **kw) -> str:
+    console = Console(record=True, width=200, file=io.StringIO())
+    console.print(render_show(s, CFG, **kw))
+    return console.export_text()
+
+
+def test_show_renders_labels_and_baselines():
+    text = render(truth_change())
+    for word in ("valid_until", "valid_from", "oracle", "all_store", "f_old", "f_new", "vendor v1", "p_block", "p_promote"):
+        assert word in text
+    assert "all_store_noacl" not in text
+
+
+def test_show_timeline_and_evidence():
+    s = truth_change()
+    s.provenance.evidence = [Evidence(event_id="tc_n", trace_id="traj-1", message_index=4, quote="vendor v2 is required", origin="quoted")]
+    s.provenance.fabricated_facts = ["f_old"]
+    s.provenance.llm_model = "claude-x"
+    s.provenance.provider = "anthropic"
+    text = render(s)
+    assert "quoted" in text and "vendor v2 is required" in text
+    assert "claude-x" in text and "anthropic" in text
+    assert "tc_o1" in text and "tc_n" in text
+    assert text.index("tc_o1") < text.index("tc_n") < text.index("p_block", text.index("tc_n"))
+    assert text.count("fabricated") == 1
+
+
+def test_show_leak_family_adds_noacl_baseline():
+    text = render(load_scenario(Path("scenarios/examples/leak_cross_team_config.yaml")))
+    assert "all_store_noacl" in text and "leaks 2" in text
+
+
+def test_show_invalid_scenario_lists_issues_not_baselines():
+    s = truth_change()
+    bad = s.model_copy(update={"events": [s.events[0].model_copy(update={"fact": "nope"})]})
+    text = render(bad)
+    assert "unknown_fact" in text
+
+
+def test_review_works_without_gen_deps():
+    code = (
+        "import sys\n"
+        "for n in ('anthropic', 'openai', 'pyarrow', 'huggingface_hub'):\n"
+        "    sys.modules[n] = None\n"
+        "import harness.review\n"
+        "import harness.cli\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
