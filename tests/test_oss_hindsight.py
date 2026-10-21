@@ -149,12 +149,34 @@ def test_404_after_record_is_an_error(fake, engine):
     assert search_err.value.status == 404
 
 
-@pytest.mark.parametrize("reply", [None, [], {}, {"total": None}, {"total": "0"}, {"total": 1.5}, {"total": True}])
+@pytest.mark.parametrize("reply", [None, [], {}, {"total": None}, {"total": "0"}, {"total": 1.5}, {"total": True}, {"total": -1}])
 def test_malformed_operations_reply_raises(fake, engine, reply):
     fake.operations_reply = reply
     engine.reset("ns"); engine.record(ev("e1"))
     with pytest.raises(RuntimeError, match="unexpected operations reply"):
         engine.flush()
+
+
+GOOD_ROW = {"id": "m", "text": "fine", "type": "world", "document_id": "e1"}
+
+
+@pytest.mark.parametrize("reply", [
+    "text", None, [], {"results": None}, {"results": {}}, {"source_facts": {}},
+    {"results": [GOOD_ROW, "row"]}, {"results": [GOOD_ROW, {"id": "m"}]},
+    {"results": [GOOD_ROW, {"id": "m", "text": None}]}, {"results": [GOOD_ROW, {"id": "m", "text": 3}]},
+    {"results": [GOOD_ROW], "source_facts": []}, {"results": [GOOD_ROW], "source_facts": "x"},
+])
+def test_malformed_recall_reply_raises_after_a_record(fake, engine, reply):
+    fake.recall_reply = reply
+    engine.reset("ns"); engine.record(ev("e1"))
+    with pytest.raises(RuntimeError, match="hindsight: unexpected recall reply"):
+        engine.search(q())
+
+
+def test_wellformed_recall_reply_is_accepted(fake, engine):
+    fake.recall_reply = {"results": [GOOD_ROW], "source_facts": None}
+    engine.reset("ns"); engine.record(ev("e1"))
+    assert [r.text for r in engine.search(q())] == ["fine"]
 
 
 def test_flush_before_reset_is_an_error(engine):

@@ -130,7 +130,7 @@ class HindsightEngine(BaseEngine):
         if reply is None and not self._event_ids:
             return 0
         total: Any = reply.get("total") if isinstance(reply, dict) else None  # pyright: ignore[reportUnknownMemberType]
-        if not isinstance(total, int) or isinstance(total, bool):
+        if not isinstance(total, int) or isinstance(total, bool) or total < 0:
             raise RuntimeError("hindsight: unexpected operations reply")
         return total
 
@@ -174,13 +174,28 @@ class HindsightEngine(BaseEngine):
         reply: Any = self._client.request(
             "POST", f"{self._bank_path()}/memories/recall", body=body, ok_missing=not self._event_ids
         )
-        data: dict[str, Any] = reply if isinstance(reply, dict) else {}  # pyright: ignore[reportUnknownVariableType]
-        rows: list[dict[str, Any]] = data.get("results") or []
-        facts: dict[str, Any] = data.get("source_facts") or {}
+        if not self._event_ids and not (isinstance(reply, dict) and reply):
+            return []  # nothing recorded yet, so an empty answer is the true one
+        rows, facts = self._parse_recall(reply)
         return [
             Result(text=row["text"], sources=self._sources(row, facts), meta={"id": row.get("id"), "type": row.get("type")})
             for row in rows[: query.k]
         ]
+
+    def _parse_recall(self, reply: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        # Called once something was recorded, so only a well-formed reply is acceptable.
+        if not isinstance(reply, dict):
+            raise RuntimeError("hindsight: unexpected recall reply")
+        rows: Any = reply.get("results")  # pyright: ignore[reportUnknownMemberType]
+        facts: Any = reply.get("source_facts")  # pyright: ignore[reportUnknownMemberType]
+        valid = (
+            isinstance(rows, list)
+            and all(isinstance(row, dict) and isinstance(row.get("text"), str) for row in rows)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            and (facts is None or isinstance(facts, dict))
+        )
+        if not valid:
+            raise RuntimeError("hindsight: unexpected recall reply")
+        return rows, facts or {}
 
     def _sources(self, row: dict[str, Any], facts: dict[str, Any]) -> list[str]:
         if row.get("type") == "observation":

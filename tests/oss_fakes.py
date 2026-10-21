@@ -116,6 +116,7 @@ class FakeHindsight(FakeServer):
         extra_results: Raw result dicts appended to every recall.
         source_facts_null: Answer recall with `source_facts: null` and no stored results.
         operations_reply: When set, the operations route answers this payload as is.
+        recall_reply: When set, the recall route answers this payload as is (once the bank holds memories).
 
     A bank that holds no memories (deleted, or never retained into) answers 404 on the
     operations and recall routes, as the real API does.
@@ -131,6 +132,7 @@ class FakeHindsight(FakeServer):
         self.extra_results: list[dict[str, Any]] = []
         self.source_facts_null = False
         self.operations_reply: Any = self._UNSET
+        self.recall_reply: Any = self._UNSET
         self.banks: dict[str, list[dict[str, Any]]] = {}
         self._polls: dict[str, int] = {}
 
@@ -174,6 +176,8 @@ class FakeHindsight(FakeServer):
             self._polls[status] = seen + 1
             return 200, {"total": 1 if seen < self.pending_rounds else 0, "operations": []}
         if method == "POST" and rest == "/memories/recall":
+            if self.recall_reply is not self._UNSET:
+                return 200, self.recall_reply
             return 200, self._recall(bank, body)
         return 404, {"error": "not found"}
 
