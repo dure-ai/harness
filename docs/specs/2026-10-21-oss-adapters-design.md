@@ -58,13 +58,13 @@
 
 | | Hindsight | Mem0 |
 |---|---|---|
-| 이미지 | `ghcr.io/vectorize-io/hindsight:1.0.0` (DB 내장) | 우리 Dockerfile로 빌드(`mem0ai==2.2.1`, 서버 코드는 `v2.2.1` 태그) + `pgvector/pgvector:0.8.7-pg17` |
+| 이미지 | `ghcr.io/vectorize-io/hindsight:1.0.0` (DB 내장) | 우리 compose의 `dockerfile_inline`으로 빌드(`mem0ai==2.2.1`, 서버 코드는 `v2.2.1` 태그) + `pgvector/pgvector:0.8.7-pg17` |
 | 포트 | `127.0.0.1:8888` | `127.0.0.1:8890` → 컨테이너 8000 (Hindsight와 함께 띄울 수 있게) |
-| 위치 | `engines/docker/hindsight/compose.yaml` | `engines/docker/mem0/compose.yaml`, `engines/docker/mem0/Dockerfile` |
+| 위치 | `engines/docker/hindsight/compose.yaml` | `engines/docker/mem0/compose.yaml`(빌드 정의는 `dockerfile_inline`), `engines/docker/mem0/init-db.sh` |
 | 데이터 | 이름 붙은 볼륨. 측정이 끝나면 `docker compose down -v` | 같음 |
 
 - **두 엔진을 함께 띄운다** [판단, 설계 표의 "한 번에 하나씩" 변경]. 한 번의 `harness run`에 두 엔진을 넣어야 리포트 하나에 블라인드 id(E1, E2)와 엔진 간 차이의 신뢰구간이 같이 나온다. 따로 돌리면 리포트가 둘로 갈라지고 둘 다 E1이 되며, 합치는 명령이 없다. "하나씩"은 Neo4j가 필요한 Graphiti를 전제로 한 판단이었고, Mem0는 Postgres 하나라 가볍다. 실제 연결 점검에서 메모리 사용량을 재고, 16GB에 안 들어가면 따로 돌린 뒤 각 엔진을 기준선하고만 비교한다.
-- **Mem0를 직접 빌드하는 이유** [확인]: Docker Hub의 `mem0/mem0-api-server`는 2025-09 이후 갱신되지 않았다. 저장소의 `server/Dockerfile`은 `mem0ai>=0.1.48`을 설치해서 빌드할 때마다 버전이 달라진다. 우리 Dockerfile은 `v2.2.1` 태그의 `server/` 코드를 받아 `mem0ai==2.2.1`로 고정한다. Mem0 코드는 고치지 않는다.
+- **Mem0를 직접 빌드하는 이유** [확인]: Docker Hub의 `mem0/mem0-api-server`는 2025-09 이후 갱신되지 않았다. 저장소의 `server/Dockerfile`은 `mem0ai>=0.1.48`을 설치해서 빌드할 때마다 버전이 달라진다. 우리 빌드 정의(`dockerfile_inline`)는 `v2.2.1` 태그의 `server/` 코드를 받아 `mem0ai==2.2.1`로 고정한다. Mem0 코드는 고치지 않는다.
   - 시작 명령은 `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000`이다. 개발용 compose의 명령은 가져오지 않는다. 그 명령은 버전 없이 `mem0ai`를 다시 설치해 고정을 무너뜨리고, `--reload`도 켠다.
   - 인증·요청 기록용 DB가 따로 필요하다. Postgres 컨테이너에 `v2.2.1`의 `server/init-db.sh`(`mem0_app` DB 생성)를 넣고, 서버에 `APP_DB_NAME=mem0_app`을 준다. 기억은 기본 `postgres` DB의 pgvector에 저장된다.
 - **Mem0 로컬 설정**: `AUTH_DISABLED=true`(기본은 인증이 켜져 있어 401이 난다. `127.0.0.1`에만 열므로 괜찮다), `MEM0_TELEMETRY=false`(기본은 사용 통계를 외부로 보낸다), `MEM0_DEFAULT_LLM_MODEL=${HARNESS_LLM_MODEL}`, `MEM0_DEFAULT_EMBEDDER_MODEL=${HARNESS_EMBEDDING_MODEL}`. [확인]

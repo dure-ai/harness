@@ -24,7 +24,7 @@ uv run harness selfcheck --scenarios scenarios/examples --include-drafts
 uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 ```
 
-평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다(pydantic JSON 모드로 바꿀 수 있는 값이면 됩니다. `Path` 등은 문자열로 기록). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
+평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). 오픈소스 엔진 `hindsight`, `mem0`은 이름으로 고릅니다([아래](#오픈소스-엔진-측정)). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다(pydantic JSON 모드로 바꿀 수 있는 값이면 됩니다. `Path` 등은 문자열로 기록). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
 ## 동작 확인과 결과 읽기
 
@@ -324,6 +324,47 @@ YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, �
 ## 알려진 한계
 
 - 출처 채점의 한계: 결과의 `sources`는 질문 시점까지 엔진에 기록된 이벤트만 근거로 인정합니다(아직 기록되지 않은 id는 무시). 하지만 아무것도 저장하지 않고 이미 기록된 id만 돌려주는 엔진은 하네스가 제대로 기억한 엔진과 구별하지 못합니다.
+
+## 오픈소스 엔진 측정
+
+Hindsight와 Mem0를 `--engine hindsight`, `--engine mem0`으로 평가합니다. 두 엔진은 Docker로 띄우고(`engines/docker/`), 하네스는 HTTP로만 붙습니다. 하네스에 새 의존성은 없습니다. 설계는 [오픈소스 어댑터 설계](docs/specs/2026-10-21-oss-adapters-design.md)를 보세요. 이미지를 받고 Mem0를 빌드하는 일은 네트워크와 시간을 쓰므로 직접 확인한 뒤 실행하세요.
+
+```bash
+# 1. 키와 모델 이름은 직접 넣는다. 파일이나 레포에 남기지 않는다. OPENAI_BASE_URL은 선택(비우면 OpenAI)
+export OPENAI_API_KEY=...
+export HARNESS_LLM_MODEL=gpt-4.1-mini
+export HARNESS_EMBEDDING_MODEL=text-embedding-3-small
+
+# 2. 두 엔진을 같이 띄운다 (Mem0는 처음에 GitHub에서 서버 코드를 받아 빌드)
+docker compose -f engines/docker/hindsight/compose.yaml up -d
+docker compose -f engines/docker/mem0/compose.yaml up -d --build
+
+# 3. 한 번의 실행에 두 엔진을 넣는다 (리포트에는 블라인드 id E1, E2로 나온다)
+uv run harness run --scenarios scenarios/dev --engine hindsight --engine mem0
+
+# 4. 끝나면 컨테이너와 볼륨을 지운다
+docker compose -f engines/docker/hindsight/compose.yaml down -v
+docker compose -f engines/docker/mem0/compose.yaml down -v
+```
+
+- 시나리오가 아직 초안이면 3번에 `--include-drafts`가 필요합니다. 승인된 시나리오만 있으면 빼세요.
+- 포트는 `127.0.0.1:8888`(Hindsight)과 `127.0.0.1:8890`(Mem0)에만 열립니다. 주소를 바꾸려면 `HARNESS_HINDSIGHT_URL`, `HARNESS_MEM0_URL`을 쓰며, 어댑터는 `localhost`, `127.0.0.1`, `[::1]` 밖의 주소와 37701, 37777 포트를 거부합니다.
+- 어댑터는 시작할 때 `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`이 `config/eval-v0.1.yaml`의 `llm` 값과 같은지 확인하고, 다르면 실행 전에 멈춥니다. 키 값은 코드, 로그, 리포트 어디에도 남지 않습니다.
+- **이벤트 id는 엔진에 그대로 갑니다.** 출처 채점을 위해 Hindsight에는 `document_id`로, Mem0에는 기록 메타데이터로 보냅니다. 엔진 입장에서는 관찰 데이터이므로, 시나리오 작성자는 이벤트 id에 사실이나 정답 단서가 되는 말을 넣지 말고 중립적으로(`e1`, `e2`처럼) 지어야 합니다. 시나리오 id와 계열 이름은 어디에도 보내지 않습니다.
+
+**알려진 한계**
+
+- 재정렬 모델이 다릅니다. Hindsight는 로컬 cross-encoder를 쓰고 Mem0는 쓰지 않습니다. 순위 차이에 이 영향이 섞입니다.
+- Mem0 오픈소스는 기록 시각을 무시합니다(가상 시계 미지원). 시간 계열 결과에는 "가상 시계 미지원" 주석이 붙고, 점수는 다른 엔진과 같은 방식으로 계산합니다.
+- Hindsight는 실행 중인 모델을 API로 읽을 수 없어 환경 변수로만 확인합니다. 컨테이너를 다른 값으로 띄웠다면 어댑터가 알지 못합니다. Mem0는 `GET /configure`로 실제 모델을 읽어 비교합니다.
+- Mem0 첫 빌드는 GitHub(`mem0ai/mem0` `v2.2.1` 태그)에서 서버 코드를 받습니다. 이후에는 캐시를 씁니다.
+- 측정이 끝나면 위처럼 `down -v`로 볼륨을 지웁니다. 지우지 않으면 다음 실행에 이전 기록이 남을 수 있습니다.
+
+**실제 연결 점검** (선택): 두 컨테이너와 키가 준비된 상태에서 예시 시나리오가 두 엔진으로 끝까지 도는지 봅니다. 모델 호출 비용이 듭니다. 기본 `uv run pytest`에서는 건너뜁니다.
+
+```bash
+HARNESS_LIVE_OSS=1 uv run pytest tests/test_oss_live.py
+```
 
 ## 테스트
 

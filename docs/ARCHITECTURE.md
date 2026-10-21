@@ -53,6 +53,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | | `config.py` | 점수에 영향을 주는 모든 값(`config/eval-v0.1.yaml`)과 그 해시 |
 | 엔진 | `contract.py` | 엔진이 보는 유일한 타입: `Event`, `Query`, `Result`, `EngineInfo`, `BaseEngine`, `can_see` |
 | | `engines.py` | 이름 → 엔진 인스턴스(`make_engine`) |
+| | `oss/` | 오픈소스 엔진 어댑터 `hindsight`, `mem0`(이름으로 `make_engine`에 등록). 공통 부분(`http.py` 주소 검사·재시도 HTTP, `models.py` 모델 확인, `text.py` 본문 형식)과 어댑터 두 개(`hindsight.py`, `mem0.py`). 이벤트 id를 출처로 엔진에 맡겼다가 `Result.sources`로 돌려받는다. 테스트는 `tests/oss_fakes.py`의 가짜 서버로 하고 실제 연결 점검만 `HARNESS_LIVE_OSS=1`일 때 돈다 |
 | | `baselines/` | `none`, `all_store`(+`all_store_noacl`), `repeat_n`, `oracle` |
 | | `text.py` | 기준선용 토큰화·Jaccard·BM25(결정적) |
 | 초안 | `generate/` | 궤적에서 시나리오 초안 만들기(`traces`·`generate` 명령, `gen` 선택 설치 필요). 계열 틀 `families/`가 정답 라벨을 정하고 LLM은 본문만 씀. `checks.py`의 `check_draft`가 저장·승인 전 자동 검증 |

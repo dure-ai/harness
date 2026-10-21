@@ -1,0 +1,31 @@
+# Hindsight for the open-source adapter measurement. See README "오픈소스 엔진 측정".
+# Required in the shell: OPENAI_API_KEY, HARNESS_LLM_MODEL, HARNESS_EMBEDDING_MODEL.
+# Optional: OPENAI_BASE_URL (empty -> OpenAI). Nothing here stores a key.
+name: harness-hindsight
+
+services:
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:1.0.0
+    ports:
+      - "127.0.0.1:8888:8888"   # API only. The UI port (9999) is not published.
+    environment:
+      HINDSIGHT_API_LLM_PROVIDER: openai
+      HINDSIGHT_API_LLM_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      HINDSIGHT_API_LLM_MODEL: ${HARNESS_LLM_MODEL:?set HARNESS_LLM_MODEL}
+      HINDSIGHT_API_LLM_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: openai
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: ${HARNESS_EMBEDDING_MODEL:?set HARNESS_EMBEDDING_MODEL}
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    volumes:
+      - hindsight-data:/home/hindsight/.pg0
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8888/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    restart: "no"
+
+volumes:
+  hindsight-data:
