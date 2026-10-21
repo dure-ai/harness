@@ -54,7 +54,10 @@ def scenario_id(family: str, repo: str, trajectory_id: str, candidate_index: int
 
 
 class SkeletonBuilder:
-    """Collects the labels of one skeleton and places them in time, deterministically per seed.
+    """Collects the labels of one skeleton and places them in time, deterministically.
+
+    Every random choice comes from `random.Random(f"{seed}:{trajectory_id}:{cand.index}")`, so
+    the same inputs give the same skeleton and two candidates at one seed get different times.
 
     Days count from `BASE` (2026-10-01). Times are random quarter hours between 09:00 and
     17:45, so a fact boundary at midnight of a day (`midnight`) always falls before that day's
@@ -72,9 +75,10 @@ class SkeletonBuilder:
         self.family: Family = family
         self.cand = cand
         self.seed = seed
-        self.rng = random.Random(seed)
         self.repo = traces[0].repo if traces else MANUAL
         self.trajectory_id = traces[0].trajectory_id if traces else MANUAL
+        # Seeded per candidate, so drafts made at one seed do not all share one timeline.
+        self.rng = random.Random(f"{seed}:{self.trajectory_id}:{cand.index}")
         self._traces = list(traces)
         self._teams: dict[str, list[str]] = {}
         self._n_users = 0

@@ -273,6 +273,35 @@ def test_same_seed_same_skeleton(family: str) -> None:
     assert c.scenario.model_dump(exclude={"id"}) != a.scenario.model_dump(exclude={"id"})
 
 
+def _event_times(sk: Skeleton) -> list:
+    return [e.t for e in sk.scenario.events]
+
+
+@pytest.mark.parametrize("family", ALL)
+def test_timeline_depends_on_the_candidate_and_trace(family: str) -> None:
+    base = _skeleton(family)
+    assert _event_times(_skeleton(family)) == _event_times(base)
+    assert _skeleton(family).scenario.model_dump() == base.scenario.model_dump()
+    other_index = _skeleton(family, cand=_cand(index=2))
+    other_trace = _skeleton(family, traces=[make_trace(trajectory_id="traj-9"), *_traces()[1:]])
+    assert _event_times(other_index) != _event_times(base)
+    assert _event_times(other_trace) != _event_times(base)
+
+
+def test_builder_seeds_with_seed_trajectory_and_index() -> None:
+    import random
+
+    def expected(seed: str) -> object:
+        rng = random.Random(seed)
+        rng.randint(1, 20)  # the builder draws its first session number on creation
+        return rng.getstate()
+
+    b = SkeletonBuilder("truth_change", _cand(index=3), _traces(), SEED)
+    assert b.rng.getstate() == expected(f"{SEED}:traj-1:3")
+    m = SkeletonBuilder("truth_change", _cand(index=3), [], SEED)
+    assert m.rng.getstate() == expected(f"{SEED}:manual:3")
+
+
 @pytest.mark.parametrize("family", ALL)
 def test_template_works_without_traces(family: str) -> None:
     sk = _skeleton(family, traces=[])
