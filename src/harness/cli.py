@@ -2,10 +2,13 @@
 
 import json
 import secrets
+import tempfile
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -26,11 +29,18 @@ from harness.scenario.validate import Issue, validate_scenario
 from harness.selection import EngineScore, rank
 from harness.selfcheck import CheckResult, check_discrimination, run_selfcheck
 
+if TYPE_CHECKING:
+    from harness.generate.config import GenConfig
+
 NO_SCENARIOS = "승인된 시나리오가 없습니다. 초안을 포함하려면 --include-drafts"
+GEN_MISSING = "uv sync --extra gen 이 필요합니다"
+_GEN_DEPS = frozenset({"anthropic", "openai", "pyarrow", "huggingface_hub"})
 
 app = typer.Typer(help="Memory evaluation harness.", no_args_is_help=True)
 scenario_app = typer.Typer(help="Scenario files.", no_args_is_help=True)
 app.add_typer(scenario_app, name="scenario")
+traces_app = typer.Typer(help="Source trajectories for scenario generation.", no_args_is_help=True)
+app.add_typer(traces_app, name="traces")
 
 ScenariosOpt = Annotated[
     list[Path],
@@ -356,3 +366,156 @@ def run(
         },
     )
     typer.echo(str(out_dir / "report.md"))
+
+
+# ---- traces and generate (need the `gen` extra; harness.generate is imported lazily) ------------
+
+
+@contextmanager
+def _needs_gen() -> Iterator[None]:
+    """Turn a missing `gen` dependency into the install hint and exit code 2."""
+    try:
+        yield
+    except ModuleNotFoundError as e:
+        if (e.name or "").split(".")[0] not in _GEN_DEPS:
+            raise
+        raise _fail(GEN_MISSING, 2) from e
+
+
+def _mb(size: int) -> str:
+    return f"{size / 1_000_000:.1f} MB"
+
+
+@traces_app.command("fetch")
+def traces_fetch(
+    dataset_config: Annotated[
+        str, typer.Option("--config", help="Open-SWE-Traces version: v1.0, v1.1 or v1.2.")
+    ],
+    split: Annotated[str, typer.Option(help="Agent: openhands, sweagent or minisweagent.")],
+    shard: Annotated[int, typer.Option(min=0, help="Index in the sorted list of files.")] = 0,
+    yes: Annotated[bool, typer.Option("--yes", help="Download without asking.")] = False,
+) -> None:
+    """Download one parquet shard of Open-SWE-Traces into the cache, after showing its size."""
+    with _needs_gen():
+        from harness.generate import fetch
+        from harness.generate.config import cache_root
+
+        try:
+            shards = fetch.list_shards(dataset_config, split)
+        except ValueError as e:
+            raise _fail(f"error: {e}", 2) from e
+        except ModuleNotFoundError:
+            raise  # a missing gen dependency: _needs_gen explains it
+        except Exception as e:
+            raise _fail(f"error: cannot list shards: {type(e).__name__}: {e}", 2) from e
+        if shard >= len(shards):
+            raise _fail(f"error: {dataset_config}/{split} has {len(shards)} shards; --shard {shard} does not exist", 2)
+        info = shards[shard]
+        typer.echo(f"{info.path}  {_mb(info.size)}")
+        if not yes and not typer.confirm("받을까요?", default=False):
+            raise _fail("취소했습니다. 아무것도 받지 않았습니다.", 1)
+        dest = cache_root() / "traces" / dataset_config / split
+        try:
+            path = fetch.fetch_shard(info, dest)
+        except ModuleNotFoundError:
+            raise
+        except Exception as e:
+            raise _fail(f"error: download failed: {type(e).__name__}: {e}", 2) from e
+        typer.echo(str(path))
+
+
+@traces_app.command("list")
+def traces_list() -> None:
+    """Show the shards in the cache, trajectories per repository and how many tasks can be bundled."""
+    with _needs_gen():
+        from harness.generate import fetch
+        from harness.generate.config import cache_root
+
+        root = cache_root() / "traces"
+        shards = fetch.local_shards(root)
+        if not shards:
+            typer.echo(f"받은 조각이 없습니다: {root} (harness traces fetch)")
+            return
+        stats = fetch.cache_stats(shards)
+        typer.echo(f"조각 {len(shards)}개")
+        for path in shards:
+            typer.echo(f"  {path.relative_to(root)}  {_mb(path.stat().st_size)}")
+        typer.echo("저장소별 궤적 수")
+        for r in stats.repos:
+            typer.echo(f"  {r.repo}  {r.license or 'unknown'}  {r.language or 'unknown'}  {r.trajectories}")
+        typer.echo(f"궤적 {stats.trajectories}개, 작업 {stats.tasks}개, 묶음(모델 2개 이상이 푼 작업) {stats.bundles}개")
+
+
+def _gen_config(path: Path) -> "GenConfig":
+    from harness.generate.config import load_gen_config
+
+    try:
+        return load_gen_config(path)
+    except Exception as e:
+        raise _fail(f"error: cannot load gen config {path}: {e}", 2) from e
+
+
+@app.command("generate")
+def generate_cmd(
+    family: Annotated[str, typer.Option(help="Family name, or 'all' for the ten families.")],
+    n: Annotated[int, typer.Option(min=1, help="Drafts per family (normal_repeat: n // 2 with 'all').")] = 4,
+    seed: Annotated[int, typer.Option(help="Seed of the trace order and the skeletons.")] = 20261020,
+    repos: Annotated[str | None, typer.Option(help="Only these repositories, comma separated.")] = None,
+    out: Annotated[Path, typer.Option(help="Directory for the drafts.")] = Path("scenarios/dev"),
+    gen_config: Annotated[Path, typer.Option(help="Generation config YAML.")] = Path("config/gen-v0.1.yaml"),
+    config: ConfigOpt = Path("config/eval-v0.1.yaml"),
+    traces: Annotated[Path | None, typer.Option(help="Trace directory; default: the cache.")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Print the first LLM request and stop.")] = False,
+) -> None:
+    """Make draft scenarios from cached traces with an LLM; they are saved with status draft."""
+    cfg = _config(config)
+    gen = _gen_config(gen_config)
+    with _needs_gen():
+        from harness.generate import fetch, pipeline
+        from harness.generate.config import cache_root
+        from harness.generate.families import TEMPLATES
+        from harness.generate.llm import LLMError, make_client
+        from harness.generate.traces import usable
+
+        if family != "all" and family not in TEMPLATES:
+            raise _fail(f"error: unknown family {family!r}; choose all or one of {', '.join(TEMPLATES)}", 2)
+        families = list(TEMPLATES) if family == "all" else [family]
+        per_family = pipeline.all_family_counts(n) if family == "all" else None
+        wanted = {r.strip() for r in repos.split(",") if r.strip()} if repos else None
+
+        root = traces if traces is not None else cache_root() / "traces"
+        shards = fetch.local_shards(root)
+        if not shards:
+            raise _fail(f"error: no trace files under {root}; run harness traces fetch first", 2)
+        loaded = [
+            t
+            for t in pipeline.read_all(shards)
+            if usable(t, gen) and (wanted is None or pipeline.matches_repos(t, wanted))
+        ]
+        if not loaded:
+            raise _fail("error: no usable trajectory (python, allowed license, --repos) in the trace files", 2)
+
+        run_dir = cache_root() / "runs" / datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+        try:
+            if dry_run:
+                with tempfile.TemporaryDirectory() as scratch:
+                    client = pipeline.DryRunClient(gen.provider, gen.model)
+                    pipeline.generate(families, n, seed, loaded, client, cfg, gen, out, Path(scratch), wanted, per_family)
+                return
+            client = make_client(gen, cache_root() / "llm")
+            report = pipeline.generate(families, n, seed, loaded, client, cfg, gen, out, run_dir, wanted, per_family)
+        except pipeline.DryRun as d:
+            typer.echo(f"[{d.kind}] system:\n{d.system}\n\nuser:\n{d.user}")
+            typer.echo("--dry-run: 모델을 부르지 않았고 아무것도 저장하지 않았습니다.")
+            return
+        except LLMError as e:
+            raise _fail(f"error: {e}", 2) from e
+
+        typer.echo(f"요청 {report.requested}개 중 {len(report.written)}개 생성")
+        if report.skipped_existing:
+            typer.echo(f"  이미 검토된 파일이라 건너뜀: {', '.join(report.skipped_existing)}")
+        if report.rejected:
+            typer.echo(f"  거절 {report.rejected}건: {run_dir / 'rejected.jsonl'}")
+        for fam, reason in report.shortfall.items():
+            typer.echo(f"  부족 {fam}: {reason}")
+        typer.echo(f"저장 위치: {out}")

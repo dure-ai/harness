@@ -154,6 +154,39 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
 
 **예시(`scenarios/examples/`)는 스모크 테스트 전용이며 발표 수치에 쓰지 않습니다.**
 
+## 시나리오 초안 만들기
+
+실제 에이전트 궤적(Open-SWE-Traces)에서 LLM으로 시나리오 초안을 만듭니다. 정답 라벨은 계열 틀(코드)이 정하고, LLM은 본문만 씁니다. 평가만 하는 사람은 이 절이 필요 없습니다.
+
+```bash
+uv sync --extra gen                      # anthropic, openai, pyarrow, huggingface_hub 설치
+export ANTHROPIC_API_KEY=...             # openai 호환 공급자는 config/gen-v0.1.yaml의 api_key_env 변수
+
+# 1. 궤적 조각 받기: 크기(MB)를 보여 주고 y/N을 묻는다. --yes로 건너뜀. 조각 하나가 수백 MB
+uv run harness traces fetch --config v1.2 --split minisweagent --shard 0
+uv run harness traces list               # 받은 조각, 저장소별 궤적 수, 묶음 수
+
+# 2. 초안 만들기: 계열마다 n개를 목표로 scenarios/dev/<계열>/<id>.yaml (review.status: draft)에 저장
+uv run harness generate --family all --n 4 --seed 20261020
+uv run harness generate --family truth_change --n 2 --repos owner/name --out /path/outside/repo
+uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하고 부르지 않음
+```
+
+- `--family all`은 10개 계열 전부이고, 짝 문항이 없는 `normal_repeat`는 `n // 2`개(최소 1)만 만듭니다.
+- 자동 검증(`check_draft`)에서 오류가 나거나 `too_easy` 경고가 뜬 초안은 저장하지 않고 거절 로그에 남깁니다. 이미 검토된(draft가 아닌) 같은 id의 파일은 덮어쓰지 않습니다.
+- 같은 입력·시드면 같은 id가 나오고, LLM 응답은 캐시되어 다시 돌려도 호출하지 않습니다.
+- 키가 없거나 인증이 거부되면 전체가 멈추고(종료 코드 2), 그 밖의 LLM 오류는 해당 초안만 거절합니다.
+
+캐시 위치(`T5_HARNESS_CACHE`, 기본 `~/.cache/t5-harness`):
+
+| 경로 | 내용 |
+|---|---|
+| `traces/<config>/<split>/` | 받은 parquet 조각 |
+| `llm/` | LLM 응답 캐시 |
+| `runs/<run_id>/` | `candidates.jsonl`(사실 후보), `rejected.jsonl`(거절 사유) |
+
+**출처 표기**: 궤적은 [nvidia/Open-SWE-Traces](https://huggingface.co/datasets/nvidia/Open-SWE-Traces)(CC BY 4.0)에서 가져오며, 초안의 `provenance`에 원본 궤적 id, 저장소, 라이선스를 남깁니다. 원본 저장소 라이선스가 허용 목록에 있는 python 궤적만 씁니다.
+
 ## 시나리오 형식
 
 YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, 문항(`block` / `promote` / `leak`)의 형식과 계열별 틀은 설계 문서 [5장](docs/specs/2026-10-19-memory-eval-harness-design.md#5-시나리오-형식)을 보세요. 시각은 모두 시간대를 포함해야 합니다(예: `2026-10-09T14:00+09:00`). 시나리오 `id`는 영문자·숫자로 시작하고 영문자·숫자·`.`·`_`·`-`만 쓰며 120자 이하입니다. 같은 키를 두 번 쓰면(중복 키) 로드 오류입니다.

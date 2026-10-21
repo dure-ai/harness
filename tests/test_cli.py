@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -599,3 +600,179 @@ def test_run_without_a_blind_seed_does_not_warn(tmp_path):
     result, _ = run_cli(tmp_path, good_dir(tmp_path))
     assert result.exit_code == 0, result.output
     assert "warning" not in result.stderr
+
+
+# ---- traces and generate -----------------------------------------------------------------------
+
+
+def gen_yaml(tmp_path: Path, **over) -> Path:
+    data = {
+        "provider": "fake",
+        "model": "fake-1",
+        "prompt_version": "gen-test",
+        "license_allowlist": ["MIT"],
+        "banned_cue_words": ["outdated", "no longer", "rumor", "deprecated"],
+        **over,
+    }
+    path = tmp_path / "gen.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return path
+
+
+def cached_traces(tmp_path: Path, monkeypatch, repos=("acme/widget", "acme/widget", "other/gadget")) -> Path:
+    from tests.test_gen_pipeline import trace
+
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(cache))
+    shard_dir = cache / "traces" / "v1.2" / "minisweagent"
+    shard_dir.mkdir(parents=True)
+    from tests.gen_fixtures import make_parquet
+
+    make_parquet(shard_dir / "a.parquet", [trace(i + 1, repo=r) for i, r in enumerate(repos)])
+    return cache
+
+
+def gen_args(tmp_path: Path, *extra: str, **over) -> list[str]:
+    return ["generate", "--gen-config", str(gen_yaml(tmp_path, **over)), "--out", str(tmp_path / "out"), *extra]
+
+
+def test_cli_fetch_declined_downloads_nothing(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    info = fetch.ShardInfo(path="data/minisweagent/qwen38_27b/src/train-00000-of-00002.parquet", size=250_000_000)
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None: [info])
+    monkeypatch.setattr(fetch, "fetch_shard", lambda *a, **k: pytest.fail("must not download"))
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "minisweagent", "--shard", "0"], input="n\n")
+    assert result.exit_code == 1
+    assert "250.0 MB" in result.output and info.path in result.output
+    assert not (tmp_path / "cache").exists()
+
+
+def test_cli_fetch_confirmed_downloads_into_the_cache(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    infos = [fetch.ShardInfo(path=f"data/sweagent/qwen38_27b/src/train-0000{i}-of-00002.parquet", size=10) for i in (0, 1)]
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None: infos)
+    got = []
+    monkeypatch.setattr(fetch, "fetch_shard", lambda info, dest, api=None: got.append((info, dest)) or dest / info.path)
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--shard", "1"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert got == [(infos[1], tmp_path / "cache" / "traces" / "v1.1" / "sweagent")]
+    got.clear()
+    assert runner.invoke(app, ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--yes"]).exit_code == 0
+    assert got[0][0] == infos[0]
+
+
+def test_cli_fetch_bad_arguments_exit2(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None: [])
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes"])
+    assert result.exit_code == 2 and "has 0 shards" in result.output
+    monkeypatch.undo()
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v9", "--split", "sweagent", "--yes"])
+    assert result.exit_code == 2 and "unknown config" in result.output
+
+
+def test_cli_traces_list(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["traces", "list"])
+    assert result.exit_code == 0, result.output
+    assert "v1.2/minisweagent/a.parquet" in result.output
+    assert re.search(r"acme/widget\s+MIT\s+python\s+2", result.output)
+    assert re.search(r"other/gadget\s+MIT\s+python\s+1", result.output)
+    assert "궤적 3개, 작업 3개, 묶음(모델 2개 이상이 푼 작업) 0개" in result.output
+
+
+def test_cli_traces_list_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    result = runner.invoke(app, ["traces", "list"])
+    assert result.exit_code == 0 and "받은 조각이 없습니다" in result.output
+
+
+def test_cli_generate_writes_drafts_and_reports(tmp_path, monkeypatch):
+    cache = cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "2"))
+    assert result.exit_code == 0, result.output
+    assert "요청 2개 중 2개 생성" in result.output
+    files = sorted((tmp_path / "out" / "truth_change").glob("*.yaml"))
+    assert len(files) == 2
+    assert all(yaml.safe_load(f.read_text(encoding="utf-8"))["review"]["status"] == "draft" for f in files)
+    (run_dir,) = (cache / "runs").iterdir()
+    assert (run_dir / "candidates.jsonl").is_file() and (run_dir / "rejected.jsonl").is_file()
+    assert (cache / "llm").is_dir()
+
+
+def test_cli_generate_shortfall_exits_0(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    canned = tmp_path / "canned.json"
+    cand = {"statement": "Run the checks.", "kind": "test", "quote": "run the project checks", "message_index": 2}
+    canned.write_text(json.dumps({"candidates": [{"candidates": [cand]}] * 3}), encoding="utf-8")
+    args = gen_args(tmp_path, "--family", "workaround_then_root", "--n", "2", fake_responses=str(canned))
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert "요청 2개 중 0개 생성" in result.output and "부족 workaround_then_root" in result.output
+
+
+def test_cli_generate_all_halves_normal_repeat(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "all", "--n", "2"))
+    assert result.exit_code == 0, result.output
+    assert "요청 19개 중" in result.output  # 9 families x 2 + normal_repeat x 1
+
+
+def test_cli_generate_repos_filter(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "2", "--repos", "other/gadget"))
+    assert result.exit_code == 0, result.output
+    names = [f.name for f in (tmp_path / "out" / "truth_change").glob("*.yaml")]
+    assert names and all("-gadget-" in n for n in names)
+
+
+def test_generate_missing_key_exit2(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+    args = gen_args(tmp_path, "--family", "truth_change", provider="openai", api_key_env="NO_SUCH_KEY")
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2
+    assert "openai" in result.output and "NO_SUCH_KEY" in result.output
+    assert not (tmp_path / "out").exists()
+
+
+def test_generate_dry_run_makes_no_calls(tmp_path, monkeypatch):
+    cache = cached_traces(tmp_path, monkeypatch)
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+    args = gen_args(tmp_path, "--family", "truth_change", "--dry-run", provider="openai", api_key_env="NO_SUCH_KEY")
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output  # no key needed: no client is built
+    assert "Repository: " in result.output and "system:" in result.output
+    assert not (tmp_path / "out").exists()
+    assert not (cache / "llm").exists() and not (cache / "runs").exists()
+
+
+def test_generate_unknown_family_and_no_traces_exit2(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "nope"))
+    assert result.exit_code == 2 and "unknown family" in result.output
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change"))
+    assert result.exit_code == 2 and "traces fetch" in result.output
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--repos", "nowhere/zip"))
+    assert result.exit_code == 2 and "no usable trajectory" in result.output
+
+
+def test_gen_commands_without_gen_deps_exit2(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    for dep in ("pyarrow", "huggingface_hub"):
+        monkeypatch.setitem(sys.modules, dep, None)
+    for argv in (
+        gen_args(tmp_path, "--family", "truth_change"),
+        ["traces", "list"],
+        ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes"],
+    ):
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 2, (argv, result.output)
+        assert "uv sync --extra gen 이 필요합니다" in result.output
