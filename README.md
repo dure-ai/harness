@@ -26,6 +26,118 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 
 평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
+## 동작 확인과 결과 읽기
+
+하네스가 제대로 도는지는 위 세 명령을 차례로 돌려 확인합니다. 각 단계에서 무엇이 보이면 정상인지 적습니다.
+
+### 1. 시나리오 검사 (`scenario check`)
+
+- 문제가 없으면 **아무것도 출력하지 않고** 종료 코드 0으로 끝납니다.
+- 문제가 있으면 `<파일 경로>: error <코드>` 또는 `warning <코드>` 줄이 나오고, 오류가 하나라도 있으면 종료 코드 1입니다. 예: `unknown_fact`(없는 사실을 가리킴), `too_easy`(전부 저장 기준선도 틀리지 않는 쉬운 문항).
+- `run`·`selfcheck`는 오류가 있는 세트를 돌리지 않습니다.
+
+### 2. 자가 검증 (`selfcheck`)
+
+기준선 4개가 설계대로 나오는지 봅니다. 하나라도 `FAIL`이면 하네스나 시나리오 세트를 믿을 수 없다는 뜻이고, `run`도 멈춥니다(종료 코드 1).
+
+| 검사 | 정상일 때 |
+|---|---|
+| `no_errors` | 기준선 실행 중 오류가 없음 |
+| `oracle_perfect` | 정답 기준선: M1 = 0, M2 = 1, M3 = 0 |
+| `none_empty` | 아무것도 기억하지 않는 기준선: M1 = 0, M2 = 0, M3 = 0 |
+| `all_store_max_m1` | 전부 저장 기준선의 M1이 0보다 크고 기준선 중 가장 큼 |
+| `repeat_n_poison`, `repeat_n_echo` | 반복 N회 기준선이 한 사람의 오염·메아리 계열에서 정답보다 많이 틀림(그 계열이 세트에 있을 때만) |
+
+### 3. 실행 (`run`)
+
+마지막 줄이 리포트 경로입니다. `runs/<실행 id>/`에 네 파일이 생깁니다.
+
+| 파일 | 내용 |
+|---|---|
+| `report.md` | 사람이 읽는 리포트 |
+| `summary.json` | 같은 내용을 기계가 읽는 형식으로: `meta`(실행 정보와 해시), `engines.<id>`(`metrics`, `verdict`, `repeats`, `flip`), `ranking`, `selfcheck` |
+| `results.jsonl` | 엔진 × 문항마다 한 줄: 어떤 결과를 받았고(`results`), 무엇을 골랐고(`choice`), 어떻게 채점됐는지(`outcome`), 누출(`leaks`) |
+| `engine_ids.json` | 블라인드 id(E1, E2, ...)와 실제 엔진 이름의 대응표, 섞을 때 쓴 난수 |
+
+`--sealed`로 돌리면 `results.jsonl`을 만들지 않고 리포트에서 시나리오·문항 id를 뺍니다.
+
+### report.md 읽는 법
+
+| 절 | 볼 것 |
+|---|---|
+| 머리말 | 실행 id, 하네스 버전, **설정 해시**, **시나리오 세트 해시**, 초안 포함 여부. 초안이 들어가면 맨 위에 `⚠️ 초안 포함 — 발표 수치로 쓰지 않음`이 붙습니다 |
+| 판정 | 엔진마다 M1, M2, M3, 통과/탈락과 근거. 값은 `0.500 (n=4) [0.150, 0.850]` 형식으로, 비율 (문항 수) [95% 부트스트랩 신뢰구간]입니다 |
+| 보조·관찰 | 판정에는 쓰지 않는 지표: 철회 지연, 오염 노출률, 출처 없는 결과 비율 등 |
+| 계열별 / 되먹임 / 출처별 | M1·M2·M3를 계열별로, 되먹임 계열은 따로, 시나리오 작성 출처(사람·LLM·생성기)별로 나눈 표 |
+| 순위 | 판정을 통과한 후보 엔진의 순위와 차이의 신뢰구간 |
+| 성능 | `record`·`search` 응답 시간과 질문당 건넨 글자 수(표시만 하고 판정에는 쓰지 않음) |
+| 엔진 한계 | 가상 시계·출처·범위 지원 여부와 설정. 가상 시계를 지원하지 않으면 시간 계열 결과에 주석이 붙습니다 |
+| 오류 시나리오 | 엔진이 예외를 낸 시나리오(반복 실행이면 회차와 함께). 하나라도 있으면 그 엔진은 판정을 통과할 수 없습니다 |
+| 자가 검증 | 2단계와 같은 표 |
+
+**판정 기준** (`config/eval-v0.1.yaml`의 `judgment`):
+
+- **M1**(막아야 할 문항에서 틀린 기억으로 행동한 비율) ≤ 전부 저장 기준선 M1 × 0.5
+- **M2**(승격돼야 할 문항에서 맞는 지식을 쓴 비율) ≥ 전부 저장 기준선 M2 − 0.10
+- **M3**(볼 수 없는 기록의 누출 수) = 0
+- 오류 시나리오 없음
+
+기준선도 같은 기준으로 판정됩니다. 예시 시나리오로 돌리면 아래처럼 나오는 것이 정상이고, 이는 하네스가 기준선을 제대로 가른다는 뜻입니다.
+
+| 기준선 | 결과 | 이유 |
+|---|---|---|
+| `oracle` | 통과 | 정답만 건넴 |
+| `none` | 탈락 | 아무것도 안 건네서 M2 = 0 |
+| `all_store` | 탈락 | 다 건네서 M1 = 1 (자기 M1의 절반을 넘음) |
+| `repeat_n` | 탈락 | 여러 번 나온 것만 건네서 오염에 속고(M1) 한 번 나온 참 지식을 놓침(M2) |
+
+### results.jsonl의 `outcome`
+
+| 문항 종류 | 값 | 뜻 |
+|---|---|---|
+| `block` | `BLOCKED` | 틀린 지식으로 행동하지 않음(좋음) |
+| `block` | `FP` | 틀린 지식으로 행동함(M1에 들어감) |
+| `promote` | `TP` | 맞는 지식을 씀(M2에 들어감) |
+| `promote` | `FN` | 쓸 만한 결과가 없어 행동하지 않음 |
+| `promote` | `PROMOTE_FP` | 틀린 지식을 씀 |
+| `leak` | `LEAK_ONLY` | 누출 검사 전용 문항. 누출은 `leaks`에 기록 |
+
+특정 문항이 왜 그렇게 채점됐는지는 그 줄의 `results`(엔진이 건넨 것)와 `choice`(에이전트가 고른 결과와 근거 사실)를 보면 됩니다. 예: `jq 'select(.engine_id=="all_store" and .outcome=="FP")' runs/<실행 id>/results.jsonl`
+
+### 같은 입력이면 같은 출력인지 확인
+
+채점·에이전트·기준선은 결정적입니다. 같은 시나리오 세트와 설정으로 두 번 돌리면 `results.jsonl`은 바이트까지 같고, `summary.json`·`report.md`는 아래 값만 다릅니다.
+
+- 실행 id와 실행 일시
+- 응답 시간(성능 표)
+- 블라인드 id를 섞는 난수(`engine_ids.json`에 기록. 후보가 하나면 항상 E1)
+
+```bash
+uv run harness run --scenarios scenarios/examples --include-drafts --out /tmp/r1
+uv run harness run --scenarios scenarios/examples --include-drafts --out /tmp/r2
+cmp /tmp/r1/*/results.jsonl /tmp/r2/*/results.jsonl && echo same
+```
+
+LLM을 쓰는 엔진은 같은 입력에도 답이 달라질 수 있습니다. 그런 엔진은 `--repeat`(기본 3회)로 여러 번 돌리고, 리포트의 재실행 뒤집힘률(`flip`)로 흔들림을 봅니다.
+
+### 직접 만든 엔진 붙여 보기
+
+```bash
+# tests/dummy_engine.py의 예시 엔진. 레포 안의 모듈을 쓰려면 PYTHONPATH=.가 필요합니다
+PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts \
+  --engine tests.dummy_engine:LatestWins --repeat 2 --out runs
+```
+
+엔진은 `harness.contract.BaseEngine`을 구현합니다(`info`, `reset`, `record`, `search`, 선택으로 `tick`·`flush`). 결과의 `sources`에 근거 이벤트 id를 채우면 출처로 정밀 채점되고, 비우면 사실의 판정 문자열(`markers`)로 채점됩니다.
+
+### 종료 코드
+
+| 코드 | 뜻 |
+|---|---|
+| 0 | 성공 |
+| 1 | 시나리오 오류(로드 실패, 검증 오류, id 중복) 또는 자가 검증 실패 |
+| 2 | 사용법 문제: 경로 없음, 평가할(승인된) 시나리오 없음, 설정 파일 오류, 엔진을 만들 수 없음 |
+
 ## 시나리오 세트
 
 | 위치 | 내용 | 쓰임 |
