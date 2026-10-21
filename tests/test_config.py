@@ -5,7 +5,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from harness.config import EvalConfig, config_hash, load_config
+from harness.config import LLM, EvalConfig, config_hash, load_config
 
 REPO_CONFIG = Path(__file__).resolve().parent.parent / "config" / "eval-v0.1.yaml"
 
@@ -65,9 +65,11 @@ def test_config_parses_iso_durations(tmp_path):
     assert cfg.feedback.on_false == timedelta(days=2)
 
 
-def test_repo_config_equals_defaults():
-    assert load_config(REPO_CONFIG) == EvalConfig()
-    assert config_hash(load_config(REPO_CONFIG)) == config_hash(EvalConfig())
+def test_repo_config_equals_defaults_except_pinned_models():
+    cfg = load_config(REPO_CONFIG)
+    llm = LLM(provider="openai", model="gpt-4.1-mini", embedding_model="text-embedding-3-small")
+    assert cfg == EvalConfig(version="0.2", llm=llm)
+    assert config_hash(cfg) != config_hash(EvalConfig())
 
 
 @pytest.mark.parametrize("bad", [0, -1])

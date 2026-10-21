@@ -294,7 +294,7 @@ def run(
         list[str] | None,
         typer.Option(
             "--engine",
-            help="Extra engine: 'pkg.module:Class' (repeatable). Baselines always run; other bare names are rejected.",
+            help="Extra engine: 'hindsight', 'mem0' or 'pkg.module:Class' (repeatable). Baselines always run; other bare names are rejected.",
         ),
     ] = None,
     config: ConfigOpt = Path("config/eval-v0.1.yaml"),
