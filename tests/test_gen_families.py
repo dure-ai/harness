@@ -1,6 +1,7 @@
 """Tests for the family templates, the body slots and the fake body writer."""
 
 import json
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -232,9 +233,6 @@ def test_skeleton_matches_family_row(family: str) -> None:
             assert (fb.on_false.signal, fb.on_false.kind, fb.on_false.outcome) == ("test", "ci_result", "failure")
             assert fb.on_false.fact == "f_new"
             assert fb.abstain is not None and fb.abstain.fact == "f_new"
-        # A later block probe comes after the failure record of the one before (default delay 1 day).
-        gaps = [b.t - a.t for a, b in zip(blocks, blocks[1:])]
-        assert all(g > EvalConfig().feedback.on_false for g in gaps)
 
 
 @pytest.mark.parametrize("family", ALL)
@@ -498,6 +496,13 @@ def test_feedback_family_has_templates_on_probes(family: str) -> None:
     s = sk.scenario
     if family == "echo":
         assert len(s.probes) >= 3
+    # Delays are set on the templates, not left to the run config.
+    for p in s.probes:
+        fb = p.feedback
+        assert fb is not None and fb.on_false is not None and fb.abstain is not None
+        assert fb.on_false.delay == timedelta(days=1)
+        assert fb.abstain.delay == timedelta(minutes=5)
+        assert all(t.delay == timedelta(minutes=5) for t in fb.action.values())
     for p in s.probes:
         fb = p.feedback
         assert fb is not None
@@ -512,3 +517,14 @@ def test_feedback_family_has_templates_on_probes(family: str) -> None:
     for p in filled.probes:
         assert p.feedback is not None
         assert all(t.text for t in _feedback_templates(p.feedback))
+
+
+@pytest.mark.parametrize("family", FEEDBACK)
+def test_block_probes_come_after_the_previous_failure_record(family: str) -> None:
+    for seed in range(20):
+        s = _skeleton(family, seed=seed).scenario
+        blocks = [p for p in s.probes if p.kind == "block"]
+        for prev, nxt in zip(blocks, blocks[1:]):
+            assert prev.feedback is not None and prev.feedback.on_false is not None
+            delay = prev.feedback.on_false.delay
+            assert delay is not None and nxt.t - prev.t > delay, (seed, prev.id, nxt.id)
