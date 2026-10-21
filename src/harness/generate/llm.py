@@ -94,7 +94,8 @@ class LLMClient(Protocol):
 def _summarize(exc: ValueError) -> str:
     if isinstance(exc, ValidationError):
         parts = [
-            f"{'.'.join(str(p) for p in e['loc']) or '<root>'}: {e['msg']}" for e in exc.errors()[:5]
+            f"{'.'.join(str(p) for p in e['loc']) or '<root>'}: {e['msg']}"
+            for e in exc.errors()[:5]
         ]
         return "; ".join(parts)
     return " ".join(str(exc).split())
@@ -232,7 +233,9 @@ class CachedClient:
             user,
             schema.model_json_schema(),
         ]
-        return hashlib.sha256(json.dumps(parts, sort_keys=True).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            json.dumps(parts, sort_keys=True).encode("utf-8")
+        ).hexdigest()
 
     def complete_json(
         self,
@@ -274,7 +277,10 @@ class CachedClient:
         self.calls += 1
         value = self._inner.complete_json(kind, system, user, schema, validate)
         self.last_model = self._inner.last_model
-        entry = {"served_model": self.last_model, "reply": value.model_dump(mode="json")}
+        entry = {
+            "served_model": self.last_model,
+            "reply": value.model_dump(mode="json"),
+        }
         self._dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
@@ -330,7 +336,9 @@ class AnthropicClient:
         self._cfg = cfg
         self.model = cfg.model
         self.last_model: str | None = None
-        self._client = sdk.Anthropic(**({"base_url": cfg.base_url} if cfg.base_url else {}))
+        self._client = sdk.Anthropic(
+            **({"base_url": cfg.base_url} if cfg.base_url else {})
+        )
 
     def _send(self, system: str, user: str, schema: dict[str, Any]) -> str:
         try:
@@ -351,7 +359,8 @@ class AnthropicClient:
                 isinstance(exc, TypeError) and "authentication method" in str(exc)
             ):
                 raise LLMError(
-                    f"anthropic: authentication failed; set {self._KEY_HINT}", fatal=True
+                    f"anthropic: authentication failed; set {self._KEY_HINT}",
+                    fatal=True,
                 ) from exc
             raise _api_error("anthropic", exc) from exc
         self.last_model = _served(reply)
@@ -388,7 +397,9 @@ class AnthropicClient:
         import anthropic
 
         api_schema = anthropic.transform_schema(schema)
-        return _ask_with_retry(lambda u: self._send(system, u, api_schema), user, schema, validate)
+        return _ask_with_retry(
+            lambda u: self._send(system, u, api_schema), user, schema, validate
+        )
 
 
 class OpenAIClient:
@@ -480,7 +491,9 @@ class OpenAIClient:
             f"{system}\n\nReply with a single JSON object matching this JSON schema:\n"
             f"{json.dumps(schema.model_json_schema())}"
         )
-        return _ask_with_retry(lambda u: self._send(full_system, u), user, schema, validate)
+        return _ask_with_retry(
+            lambda u: self._send(full_system, u), user, schema, validate
+        )
 
 
 def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
@@ -514,5 +527,7 @@ def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
         fake = FakeClient(responses=canned, responders=responders)
         fake.model = cfg.model
         return CachedClient(fake, cache_dir, cfg.prompt_version)
-    inner: LLMClient = AnthropicClient(cfg) if cfg.provider == "anthropic" else OpenAIClient(cfg)
+    inner: LLMClient = (
+        AnthropicClient(cfg) if cfg.provider == "anthropic" else OpenAIClient(cfg)
+    )
     return CachedClient(inner, cache_dir, cfg.prompt_version)

@@ -6,7 +6,13 @@ from datetime import UTC, datetime
 from harness.generate.candidates import FactCandidate, load_prompt
 from harness.generate.config import GenConfig
 from harness.generate.llm import LLMClient
-from harness.generate.slots import BodySlots, Skeleton, apply_slots, slots_for, slots_prompt_block
+from harness.generate.slots import (
+    BodySlots,
+    Skeleton,
+    apply_slots,
+    slots_for,
+    slots_prompt_block,
+)
 from harness.generate.traces import Trace, compress
 from harness.scenario.model import Evidence, Scenario
 
@@ -29,7 +35,10 @@ def _prompt(sk: Skeleton, cand: FactCandidate, traces: Sequence[Trace]) -> str:
         slots_prompt_block(slots_for(sk, cand)),
     ]
     if traces:
-        parts += ["", f"Start of the source trace, for style only:\n{compress(traces[0])[:_STYLE_CHARS]}"]
+        parts += [
+            "",
+            f"Start of the source trace, for style only:\n{compress(traces[0])[:_STYLE_CHARS]}",
+        ]
     return "\n".join(parts)
 
 
@@ -59,12 +68,16 @@ def write_bodies(
     Raises:
         LLMError: If the call fails or the reply is still invalid after one retry.
     """
-    system = load_prompt("bodies.md").replace("{banned_cue_words}", ", ".join(gen.banned_cue_words))
+    system = load_prompt("bodies.md").replace(
+        "{banned_cue_words}", ", ".join(gen.banned_cue_words)
+    )
 
     def check(slots: BodySlots) -> None:
         apply_slots(sk, slots)
 
-    slots = client.complete_json("bodies", system, _prompt(sk, cand, traces), BodySlots, check)
+    slots = client.complete_json(
+        "bodies", system, _prompt(sk, cand, traces), BodySlots, check
+    )
     s = apply_slots(sk, slots)
     trace_id = traces[0].trajectory_id if traces else None
     evidence = []

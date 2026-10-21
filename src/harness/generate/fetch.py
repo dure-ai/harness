@@ -72,18 +72,29 @@ def list_shards(config: str, split: str, api: Any = None) -> list[ShardInfo]:
         ValueError: If `config` is unknown or has no `split`.
     """
     if config not in CONFIG_MODELS:
-        raise ValueError(f"unknown config {config!r}; choose from {', '.join(CONFIG_MODELS)}")
+        raise ValueError(
+            f"unknown config {config!r}; choose from {', '.join(CONFIG_MODELS)}"
+        )
     models = CONFIG_MODELS[config].get(split)
     if models is None:
-        raise ValueError(f"config {config} has no split {split!r}; choose from {', '.join(CONFIG_MODELS[config])}")
+        raise ValueError(
+            f"config {config} has no split {split!r}; choose from {', '.join(CONFIG_MODELS[config])}"
+        )
     entries = _api(api).list_repo_tree(
-        repo_id=REPO_ID, repo_type="dataset", path_in_repo=f"data/{split}", recursive=True
+        repo_id=REPO_ID,
+        repo_type="dataset",
+        path_in_repo=f"data/{split}",
+        recursive=True,
     )
     found = []
     for entry in entries:
         size = getattr(entry, "size", None)  # folders have none
         parts = entry.path.split("/")
-        if size is None or not entry.path.endswith(".parquet") or len(parts) <= _MODEL_DIR_PART:
+        if (
+            size is None
+            or not entry.path.endswith(".parquet")
+            or len(parts) <= _MODEL_DIR_PART
+        ):
             continue
         if parts[_MODEL_DIR_PART] in models:
             found.append(ShardInfo(path=entry.path, size=size))
@@ -173,7 +184,9 @@ def cache_stats(shards: list[Path]) -> CacheStats:
             models.setdefault(t.instance_id, set()).add(t.model)
     repos = [
         RepoCount(repo=r, license=lic, language=lang, trajectories=n)
-        for (r, lic, lang), n in sorted(per_repo.items(), key=lambda kv: (-kv[1], kv[0][0]))
+        for (r, lic, lang), n in sorted(
+            per_repo.items(), key=lambda kv: (-kv[1], kv[0][0])
+        )
     ]
     return CacheStats(
         shards=shards,
@@ -182,4 +195,3 @@ def cache_stats(shards: list[Path]) -> CacheStats:
         tasks=len(models),
         bundles=sum(len(m) > 1 for m in models.values()),
     )
-

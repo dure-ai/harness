@@ -38,7 +38,9 @@ def _cue_pattern(word: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
 
 
-def _cue_words(text: str, patterns: dict[str, re.Pattern[str]], allowed: Sequence[str] = ()) -> list[str]:
+def _cue_words(
+    text: str, patterns: dict[str, re.Pattern[str]], allowed: Sequence[str] = ()
+) -> list[str]:
     """Banned cue words found in `text`, except those inside one of the `allowed` markers."""
     return [
         word
@@ -53,15 +55,41 @@ def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
     for e in s.events:
         own = s.facts[e.fact].markers if e.fact is not None else []
         if e.fact is not None and not any(_has(e.text, m) for m in own):
-            issues.append(Issue("error", "marker_not_in_body", f"event {e.id}: text has none of fact {e.fact}'s markers"))
+            issues.append(
+                Issue(
+                    "error",
+                    "marker_not_in_body",
+                    f"event {e.id}: text has none of fact {e.fact}'s markers",
+                )
+            )
         for fid, f in s.facts.items():
-            if fid != e.fact and (hit := next((m for m in f.markers if _has(e.text, m)), None)):
-                issues.append(Issue("error", "other_fact_marker", f"event {e.id}: text contains marker {hit!r} of fact {fid}"))
+            if fid != e.fact and (
+                hit := next((m for m in f.markers if _has(e.text, m)), None)
+            ):
+                issues.append(
+                    Issue(
+                        "error",
+                        "other_fact_marker",
+                        f"event {e.id}: text contains marker {hit!r} of fact {fid}",
+                    )
+                )
         for word in _cue_words(e.text, patterns, own):
-            issues.append(Issue("error", "cue_word", f"event {e.id}: text contains cue word {word!r}"))
+            issues.append(
+                Issue(
+                    "error",
+                    "cue_word",
+                    f"event {e.id}: text contains cue word {word!r}",
+                )
+            )
     for p in s.probes:
         for word in _cue_words(p.query, patterns):
-            issues.append(Issue("error", "cue_word", f"probe {p.id}: query contains cue word {word!r}"))
+            issues.append(
+                Issue(
+                    "error",
+                    "cue_word",
+                    f"probe {p.id}: query contains cue word {word!r}",
+                )
+            )
     return issues
 
 
@@ -72,16 +100,32 @@ def _secret_issues(s: Scenario, secret_event_ids: Sequence[str]) -> list[Issue]:
     for e in s.events:
         if e.id in secret_ids:
             if not any(_has(e.text, m) for m in e.secret_markers):
-                issues.append(Issue("error", "secret_not_in_secret_event", f"event {e.id}: text has none of its secret markers"))
+                issues.append(
+                    Issue(
+                        "error",
+                        "secret_not_in_secret_event",
+                        f"event {e.id}: text has none of its secret markers",
+                    )
+                )
         elif hit := next((m for m in secrets if _has(e.text, m)), None):
-            issues.append(Issue("error", "secret_in_public_event", f"event {e.id}: public text contains secret marker {hit!r}"))
+            issues.append(
+                Issue(
+                    "error",
+                    "secret_in_public_event",
+                    f"event {e.id}: public text contains secret marker {hit!r}",
+                )
+            )
     return issues
 
 
 def _evidence_issues(s: Scenario) -> list[Issue]:
     events = {e.id: e for e in s.events}
     return [
-        Issue("error", "quoted_evidence_mismatch", f"event {ev.event_id}: text does not contain its quoted evidence {ev.quote!r}")
+        Issue(
+            "error",
+            "quoted_evidence_mismatch",
+            f"event {ev.event_id}: text does not contain its quoted evidence {ev.quote!r}",
+        )
         for ev in s.provenance.evidence
         if ev.origin == "quoted"
         and ev.quote

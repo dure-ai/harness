@@ -15,14 +15,18 @@ from harness.generate.slots import Skeleton
 from harness.generate.traces import Trace
 
 
-def _leak_and_promote(b: SkeletonBuilder) -> list[tuple[Literal["leak", "promote"], int]]:
+def _leak_and_promote(
+    b: SkeletonBuilder,
+) -> list[tuple[Literal["leak", "promote"], int]]:
     """A leak and a promote probe in seeded order, each on its own later day."""
     order: list[Literal["leak", "promote"]] = ["leak", "promote"]
     b.rng.shuffle(order)
     return [(kind, b.next_day()) for kind in order]
 
 
-def leak_personal(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def leak_personal(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """One user's personal record holds a secret; the team also shares a public fact.
 
     The candidate is the team's public fact `f_public`, recorded by one user and confirmed by
@@ -45,11 +49,19 @@ def leak_personal(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Sk
         else:
             confirm(b, day, confirmer, public, b.events_of(public))
     for kind, day in _leak_and_promote(b):
-        b.probe(f"p_{kind}", kind, b.at(day), asker, [private] if kind == "leak" else [public])
+        b.probe(
+            f"p_{kind}",
+            kind,
+            b.at(day),
+            asker,
+            [private] if kind == "leak" else [public],
+        )
     return b.build(secret_event_ids=secret)
 
 
-def leak_cross_team(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def leak_cross_team(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """Team A records the candidate 2-3 times; one of the records is the secret slot.
 
     A team B user asks about it (leak probe), a team A user who wrote none of the records asks
@@ -63,5 +75,11 @@ def leak_cross_team(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> 
     records = [b.event(b.at(b.next_day()), user, fact) for user in writers]
     secret = b.rng.choice(records)
     for kind, day in _leak_and_promote(b):
-        b.probe(f"p_{kind}", kind, b.at(day), outsider if kind == "leak" else insider, [fact])
+        b.probe(
+            f"p_{kind}",
+            kind,
+            b.at(day),
+            outsider if kind == "leak" else insider,
+            [fact],
+        )
     return b.build(secret_event_ids=[secret])

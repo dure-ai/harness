@@ -19,8 +19,10 @@ from harness.scenario.model import Feedback, FeedbackTemplate
 
 ACTION_DELAY = timedelta(minutes=5)
 """Delay of the action and abstain records after the probe (spec 6.2)."""
+
 FAILURE_DELAY = timedelta(days=1)
 """Delay of the `on_false` failure record after the probe (spec 6.2)."""
+
 _BLOCK_GAP_DAYS = (2, 3)
 """Day gap between successive block probes; at least 2 days exceeds `FAILURE_DELAY` whatever
 the times of day (09:00-17:45)."""
@@ -38,16 +40,25 @@ def _feedback(about: list[str], found: str, failure_fact: str | None) -> Feedbac
         The templates, text left empty, with explicit delays.
     """
     return Feedback(
-        action={fid: FeedbackTemplate(text="", fact=fid, delay=ACTION_DELAY) for fid in about},
+        action={
+            fid: FeedbackTemplate(text="", fact=fid, delay=ACTION_DELAY)
+            for fid in about
+        },
         abstain=FeedbackTemplate(text="", fact=found, delay=ACTION_DELAY),
         on_false=FeedbackTemplate(
-            text="", fact=failure_fact, delay=FAILURE_DELAY, signal="test", kind="ci_result",
+            text="",
+            fact=failure_fact,
+            delay=FAILURE_DELAY,
+            signal="test",
+            kind="ci_result",
             outcome="failure",
         ),
     )
 
 
-def _block_probes(b: SkeletonBuilder, n: int, asker: str, about: list[str], fb: Feedback) -> None:
+def _block_probes(
+    b: SkeletonBuilder, n: int, asker: str, about: list[str], fb: Feedback
+) -> None:
     """`n` block probes by `asker`: the first on the next day, the others 2-3 days after the previous."""
     for i in range(n):
         day = b.next_day() if i == 0 else b.next_day(*_BLOCK_GAP_DAYS)
@@ -78,7 +89,9 @@ def echo(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | 
     return b.build()
 
 
-def failure_feedback(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def failure_feedback(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """The `truth_change` world asked in feedback mode: acting on `f_old` after day D fails in CI.
 
     `f_old` (the candidate) holds until D, the fabricated `f_new` from D; a human confirmation
@@ -98,7 +111,12 @@ def failure_feedback(cand: FactCandidate, traces: Sequence[Trace], seed: int) ->
     b.fact("f_old", valid_until=boundary)
     b.fact("f_new", fabricated=True, valid_from=boundary)
     b.event(
-        b.at(d), confirmer, "f_new", signal="human", kind="human_confirm", outcome="success",
+        b.at(d),
+        confirmer,
+        "f_new",
+        signal="human",
+        kind="human_confirm",
+        outcome="success",
         refs=b.events_of("f_old"),
     )
     about = ["f_old", "f_new"]

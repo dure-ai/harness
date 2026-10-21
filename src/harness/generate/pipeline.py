@@ -159,7 +159,9 @@ def save_draft(s: Scenario, path: Path) -> None:
         path: Target file; parent directories are created.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = yaml.safe_dump(s.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+    text = yaml.safe_dump(
+        s.model_dump(mode="json"), sort_keys=False, allow_unicode=True
+    )
     tmp = path.with_suffix(".yaml.tmp")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
@@ -259,7 +261,14 @@ class _Run:
         except LLMError as e:
             if e.fatal:
                 raise
-            self.reject(Rejection(stage="candidates", code="llm_error", message=str(e), trace_id=trace.trajectory_id))
+            self.reject(
+                Rejection(
+                    stage="candidates",
+                    code="llm_error",
+                    message=str(e),
+                    trace_id=trace.trajectory_id,
+                )
+            )
             self.cache[trace.trajectory_id] = []
             self.llm_failed(e)
             return []
@@ -280,7 +289,11 @@ class _Run:
                     )
                 )
         for c in kept:
-            line = {"trajectory_id": trace.trajectory_id, "repo": trace.repo, **c.model_dump()}
+            line = {
+                "trajectory_id": trace.trajectory_id,
+                "repo": trace.repo,
+                **c.model_dump(),
+            }
             self.candidates_log.write(json.dumps(line, ensure_ascii=False) + "\n")
         self.candidates_log.flush()
         self.cache[trace.trajectory_id] = kept
@@ -288,7 +301,11 @@ class _Run:
 
     def bundle_of(self, trace: Trace) -> list[Trace]:
         """The trace first, then the other models' trajectories of the same task."""
-        others = [t for t in self.by_task.get(trace.instance_id, []) if t.trajectory_id != trace.trajectory_id]
+        others = [
+            t
+            for t in self.by_task.get(trace.instance_id, [])
+            if t.trajectory_id != trace.trajectory_id
+        ]
         return [trace, *others]
 
 
@@ -305,10 +322,16 @@ def _is_reviewed(path: Path) -> bool:
         s = load_scenario(path)
     except (ScenarioLoadError, UnicodeDecodeError, OSError, ValueError):
         return True
-    return s.review.status != "draft" or s.provenance.reviewer_edited or s.provenance.author != "llm"
+    return (
+        s.review.status != "draft"
+        or s.provenance.reviewer_edited
+        or s.provenance.author != "llm"
+    )
 
 
-def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tally) -> tuple[str, str] | None:
+def _one(
+    run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tally
+) -> tuple[str, str] | None:
     """Try to make one draft.
 
     Returns:
@@ -332,7 +355,15 @@ def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tall
 
     def reject(stage: str, code: str, message: str) -> None:
         tally.rejected += 1
-        run.reject(Rejection(stage=stage, code=code, message=message, trace_id=trace.trajectory_id, family=family))
+        run.reject(
+            Rejection(
+                stage=stage,
+                code=code,
+                message=message,
+                trace_id=trace.trajectory_id,
+                family=family,
+            )
+        )
 
     try:
         s = write_bodies(run.client, sk, cand, bundle, run.gen)
@@ -345,7 +376,9 @@ def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tall
     run.llm_ok()
     stop = blocking(check_draft(s, run.cfg, run.gen, sk.secret_event_ids))
     if stop:
-        reject("checks", stop[0].code, "; ".join(f"{i.code}: {i.message}" for i in stop))
+        reject(
+            "checks", stop[0].code, "; ".join(f"{i.code}: {i.message}" for i in stop)
+        )
         return None
     save_draft(s, path)
     return "written", sid
@@ -407,7 +440,9 @@ def generate(
     pool = allowed if repos is None else [t for t in allowed if matches_repos(t, repos)]
     unique: dict[str, Trace] = {}
     for t in pool:
-        unique.setdefault(t.trajectory_id, t)  # the first occurrence of a trajectory wins
+        unique.setdefault(
+            t.trajectory_id, t
+        )  # the first occurrence of a trajectory wins
     pool = list(unique.values())
     order = sorted(pool, key=lambda t: t.trajectory_id)
     random.Random(seed).shuffle(order)
@@ -417,10 +452,22 @@ def generate(
         (run_dir / "candidates.jsonl").open("w", encoding="utf-8") as cand_log,
         (run_dir / "rejected.jsonl").open("w", encoding="utf-8") as rej_log,
     ):
-        run = _Run(client, cfg, gen, seed, out_dir, cand_log, rej_log, bundles(pool), max_traces)
+        run = _Run(
+            client,
+            cfg,
+            gen,
+            seed,
+            out_dir,
+            cand_log,
+            rej_log,
+            bundles(pool),
+            max_traces,
+        )
         for family in families:
             target = targets[family]
-            tally = _Tally(max_attempts=3 * target if max_attempts is None else max_attempts)
+            tally = _Tally(
+                max_attempts=3 * target if max_attempts is None else max_attempts
+            )
             for trace in order:
                 if tally.written + tally.skipped >= target or tally.attempts_capped:
                     break
@@ -450,7 +497,9 @@ def generate(
                         report.skipped_existing.append(made[1])
             if tally.written + tally.skipped < target:
                 report.shortfall[family] = (
-                    tally.reason(target, max_traces) if pool else _empty_pool_reason(len(traces), len(allowed), repos)
+                    tally.reason(target, max_traces)
+                    if pool
+                    else _empty_pool_reason(len(traces), len(allowed), repos)
                 )
         report.rejected = run.rejected
         report.first_llm_error = run.first_llm_error
@@ -461,5 +510,7 @@ def _empty_pool_reason(given: int, allowed: int, repos: set[str] | None) -> str:
     if given == 0:
         return "no traces were given"
     if allowed == 0:
-        return f"none of the {given} traces is a python repository with an allowed license"
+        return (
+            f"none of the {given} traces is a python repository with an allowed license"
+        )
     return f"none of the {allowed} usable traces is from the repositories {sorted(repos or [])}"

@@ -15,7 +15,9 @@ _DEDUPE_THRESHOLD = 0.8
 _QUOTE_CHARS = 40
 _SPACES = re.compile(r"\s+")
 
-Kind = Literal["build", "test", "config", "convention", "workaround", "ownership", "other"]
+Kind = Literal[
+    "build", "test", "config", "convention", "workaround", "ownership", "other"
+]
 
 
 class RawCandidate(BaseModel):
@@ -87,10 +89,14 @@ def load_prompt(name: str) -> str:
     Returns:
         The prompt text.
     """
-    return (resources.files("harness.generate") / "prompts" / name).read_text(encoding="utf-8")
+    return (resources.files("harness.generate") / "prompts" / name).read_text(
+        encoding="utf-8"
+    )
 
 
-def extract_candidates(client: LLMClient, trace: Trace, cfg: GenConfig) -> list[FactCandidate]:
+def extract_candidates(
+    client: LLMClient, trace: Trace, cfg: GenConfig
+) -> list[FactCandidate]:
     """Ask the model for fact candidates in one trace.
 
     Args:
@@ -104,7 +110,9 @@ def extract_candidates(client: LLMClient, trace: Trace, cfg: GenConfig) -> list[
     Raises:
         LLMError: If the model call fails.
     """
-    system = load_prompt("candidates.md").replace("{max_candidates}", str(cfg.max_candidates_per_trace))
+    system = load_prompt("candidates.md").replace(
+        "{max_candidates}", str(cfg.max_candidates_per_trace)
+    )
     user = f"Repository: {trace.repo}\n\n{compress(trace)}"
     reply = client.complete_json("candidates", system, user, CandidateList)
     kept = reply.candidates[: cfg.max_candidates_per_trace]
@@ -115,7 +123,9 @@ def _fold(text: str) -> str:
     return _SPACES.sub(" ", text).strip()
 
 
-def check_quotes(trace: Trace, cands: list[FactCandidate]) -> tuple[list[FactCandidate], list[Rejection]]:
+def check_quotes(
+    trace: Trace, cands: list[FactCandidate]
+) -> tuple[list[FactCandidate], list[Rejection]]:
     """Keep the candidates whose quote really appears in the message they cite.
 
     Whitespace runs are folded to one space on both sides before comparing.
@@ -172,7 +182,9 @@ def dedupe(cands: list[FactCandidate]) -> list[FactCandidate]:
     return kept
 
 
-_ASSISTANT = re.compile(r"\[#(\d+) assistant\]([^\n]*(?:\n(?!\n(?:\[#\d+ \w+\]|\[… ))[^\n]*)*)")
+_ASSISTANT = re.compile(
+    r"\[#(\d+) assistant\]([^\n]*(?:\n(?!\n(?:\[#\d+ \w+\]|\[… ))[^\n]*)*)"
+)
 
 _FAKE_FACTS: list[dict[str, Any]] = [
     {

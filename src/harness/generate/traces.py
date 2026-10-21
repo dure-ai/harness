@@ -116,7 +116,9 @@ def read_parquet(path: Path) -> Iterator[Trace]:
     """
     import pyarrow.parquet as pq
 
-    for batch in pq.ParquetFile(path).iter_batches(batch_size=_BATCH_ROWS, columns=_COLUMNS):
+    for batch in pq.ParquetFile(path).iter_batches(
+        batch_size=_BATCH_ROWS, columns=_COLUMNS
+    ):
         for row in batch.to_pylist():
             yield _to_trace(row)
 
@@ -153,7 +155,9 @@ def bundles(traces: Iterable[Trace]) -> dict[str, list[Trace]]:
 
 
 def _clip(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[:limit] + f"…[{len(text) - limit} chars]…"
+    return (
+        text if len(text) <= limit else text[:limit] + f"…[{len(text) - limit} chars]…"
+    )
 
 
 def _middle_cut(text: str) -> str:

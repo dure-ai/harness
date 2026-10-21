@@ -47,9 +47,13 @@ def repo_slug(repo: str) -> str:
     return _SLUG_DROP.sub("-", repo_name(repo).lower()).strip("-") or MANUAL
 
 
-def scenario_id(family: str, repo: str, trajectory_id: str, candidate_index: int, seed: int) -> str:
+def scenario_id(
+    family: str, repo: str, trajectory_id: str, candidate_index: int, seed: int
+) -> str:
     """Scenario id: `<family>-<repo slug>-<first 6 hex of sha256(trajectory:index:family:seed)>`."""
-    digest = hashlib.sha256(f"{trajectory_id}:{candidate_index}:{family}:{seed}".encode()).hexdigest()
+    digest = hashlib.sha256(
+        f"{trajectory_id}:{candidate_index}:{family}:{seed}".encode()
+    ).hexdigest()
     return f"{family}-{repo_slug(repo)}-{digest[:6]}"
 
 
@@ -71,7 +75,9 @@ class SkeletonBuilder:
         seed: Seed of every random choice.
     """
 
-    def __init__(self, family: Family, cand: FactCandidate, traces: Sequence[Trace], seed: int) -> None:
+    def __init__(
+        self, family: Family, cand: FactCandidate, traces: Sequence[Trace], seed: int
+    ) -> None:
         self.family: Family = family
         self.cand = cand
         self.seed = seed
@@ -111,7 +117,9 @@ class SkeletonBuilder:
 
     def next_day(self, min_gap: int = 1, max_gap: int = 2) -> int:
         """Advance to a later day (the first call returns day 0) and return its number."""
-        self._day = 0 if self._day < 0 else self._day + self.rng.randint(min_gap, max_gap)
+        self._day = (
+            0 if self._day < 0 else self._day + self.rng.randint(min_gap, max_gap)
+        )
         return self._day
 
     def at(self, day: int) -> datetime:
@@ -234,7 +242,9 @@ class SkeletonBuilder:
 
     def _provenance(self) -> Provenance:
         traces = list(dict.fromkeys(t.trajectory_id for t in self._traces))
-        repos = list(dict.fromkeys((t.repo, t.license or "unknown") for t in self._traces))
+        repos = list(
+            dict.fromkeys((t.repo, t.license or "unknown") for t in self._traces)
+        )
         return Provenance(
             author="generator",
             source_traces=traces,
@@ -245,10 +255,14 @@ class SkeletonBuilder:
     def build(self, secret_event_ids: Iterable[str] = ()) -> Skeleton:
         """The skeleton: events and probes sorted by time (stable), teams in creation order."""
         scenario = Scenario(
-            id=scenario_id(self.family, self.repo, self.trajectory_id, self.cand.index, self.seed),
+            id=scenario_id(
+                self.family, self.repo, self.trajectory_id, self.cand.index, self.seed
+            ),
             family=self.family,
             mode="feedback" if self.family in FEEDBACK_FAMILIES else "read_only",
-            world=World(teams={team: list(members) for team, members in self._teams.items()}),
+            world=World(
+                teams={team: list(members) for team, members in self._teams.items()}
+            ),
             facts=dict(self.facts),
             events=sorted(self.events, key=lambda e: e.t),
             probes=sorted(self.probes, key=lambda p: p.t),
@@ -265,10 +279,14 @@ CONFIRMS: tuple[tuple[Signal, Kind], ...] = (
 """(signal, kind) of the records that confirm earlier ones."""
 
 
-def confirm(b: SkeletonBuilder, day: int, user: str, fact: str, judged: list[str]) -> str:
+def confirm(
+    b: SkeletonBuilder, day: int, user: str, fact: str, judged: list[str]
+) -> str:
     """A judging record by `user` on `day` that confirms `judged` and asserts `fact`."""
     signal, kind = b.rng.choice(CONFIRMS)
-    return b.event(b.at(day), user, fact, signal=signal, kind=kind, outcome="success", refs=judged)
+    return b.event(
+        b.at(day), user, fact, signal=signal, kind=kind, outcome="success", refs=judged
+    )
 
 
 def _needs_fix(cand: FactCandidate) -> str | None:

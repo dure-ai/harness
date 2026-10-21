@@ -273,11 +273,15 @@ def slots_for(sk: Skeleton, cand: FactCandidate) -> SlotSpec:
         for p in s.probes
     ]
     feedback = {
-        key: FeedbackSlot(fact=tpl.fact, signal=tpl.signal, kind=tpl.kind, outcome=tpl.outcome)
+        key: FeedbackSlot(
+            fact=tpl.fact, signal=tpl.signal, kind=tpl.kind, outcome=tpl.outcome
+        )
         for p in s.probes
         for key, tpl in _feedback_templates(p).items()
     }
-    return SlotSpec(family=s.family, facts=facts, events=events, probes=probes, feedback=feedback)
+    return SlotSpec(
+        family=s.family, facts=facts, events=events, probes=probes, feedback=feedback
+    )
 
 
 def slots_prompt_block(spec: SlotSpec) -> str:
@@ -322,9 +326,15 @@ def apply_slots(sk: Skeleton, slots: BodySlots) -> Scenario:
         if extra:
             problems.append(f"{part}: unexpected {extra}")
     secret = set(sk.secret_event_ids)
-    public_secrets = sorted(eid for eid, et in slots.events.items() if et.secret_markers and eid not in secret)
+    public_secrets = sorted(
+        eid
+        for eid, et in slots.events.items()
+        if et.secret_markers and eid not in secret
+    )
     if public_secrets:
-        problems.append(f"events: secret markers on events that are not secret slots {public_secrets}")
+        problems.append(
+            f"events: secret markers on events that are not secret slots {public_secrets}"
+        )
     if problems:
         raise ValueError("; ".join(problems))
 
@@ -344,7 +354,16 @@ def apply_slots(sk: Skeleton, slots: BodySlots) -> Scenario:
 # Fake writer ------------------------------------------------------------------------------------
 
 _COLORS = ("amber", "cobalt", "juniper", "saffron", "indigo", "maple", "onyx", "teal")
-_NOUNS = ("lantern", "harbor", "anchor", "beacon", "compass", "quarry", "meadow", "orchard")
+_NOUNS = (
+    "lantern",
+    "harbor",
+    "anchor",
+    "beacon",
+    "compass",
+    "quarry",
+    "meadow",
+    "orchard",
+)
 _TOPIC = "team workflow"
 _LEADS: dict[tuple[str, str], str] = {
     ("agent_record", "success"): "noted that the work went through with",
@@ -400,7 +419,10 @@ def fake_slots(system: str, user: str) -> dict[str, Any]:
     markers = {fid: _marker(i) for i, fid in enumerate(spec.facts)}
 
     facts = {
-        fid: {"text": f"In the {_TOPIC}, the {mk} option is the one to use.", "markers": [mk, mk.replace(" ", "-")]}
+        fid: {
+            "text": f"In the {_TOPIC}, the {mk} option is the one to use.",
+            "markers": [mk, mk.replace(" ", "-")],
+        }
         for fid, mk in markers.items()
     }
     events: dict[str, Any] = {}
@@ -429,4 +451,3 @@ def fake_slots(system: str, user: str) -> dict[str, Any]:
         for key, fs in spec.feedback.items()
     }
     return {"facts": facts, "events": events, "probes": probes, "feedback": feedback}
-

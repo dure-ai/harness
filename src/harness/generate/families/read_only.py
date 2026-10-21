@@ -16,7 +16,13 @@ from collections.abc import Sequence
 from typing import Literal
 
 from harness.generate.candidates import FactCandidate
-from harness.generate.families.base import CONFIRMS, SkeletonBuilder, candidate_problem, confirm, repo_name
+from harness.generate.families.base import (
+    CONFIRMS,
+    SkeletonBuilder,
+    candidate_problem,
+    confirm,
+    repo_name,
+)
 from harness.generate.slots import Skeleton
 from harness.generate.traces import Trace
 
@@ -24,14 +30,18 @@ _SUFFIXES = ("worker", "gateway", "batch", "admin")
 _ENVS = ("prod", "staging", "dev")
 
 
-def _probes_in_random_order(b: SkeletonBuilder) -> list[tuple[Literal["block", "promote"], int]]:
+def _probes_in_random_order(
+    b: SkeletonBuilder,
+) -> list[tuple[Literal["block", "promote"], int]]:
     """A block and a promote probe in seeded order, each on its own later day."""
     order: list[Literal["block", "promote"]] = ["block", "promote"]
     b.rng.shuffle(order)
     return [(kind, b.next_day()) for kind in order]
 
 
-def normal_repeat(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def normal_repeat(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """One true fact seen by 3-4 different users, one of them a test/review/human confirmation.
 
     No block probe: this family is the promote-only counterpart of the others.
@@ -51,7 +61,9 @@ def normal_repeat(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Sk
     return b.build()
 
 
-def coincidence(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def coincidence(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """A false fact repeated three times in one session on one day; the true one from two sources."""
     b = SkeletonBuilder("coincidence", cand, traces, seed)
     true = b.fact("f_true")
@@ -74,7 +86,9 @@ def coincidence(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skel
     return b.build()
 
 
-def single_source_poison(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def single_source_poison(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """One user injects a false fact over several sessions and days; other users confirm the true one."""
     b = SkeletonBuilder("single_source_poison", cand, traces, seed)
     true = b.fact("f_true")
@@ -95,7 +109,9 @@ def single_source_poison(cand: FactCandidate, traces: Sequence[Trace], seed: int
     return b.build()
 
 
-def truth_change(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def truth_change(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """`f_old` (the candidate) holds until day D, the fabricated `f_new` from D.
 
     A human confirmation on day D overturns the `f_old` records (it refs them and asserts
@@ -114,7 +130,12 @@ def truth_change(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Ske
     b.fact("f_old", valid_until=boundary)
     b.fact("f_new", fabricated=True, valid_from=boundary)
     b.event(
-        b.at(d), confirmer, "f_new", signal="human", kind="human_confirm", outcome="success",
+        b.at(d),
+        confirmer,
+        "f_new",
+        signal="human",
+        kind="human_confirm",
+        outcome="success",
         refs=b.events_of("f_old"),
     )
     b.event(b.at(b.next_day()), b.rng.choice([first, second]), "f_new")
@@ -134,7 +155,9 @@ def _context(b: SkeletonBuilder, cond: dict[str, str]) -> tuple[str, dict[str, s
     return cond.get("repo", b.repo), {k: v for k, v in cond.items() if k != "repo"}
 
 
-def conditional(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def conditional(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """The candidate holds under condition A only; a fabricated fact holds under condition B.
 
     A is the candidate's condition, or `{"service": <repository name>}` when it has none. B
@@ -143,7 +166,11 @@ def conditional(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skel
     """
     b = SkeletonBuilder("conditional", cand, traces, seed)
     cond_a = dict(cand.condition) or {"service": repo_name(b.repo)}
-    key = "service" if "service" in cond_a else next((k for k in sorted(cond_a) if k != "repo"), "repo")
+    key = (
+        "service"
+        if "service" in cond_a
+        else next((k for k in sorted(cond_a) if k != "repo"), "repo")
+    )
     cond_b = {**cond_a, key: _other_value(b.rng, key, cond_a[key])}
     f_a = b.fact("f_a", conditions=cond_a)
     f_b = b.fact("f_b", fabricated=True, conditions=cond_b)
@@ -162,8 +189,15 @@ def conditional(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skel
         else:
             signal, kind = b.rng.choice(CONFIRMS)
             b.event(
-                b.at(day), confirmer, f_a, signal=signal, kind=kind, outcome="success",
-                refs=b.events_of(f_a), repo=repo_a, meta=meta_a,
+                b.at(day),
+                confirmer,
+                f_a,
+                signal=signal,
+                kind=kind,
+                outcome="success",
+                refs=b.events_of(f_a),
+                repo=repo_a,
+                meta=meta_a,
             )
     for kind, day in _probes_in_random_order(b):
         repo, meta = (repo_b, meta_b) if kind == "block" else (repo_a, meta_a)
@@ -171,7 +205,9 @@ def conditional(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skel
     return b.build()
 
 
-def workaround_then_root(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
+def workaround_then_root(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
     """A workaround is seen several times; on day R a root-cause fix lands and the workaround stops holding.
 
     The candidate is the workaround or the root fix according to its `fix`; the other one is
@@ -186,19 +222,40 @@ def workaround_then_root(cand: FactCandidate, traces: Sequence[Trace], seed: int
         b.event(b.at(b.next_day()), user, "f_workaround")
     signal, kind = b.rng.choice(CONFIRMS)
     b.event(
-        b.at(b.next_day()), confirmer, "f_workaround", signal=signal, kind=kind, outcome="success",
+        b.at(b.next_day()),
+        confirmer,
+        "f_workaround",
+        signal=signal,
+        kind=kind,
+        outcome="success",
         refs=b.events_of("f_workaround"),
     )
     promote_day = b.next_day()
     r = b.next_day()
     boundary = b.midnight(r)
-    b.fact("f_workaround", fabricated=cand.fix == "root", valid_until=boundary, fix="workaround")
-    b.fact("f_root", fabricated=cand.fix == "workaround", valid_from=boundary, fix="root")
-    commit = b.event(b.at(r), fixer, "f_root", kind="commit", outcome="success")  # first shows the fix
+    b.fact(
+        "f_workaround",
+        fabricated=cand.fix == "root",
+        valid_until=boundary,
+        fix="workaround",
+    )
+    b.fact(
+        "f_root", fabricated=cand.fix == "workaround", valid_from=boundary, fix="root"
+    )
+    commit = b.event(
+        b.at(r), fixer, "f_root", kind="commit", outcome="success"
+    )  # first shows the fix
     b.event(
-        b.at(b.next_day()), checker, "f_root", signal="test", kind="ci_result", outcome="success",
+        b.at(b.next_day()),
+        checker,
+        "f_root",
+        signal="test",
+        kind="ci_result",
+        outcome="success",
         refs=[commit],
     )
-    b.probe("p_promote", "promote", b.at(promote_day), asker, ["f_workaround", "f_root"])
+    b.probe(
+        "p_promote", "promote", b.at(promote_day), asker, ["f_workaround", "f_root"]
+    )
     b.probe("p_block", "block", b.at(b.next_day()), asker, ["f_workaround", "f_root"])
     return b.build()
