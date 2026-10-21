@@ -150,6 +150,29 @@ def test_constructor_fails_when_engine_down():
         Mem0Engine(cfg(), base_url=f"http://127.0.0.1:{free_port()}", environ=MODELS_ENV, sleep=lambda _: None)
 
 
+def test_first_build_against_a_down_engine_does_not_retry():
+    waits: list[float] = []
+    with pytest.raises(EngineHTTPError):
+        Mem0Engine(cfg(), base_url=f"http://127.0.0.1:{free_port()}", environ=MODELS_ENV, sleep=waits.append)
+    assert waits == []
+
+
+def test_later_builds_retry_a_blip(fake):
+    make(fake)  # the first build verifies the address
+    fake.fail_next(503, 1)
+    waits: list[float] = []
+    Mem0Engine(cfg(), base_url=fake.url, environ=MODELS_ENV, sleep=waits.append)
+    assert waits == [2.0]
+
+
+def test_first_build_does_not_retry_a_blip(fake):
+    fake.fail_next(503, 1)
+    waits: list[float] = []
+    with pytest.raises(EngineHTTPError):
+        Mem0Engine(cfg(), base_url=fake.url, environ=MODELS_ENV, sleep=waits.append)
+    assert waits == []
+
+
 def test_constructor_rejects_non_local_url():
     with pytest.raises(ValueError):
         Mem0Engine(cfg(), base_url="http://example.com:8890", environ=MODELS_ENV, sleep=lambda _: None)

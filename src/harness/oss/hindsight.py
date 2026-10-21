@@ -17,6 +17,10 @@ DEFAULT_URL = "http://127.0.0.1:8888"
 
 _BANKS = "/v1/default/banks"
 
+# Base URLs whose engine already answered once in this process. Only the first build against a
+# URL fails fast; later builds retry like any other request (an engine that was up may blip).
+_verified_urls: set[str] = set()
+
 
 class HindsightEngine(BaseEngine):
     """Evaluates Hindsight through its HTTP API.
@@ -50,7 +54,8 @@ class HindsightEngine(BaseEngine):
 
         Raises:
             ValueError: If the address is not an allowed local one or the models differ.
-            EngineHTTPError: If the server cannot be reached; this is not retried.
+            EngineHTTPError: If the server cannot be reached; the first build against an address is
+                not retried, later ones are.
         """
         env = os.environ if environ is None else environ
         url = check_local_url(base_url or env.get(ENV_URL) or DEFAULT_URL)
@@ -62,7 +67,8 @@ class HindsightEngine(BaseEngine):
         self._clock: Callable[[], float] = clock
         self._poll_interval: float = poll_interval
         self._flush_timeout: float = flush_timeout
-        version: Any = self._client.request("GET", "/version", retry=False)
+        version: Any = self._client.request("GET", "/version", retry=url in _verified_urls)
+        _verified_urls.add(url)
         self._api_version: str | None = version.get("api_version") if isinstance(version, dict) else None  # pyright: ignore[reportUnknownMemberType]
         self._bank: str | None = None
         self._event_ids: set[str] = set()

@@ -16,6 +16,10 @@ ENV_URL = "HARNESS_MEM0_URL"
 DEFAULT_URL = "http://127.0.0.1:8890"
 EVENT_KEY = "harness_event"
 
+# Base URLs whose engine already answered once in this process. Only the first build against a
+# URL fails fast; later builds retry like any other request (an engine that was up may blip).
+_verified_urls: set[str] = set()
+
 
 def _config_model(reply: Any, section: str) -> str:
     node: Any = reply
@@ -54,7 +58,8 @@ class Mem0Engine(BaseEngine):
         Raises:
             ValueError: If the address is not an allowed local one or a model differs from the
                 one the server runs.
-            EngineHTTPError: If the server cannot be reached; this is not retried.
+            EngineHTTPError: If the server cannot be reached; the first build against an address is
+                not retried, later ones are.
             RuntimeError: If the server's configuration reply lacks the model names.
         """
         env = os.environ if environ is None else environ
@@ -64,7 +69,8 @@ class Mem0Engine(BaseEngine):
         self._llm_model, self._embedding_model = expected_models(cfg.llm, env)
         self._client: JsonClient = JsonClient(url, sleep=sleep)
         # The reply holds the server's whole configuration; only the two model names are read.
-        reply: Any = self._client.request("GET", "/configure", retry=False)
+        reply: Any = self._client.request("GET", "/configure", retry=url in _verified_urls)
+        _verified_urls.add(url)
         running_llm = _config_model(reply, "llm")
         running_embedding = _config_model(reply, "embedder")
         if running_llm != self._llm_model or running_embedding != self._embedding_model:
