@@ -269,6 +269,7 @@ def run(
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     candidate_scores: list[EngineScore] = []
     candidate_runs: dict[str, list[ScenarioRun]] = {}
+    candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}
     for name in candidates:
         repeats = repeat if repeat is not None else cfg.llm_repeats
         per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos)
@@ -278,6 +279,7 @@ def run(
             EngineScore.from_repeats(name, metrics, base, cfg, flip)
         )
         candidate_runs[name] = per_repeat[0]
+        candidate_repeats[name] = per_repeat
         repeat_counts[name] = repeats
 
     ranking = rank(candidate_scores, candidate_runs, cfg)
@@ -303,5 +305,9 @@ def run(
         ranking,
         {**report_runs, **candidate_runs},
         checks,
+        repeat_runs={
+            **{name: [r] for name, r in report_runs.items()},
+            **candidate_repeats,
+        },
     )
     typer.echo(str(out_dir / "report.md"))

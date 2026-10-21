@@ -414,3 +414,28 @@ def test_run_sealed_load_error_hides_path_and_content(tmp_path):
     assert result.exit_code == 1
     assert "secret" not in result.output
     assert "error load" in result.output
+
+
+def _errors_section(result) -> str:
+    report = Path(result.output.strip().splitlines()[-1]).read_text(encoding="utf-8")
+    return report.split("## 오류 시나리오", 1)[1].split("\n## ", 1)[0]
+
+
+def test_run_reports_errors_from_later_repeats(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path),
+                        "--engine", "tests.dummy_engine:FailOnSecondRepeat", "--repeat", "2")
+    engine = summary_of(result)["engines"]["E1"]
+    assert engine["metrics"]["errors"] == ["sp", "tc"]
+    assert engine["verdict"]["passed"] is False
+    errors = _errors_section(result)
+    assert "second repeat fails" in errors
+    rows = [line for line in errors.splitlines() if "second repeat fails" in line]
+    assert len(rows) == 2 and all("| 2 |" in row for row in rows)  # repeat 2, one row per scenario
+
+
+def test_run_sealed_counts_errors_from_every_repeat(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--sealed",
+                        "--engine", "tests.dummy_engine:FailOnSecondRepeat", "--repeat", "2")
+    errors = _errors_section(result)
+    assert "오류가 난 시나리오 수: 2" in errors
+    assert "second repeat fails" not in errors

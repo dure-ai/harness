@@ -417,14 +417,16 @@ def _section_limits(meta: RunMeta, ids: Mapping[str, str], scrub: Callable[[str]
 
 def _section_errors(
     meta: RunMeta,
-    runs: Mapping[str, list[ScenarioRun]],
+    repeat_runs: Mapping[str, list[list[ScenarioRun]]],
     ids: Mapping[str, str],
     scrub: Callable[[str], str],
 ) -> list[str]:
+    """Every errored scenario run of every repeat; the verdict counts all repeats, so must this."""
     failed = [
-        (name, run)
-        for name in sorted(runs, key=_order_key(ids))
-        for run in sorted(runs[name], key=lambda r: r.scenario_id)
+        (name, repeat, run)
+        for name in sorted(repeat_runs, key=_order_key(ids))
+        for repeat, runs in enumerate(repeat_runs[name], 1)
+        for run in sorted(runs, key=lambda r: r.scenario_id)
         if run.error is not None
     ]
     out = ["## 오류 시나리오", ""]
@@ -432,8 +434,8 @@ def _section_errors(
         return [*out, f"오류가 난 시나리오 수: {len(failed)}", ""]
     if not failed:
         return [*out, "없음", ""]
-    rows = [[ids[name], run.scenario_id, scrub(run.error or "")] for name, run in failed]
-    return [*out, *_table(["엔진", "시나리오", "오류"], rows)]
+    rows = [[ids[name], repeat, run.scenario_id, scrub(run.error or "")] for name, repeat, run in failed]
+    return [*out, *_table(["엔진", "회차", "시나리오", "오류"], rows)]
 
 
 def _markdown(
@@ -441,6 +443,7 @@ def _markdown(
     ordered: list[EngineScore],
     ranking: list[RankEntry],
     runs: Mapping[str, list[ScenarioRun]],
+    repeat_runs: Mapping[str, list[list[ScenarioRun]]],
     selfcheck: list[CheckResult],
     ids: Mapping[str, str],
     scrub: Callable[[str], str],
@@ -498,7 +501,7 @@ def _markdown(
         *_section_ranking(ranking, ids),
         *_section_performance(ordered, ids),
         *_section_limits(meta, ids, scrub),
-        *_section_errors(meta, runs, ids, scrub),
+        *_section_errors(meta, repeat_runs, ids, scrub),
         "## 자가 검증",
         "",
         *_table(["검사", "결과", "상세"], check_rows),
@@ -517,6 +520,7 @@ def write_report(
     runs: Mapping[str, list[ScenarioRun]],
     selfcheck: list[CheckResult],
     blind_seed: int | None = None,
+    repeat_runs: Mapping[str, list[list[ScenarioRun]]] | None = None,
 ) -> None:
     """Write report.md, summary.json, results.jsonl and engine_ids.json to `out_dir`.
 
@@ -531,6 +535,8 @@ def write_report(
         runs: Engine name to its scenario runs (first repeat), for results.jsonl.
         selfcheck: Self-check results.
         blind_seed: Seed of the blind-id shuffle; a fresh random seed by default.
+        repeat_runs: Engine name to its runs of every repeat, for the error section (the verdict
+            counts errors of all repeats). Defaults to `runs` as a single repeat.
     """
     if blind_seed is None:
         blind_seed = secrets.randbits(64)
@@ -541,6 +547,8 @@ def write_report(
         *meta.engine_infos,
         *meta.repeats,
     }
+    if repeat_runs is None:
+        repeat_runs = {name: [r] for name, r in runs.items()}
     ids = blind_ids(sorted(names), blind_seed)
     scrub = _scrubber(ids)
     key = _order_key(ids)
@@ -558,7 +566,7 @@ def write_report(
         lines = _result_lines(runs, sorted(runs, key=key), ids)
         results.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
     (out_dir / "report.md").write_text(
-        _markdown(meta, ordered, ranking, runs, selfcheck, ids, scrub) + "\n", encoding="utf-8"
+        _markdown(meta, ordered, ranking, runs, repeat_runs, selfcheck, ids, scrub) + "\n", encoding="utf-8"
     )
     blind = {v: k for k, v in sorted(ids.items(), key=lambda kv: key(kv[0])) if v != k}
     (out_dir / "engine_ids.json").write_text(

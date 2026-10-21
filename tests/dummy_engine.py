@@ -88,3 +88,12 @@ class ReturnsDicts(LatestWins):
 class ReturnsInts(Dummy):
     def search(self, query: Query) -> list:
         return [1, 2]
+
+
+class FailOnSecondRepeat(LatestWins):
+    """Like LatestWins, but errors on every scenario of the second repeat."""
+
+    def reset(self, namespace: str) -> None:
+        if "-r2:" in namespace:
+            raise RuntimeError("second repeat fails")
+        super().reset(namespace)
