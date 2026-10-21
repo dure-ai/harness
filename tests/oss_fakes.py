@@ -192,3 +192,70 @@ class FakeHindsight(FakeServer):
                                "document_id": None, "source_fact_ids": ids})
         results.extend(self.extra_results)
         return {"results": results, "source_facts": source_facts}
+
+
+class FakeMem0(FakeServer):
+    """A fake Mem0 REST server: stores memories as sent and searches them by word overlap.
+
+    Attributes:
+        llm_model: Model name `GET /configure` reports for the LLM.
+        embedding_model: Model name `GET /configure` reports for the embedder.
+        extra_results: Raw result dicts appended to every search reply.
+        configure_reply: When set, `GET /configure` answers this payload as is.
+        search_reply: When set, `POST /search` answers this payload as is.
+    """
+
+    _UNSET: Any = object()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.llm_model = "gpt-4.1-mini"
+        self.embedding_model = "text-embedding-3-small"
+        self.extra_results: list[dict[str, Any]] = []
+        self.configure_reply: Any = self._UNSET
+        self.search_reply: Any = self._UNSET
+        self.memories: list[dict[str, Any]] = []
+
+    @staticmethod
+    def _words(text: str) -> set[str]:
+        return set(re.findall(r"\w+", text.lower()))
+
+    def handle(self, method: str, path: str, query: dict[str, str], body: Any) -> tuple[int, Any]:
+        """Answer the Mem0 routes the adapter uses."""
+        if method == "GET" and path == "/configure":
+            if self.configure_reply is not self._UNSET:
+                return 200, self.configure_reply
+            return 200, {"llm": {"config": {"model": self.llm_model}},
+                         "embedder": {"config": {"model": self.embedding_model}}}
+        if method == "POST" and path == "/memories":
+            memory = {
+                "id": f"m{len(self.memories)}",
+                "memory": body["messages"][0]["content"],
+                "run_id": body.get("run_id"),
+                "user_id": body.get("user_id"),
+                "metadata": dict(body.get("metadata") or {}),
+            }
+            self.memories.append(memory)
+            return 200, {"results": [{"id": memory["id"], "memory": memory["memory"], "event": "ADD"}]}
+        if method == "DELETE" and path == "/memories":
+            run = query.get("run_id")
+            self.memories = [m for m in self.memories if m["run_id"] != run]
+            return 200, {"message": "Memories deleted successfully"}
+        if method == "POST" and path == "/search":
+            if self.search_reply is not self._UNSET:
+                return 200, self.search_reply
+            return 200, {"results": self._search(body)}
+        return 404, {"error": "not found"}
+
+    def _search(self, body: Any) -> list[dict[str, Any]]:
+        filters = body["filters"]
+        units = {clause["user_id"] for clause in filters["OR"]}
+        want = self._words(body["query"])
+        rows = [m for m in self.memories if m["run_id"] == filters["run_id"] and m["user_id"] in units]
+        rows.sort(key=lambda m: -len(want & self._words(m["memory"])))
+        results: list[dict[str, Any]] = [
+            {"id": m["id"], "memory": m["memory"], "score": 1.0 / (rank + 1), "metadata": m["metadata"]}
+            for rank, m in enumerate(rows)
+        ]
+        results.extend(self.extra_results)
+        return results[: body["top_k"]]
