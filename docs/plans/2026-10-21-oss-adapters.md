@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python ≥3.12, uv, 표준 라이브러리(`urllib.request`, `json`, `http.server`, `hashlib`, `threading`), pydantic v2, typer, pytest, Docker Compose.
 
+**Branch:** `feat/oss-adapters`, base `feat/scenario-generation`(PR #2 위에 쌓음). 재생기는 이미 시나리오 id를 해시한 이름공간을 준다.
+
 **Spec:** `docs/specs/2026-10-21-oss-adapters-design.md` (이하 "설계 3"). 상위 문서는 `docs/specs/2026-10-19-memory-eval-harness-design.md`(이하 "설계")다. 설계 3과 설계가 다르면 설계 3을 따른다.
 
 ## Global Constraints
