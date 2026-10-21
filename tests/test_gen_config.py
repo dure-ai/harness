@@ -16,7 +16,7 @@ def test_gen_config_defaults_from_file():
     assert cfg.model == "claude-opus-5-5"
     assert cfg.effort == "medium"
     assert cfg.temperature == 0.2
-    assert cfg.prompt_version == "gen-v0.1"
+    assert cfg.prompt_version == "gen-v0.2"
     assert cfg.max_candidates_per_trace == 5
     assert cfg.max_output_tokens == 16000
     assert cfg.base_url is None and cfg.api_key_env is None and cfg.fake_responses is None

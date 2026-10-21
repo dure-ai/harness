@@ -20,7 +20,7 @@ def _prompt(sk: Skeleton, cand: FactCandidate, traces: Sequence[Trace]) -> str:
         f"Repository: {traces[0].repo if traces else 'manual'}",
         "Original fact candidate (from the source trace):",
         f"- statement: {cand.statement}",
-        f"- kind: {cand.kind}",
+        f"- category: {cand.kind}",
         f"- condition: {cond}",
         f"- fix: {cand.fix or 'none'}",
         f"- quote (message #{cand.message_index}): {cand.quote}",

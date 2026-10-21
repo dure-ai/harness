@@ -149,6 +149,26 @@ def test_prompt_instructs_probe_terms_and_markers() -> None:
     assert "Start of the source trace" not in user
 
 
+def test_prompt_forbids_nested_markers_and_foreign_markers_in_feedback() -> None:
+    sk = _skeleton()
+    client = _client(_reply(sk))
+    write_bodies(client, sk, _cand(), [], _gen())
+    system = client.requests[0][1]
+    assert "no marker may be a substring of another fact's marker" in system
+    rule3 = next(line for line in system.splitlines() if line.startswith("3. "))
+    assert "event" in rule3 and "feedback" in rule3
+
+
+def test_prompt_calls_the_candidate_kind_category() -> None:
+    sk = _skeleton()
+    client = _client(_reply(sk))
+    write_bodies(client, sk, _cand(), [], _gen())
+    user = client.requests[0][2]
+    head = user.split("Slots to fill", 1)[0]
+    assert f"- category: {_cand().kind}" in head
+    assert "- kind:" not in head
+
+
 def test_trace_excerpt_is_capped() -> None:
     sk = _skeleton()
     long = make_trace()

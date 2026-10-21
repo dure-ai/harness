@@ -3,7 +3,7 @@ provider: anthropic
 model: claude-opus-5-5
 effort: medium
 temperature: 0.2  # openai only
-prompt_version: gen-v0.1
+prompt_version: gen-v0.2
 max_candidates_per_trace: 5
 license_allowlist: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, PSF-2.0, MPL-2.0, Unlicense]
 banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated]
