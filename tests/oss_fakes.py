@@ -1,6 +1,7 @@
 """Fake local HTTP engine used to test the OSS adapters without a real network."""
 
 import json
+import re
 import socket
 import threading
 from dataclasses import dataclass
@@ -103,3 +104,80 @@ class FakeServer:
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=5)
+
+
+class FakeHindsight(FakeServer):
+    """A fake Hindsight API: stores memories per bank and recalls them by word overlap.
+
+    Attributes:
+        pending_rounds: How many times each of the pending and processing queries reports one operation before reporting none.
+        failed_total: Count reported for the failed operations query.
+        observation_of: Document ids; when set, recall puts one observation built from these facts first.
+        extra_results: Raw result dicts appended to every recall.
+        source_facts_null: Answer recall with `source_facts: null` and no stored results.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pending_rounds = 0
+        self.failed_total = 0
+        self.observation_of: list[str] | None = None
+        self.extra_results: list[dict[str, Any]] = []
+        self.source_facts_null = False
+        self.banks: dict[str, list[dict[str, Any]]] = {}
+        self._polls: dict[str, int] = {}
+
+    @staticmethod
+    def _words(text: str) -> set[str]:
+        return set(re.findall(r"\w+", text.lower()))
+
+    def handle(self, method: str, path: str, query: dict[str, str], body: Any) -> tuple[int, Any]:
+        """Answer the Hindsight routes the adapter uses."""
+        if method == "GET" and path == "/version":
+            return 200, {"api_version": "1.0.0"}
+        match = re.fullmatch(r"/v1/default/banks/([^/]+)(/.*)?", path)
+        if match is None:
+            return 404, {"error": "not found"}
+        bank, rest = match.group(1), match.group(2) or ""
+        if method == "DELETE" and rest == "":
+            if bank not in self.banks:
+                return 404, {"error": "no such bank"}
+            del self.banks[bank]
+            return 200, {"success": True}
+        if method == "POST" and rest == "/memories":
+            stored = self.banks.setdefault(bank, [])
+            for item in body["items"]:
+                stored.append({
+                    "id": f"m{len(stored)}",
+                    "text": item["content"],
+                    "type": "world",
+                    "document_id": item.get("document_id"),
+                    "tags": item.get("tags", []),
+                })
+            return 200, {"success": True, "items_count": len(body["items"])}
+        if method == "GET" and rest == "/operations":
+            status = query["status"]
+            if status == "failed":
+                return 200, {"total": self.failed_total, "operations": []}
+            seen = self._polls.get(status, 0)
+            self._polls[status] = seen + 1
+            return 200, {"total": 1 if seen < self.pending_rounds else 0, "operations": []}
+        if method == "POST" and rest == "/memories/recall":
+            return 200, self._recall(bank, body)
+        return 404, {"error": "not found"}
+
+    def _recall(self, bank: str, body: Any) -> dict[str, Any]:
+        if self.source_facts_null:
+            return {"results": [], "source_facts": None}
+        want = self._words(body["query"])
+        tags = set(body.get("tags") or [])
+        facts = [m for m in self.banks.get(bank, []) if tags & set(m["tags"])]
+        facts.sort(key=lambda m: -len(want & self._words(m["text"])))
+        results: list[dict[str, Any]] = [dict(m) for m in facts]
+        source_facts: dict[str, Any] = {m["id"]: m for m in self.banks.get(bank, [])}
+        if self.observation_of is not None:
+            ids = [m["id"] for m in self.banks.get(bank, []) if m["document_id"] in self.observation_of]
+            results.insert(0, {"id": "obs0", "text": "an observation", "type": "observation",
+                               "document_id": None, "source_fact_ids": ids})
+        results.extend(self.extra_results)
+        return {"results": results, "source_facts": source_facts}
