@@ -385,3 +385,90 @@ def test_same_trajectory_twice_is_used_once(tmp_path: Path) -> None:
     assert len(report.written) == 3 and len(set(report.written)) == 3  # 3 candidates, not 4 from a repeat
     assert report.shortfall["truth_change"].startswith("3 of 4 made; looked at 1 traces")
     assert len([1 for k, _, _ in client.requests if k == "candidates"]) == 1
+
+
+# ---- cost guard ---------------------------------------------------------------------------------
+
+
+def _always_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every draft fails the checks, so each body attempt is spent without an LLM error."""
+    monkeypatch.setattr(pipeline, "check_draft", lambda *a, **kw: [Issue("error", "cue_word", "always")])
+
+
+def _bodies_requests(client: FakeClient) -> int:
+    return sum(1 for kind, _, _ in client.requests if kind == "bodies")
+
+
+def test_max_attempts_stops_a_family(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _always_blocked(monkeypatch)
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change"], 2, max_attempts=2)
+    assert _bodies_requests(client) == 2
+    assert report.written == [] and report.rejected == 2
+    assert "stopped at --max-attempts 2" in report.shortfall["truth_change"]
+
+
+def test_max_attempts_defaults_to_three_per_wanted_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _always_blocked(monkeypatch)
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change", "coincidence"], 1)
+    assert _bodies_requests(client) == 6  # 3 x 1 per family; 9 candidates were available
+    assert "stopped at --max-attempts 3" in report.shortfall["truth_change"]
+    assert "stopped at --max-attempts 3" in report.shortfall["coincidence"]
+
+
+def test_max_attempts_not_reached_is_not_reported(tmp_path: Path) -> None:
+    report = run(tmp_path, plain_fake(), ["truth_change"], 2, max_attempts=2)
+    assert len(report.written) == 2 and report.shortfall == {}
+
+
+class AlwaysFails:
+    name = "fake"
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete_json(self, *args: Any, **kw: Any) -> Any:
+        self.calls += 1
+        raise LLMError(f"openai: InternalServerError: boom {self.calls}")
+
+
+def test_three_llm_errors_in_a_row_stop_the_run(tmp_path: Path) -> None:
+    client = AlwaysFails()
+    with pytest.raises(LLMError) as e:
+        run(tmp_path, client, ["truth_change"], 2, pool=traces(5))
+    assert client.calls == 3
+    assert e.value.fatal
+    assert "3 LLM errors in a row" in str(e.value) and "boom 3" in str(e.value)
+    assert "first LLM error: openai: InternalServerError: boom 1" in str(e.value)
+    assert len(rejections(tmp_path)) == 3
+
+
+def test_llm_errors_with_successes_between_do_not_stop(tmp_path: Path) -> None:
+    class TwoOfThreeFail(FakeClient):
+        """Every first and second body request of three fails; the third works."""
+
+        bodies = 0
+
+        def complete_json(self, kind: str, *args: Any, **kw: Any) -> Any:
+            if kind == "bodies":
+                self.bodies += 1
+                if self.bodies % 3:
+                    raise LLMError(f"openai: InternalServerError: flaky {self.bodies}")
+            return super().complete_json(kind, *args, **kw)
+
+    client = TwoOfThreeFail(responders={"candidates": fake_candidates, "bodies": fake_slots})
+    report = run(tmp_path, client, ["truth_change"], 2)
+    assert len(report.written) == 2 and client.bodies == 6
+    assert report.first_llm_error == "openai: InternalServerError: flaky 1"
+
+
+def test_report_keeps_the_first_llm_error(tmp_path: Path) -> None:
+    client = FakeClient(
+        responses={"bodies": ["{not json", "{still not json"]},
+        responders={"candidates": fake_candidates, "bodies": fake_slots},
+    )
+    report = run(tmp_path, client, ["truth_change"], 1)
+    assert report.first_llm_error is not None and "failed validation twice" in report.first_llm_error
+    assert run(tmp_path, plain_fake(), ["truth_change"], 1).first_llm_error is None

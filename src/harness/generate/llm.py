@@ -19,13 +19,21 @@ T = TypeVar("T", bound=BaseModel)
 
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 _AUTH_ERRORS = frozenset({"AuthenticationError", "PermissionDeniedError"})
+_FATAL_ERRORS = {
+    "NotFoundError": "check `model` in the gen config",
+    "BadRequestError": "the request was rejected; check the gen config",
+    "APIConnectionError": "cannot reach the server; check `base_url` and the network",
+}
+"""SDK errors (both providers) after which every other request would fail the same way."""
+_TRANSIENT_ERRORS = frozenset({"APITimeoutError"})  # a subclass of APIConnectionError
 
 
 class LLMError(Exception):
     """A generation call failed; the message is one line meant for the user.
 
     Attributes:
-        fatal: True when retrying other items is pointless (missing key, auth or permission error).
+        fatal: True when retrying other items is pointless (missing key, auth or permission
+            error, unknown model, bad request, no connection).
     """
 
     def __init__(self, message: str, *, fatal: bool = False) -> None:
@@ -265,6 +273,17 @@ def _is_auth_error(exc: BaseException) -> bool:
     return any(cls.__name__ in _AUTH_ERRORS for cls in type(exc).__mro__)
 
 
+def _api_error(provider: str, exc: Exception) -> LLMError:
+    """The `LLMError` for an SDK exception other than an auth error, fatal per `_FATAL_ERRORS`."""
+    names = [cls.__name__ for cls in type(exc).__mro__]
+    message = f"{provider}: {type(exc).__name__}: {' '.join(str(exc).split())}"
+    if not _TRANSIENT_ERRORS.intersection(names):
+        for name in names:
+            if name in _FATAL_ERRORS:
+                return LLMError(f"{message} ({_FATAL_ERRORS[name]})", fatal=True)
+    return LLMError(message)
+
+
 class AnthropicClient:
     """Claude through the `anthropic` SDK with structured output and server-side fallback.
 
@@ -313,7 +332,7 @@ class AnthropicClient:
                 raise LLMError(
                     f"anthropic: authentication failed; set {self._KEY_HINT}", fatal=True
                 ) from exc
-            raise LLMError(f"anthropic: {type(exc).__name__}: {' '.join(str(exc).split())}") from exc
+            raise _api_error("anthropic", exc) from exc
         if reply.stop_reason == "refusal":
             raise LLMError("anthropic: the model refused this request")
         return "".join(block.text for block in reply.content if block.type == "text")
@@ -339,7 +358,8 @@ class AnthropicClient:
             The validated reply.
 
         Raises:
-            LLMError: On refusal, API failure, missing credentials (fatal), or invalid output.
+            LLMError: On refusal, API failure (fatal for credentials, an unknown model, a bad
+                request or no connection), or invalid output.
         """
         import anthropic
 
@@ -394,7 +414,7 @@ class OpenAIClient:
                 raise LLMError(
                     f"openai: authentication failed; check {self._env}", fatal=True
                 ) from exc
-            raise LLMError(f"openai: {type(exc).__name__}: {' '.join(str(exc).split())}") from exc
+            raise _api_error("openai", exc) from exc
         return reply.choices[0].message.content or ""
 
     def complete_json(
@@ -421,7 +441,8 @@ class OpenAIClient:
             The validated reply.
 
         Raises:
-            LLMError: On API failure, auth failure (fatal), or invalid output.
+            LLMError: On API failure (fatal for credentials, an unknown model, a bad request or
+                no connection), or invalid output.
         """
         full_system = (
             f"{system}\n\nReply with a single JSON object matching this JSON schema:\n"

@@ -30,6 +30,9 @@ from harness.scenario.model import Scenario
 
 T = TypeVar("T", bound=BaseModel)
 
+_ERRORS_IN_A_ROW = 3
+"""Non-fatal LLM errors in a row that stop a run: the provider is most likely down."""
+
 
 def all_family_counts(n: int) -> dict[str, int]:
     """Drafts per family for `--family all`: `n` each, but `normal_repeat` has no pair.
@@ -57,6 +60,7 @@ class GenerateReport(BaseModel):
         rejected: Number of rejections logged: bad quotes, near-duplicate candidates, failed
             LLM calls and drafts that failed the checks.
         shortfall: Family -> why fewer than requested were made.
+        first_llm_error: Message of the first non-fatal LLM error of the run, if there was one.
     """
 
     requested: int
@@ -65,6 +69,7 @@ class GenerateReport(BaseModel):
     rejected: int = 0
     shortfall: dict[str, str] = {}
     trace_cap_hit: bool = False
+    first_llm_error: str | None = None
 
 
 class DryRun(Exception):
@@ -176,6 +181,9 @@ class _Tally:
     written: int = 0
     skipped: int = 0
     capped: bool = False
+    attempts: int = 0
+    max_attempts: int = 0
+    attempts_capped: bool = False
 
     def reason(self, target: int, max_traces: int) -> str:
         parts = [f"{self.written + self.skipped} of {target} made"]
@@ -186,6 +194,8 @@ class _Tally:
             parts.append(f"{self.rejected} drafts rejected")
         if self.capped:
             parts.append(f"stopped at --max-traces {max_traces}")
+        if self.attempts_capped:
+            parts.append(f"stopped at --max-attempts {self.max_attempts}")
         return "; ".join(parts)
 
 
@@ -204,11 +214,35 @@ class _Run:
     max_traces: int
     cache: dict[str, list[FactCandidate]] = field(default_factory=dict)
     rejected: int = 0
+    first_llm_error: str | None = None
+    errors_in_a_row: int = 0
 
     def reject(self, r: Rejection) -> None:
         self.rejected += 1
         self.rejected_log.write(r.model_dump_json() + "\n")
         self.rejected_log.flush()
+
+    def llm_ok(self) -> None:
+        """A model call worked: the run of consecutive errors is over."""
+        self.errors_in_a_row = 0
+
+    def llm_failed(self, e: LLMError) -> None:
+        """Count a non-fatal model error; re-raise a fatal one.
+
+        Raises:
+            LLMError: `e` itself when fatal, or a fatal error after `_ERRORS_IN_A_ROW` errors in a
+                row, naming the last and the first error of the run.
+        """
+        if e.fatal:
+            raise e
+        self.first_llm_error = self.first_llm_error or str(e)
+        self.errors_in_a_row += 1
+        if self.errors_in_a_row >= _ERRORS_IN_A_ROW:
+            raise LLMError(
+                f"stopped after {_ERRORS_IN_A_ROW} LLM errors in a row; last: {e}; "
+                f"first LLM error: {self.first_llm_error}",
+                fatal=True,
+            ) from e
 
     def can_extract(self, trace: Trace) -> bool:
         """Whether the trace's candidates are known or the trace cap still allows extracting them."""
@@ -225,7 +259,9 @@ class _Run:
                 raise
             self.reject(Rejection(stage="candidates", code="llm_error", message=str(e), trace_id=trace.trajectory_id))
             self.cache[trace.trajectory_id] = []
+            self.llm_failed(e)
             return []
+        self.llm_ok()
         checked, bad = check_quotes(trace, extracted)
         kept = dedupe(checked)
         kept_ids = {c.index for c in kept}
@@ -271,7 +307,12 @@ def _is_reviewed(path: Path) -> bool:
 
 
 def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tally) -> tuple[str, str] | None:
-    """Try to make one draft; returns ("written" | "skipped", id) or None when it did not work out."""
+    """Try to make one draft.
+
+    Returns:
+        ("written" | "skipped", id), ("capped", id) when the family has used up its body
+        attempts, or None when the draft did not work out.
+    """
     bundle = run.bundle_of(trace)
     sk = TEMPLATES[family](cand, bundle, run.seed)
     if sk is None:
@@ -282,6 +323,10 @@ def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tall
     path = run.out_dir / family / f"{sid}.yaml"
     if _is_reviewed(path):
         return "skipped", sid
+    if tally.attempts >= tally.max_attempts:
+        tally.attempts_capped = True
+        return "capped", sid
+    tally.attempts += 1
 
     def reject(stage: str, code: str, message: str) -> None:
         tally.rejected += 1
@@ -293,7 +338,9 @@ def _one(run: _Run, family: str, trace: Trace, cand: FactCandidate, tally: _Tall
         if e.fatal:
             raise
         reject("bodies", "llm_error", str(e))
+        run.llm_failed(e)
         return None
+    run.llm_ok()
     stop = blocking(check_draft(s, run.cfg, run.gen, sk.secret_event_ids))
     if stop:
         reject("checks", stop[0].code, "; ".join(f"{i.code}: {i.message}" for i in stop))
@@ -315,6 +362,7 @@ def generate(
     repos: set[str] | None = None,
     per_family: Mapping[str, int] | None = None,
     max_traces: int = 100,
+    max_attempts: int | None = None,
 ) -> GenerateReport:
     """Make draft scenarios, `n` per family, from real traces.
 
@@ -340,12 +388,16 @@ def generate(
         per_family: Per-family override of `n`.
         max_traces: Upper bound on the distinct traces sent to candidate extraction in the whole
             run (the candidates are shared by the families). Traces already extracted stay usable.
+        max_attempts: Most body-writing attempts per family; the family stops there. None for
+            three times that family's target.
 
     Returns:
-        What was written, skipped and rejected, and why a family fell short.
+        What was written, skipped and rejected, why a family fell short, and the first LLM
+        error.
 
     Raises:
-        LLMError: Only a fatal one (missing key, authentication); other failures reject the
+        LLMError: A fatal one (missing key, authentication, wrong model, bad request, no
+            connection), or after three non-fatal LLM errors in a row. Other failures reject the
             candidate or draft they hit.
     """
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -365,9 +417,10 @@ def generate(
     ):
         run = _Run(client, cfg, gen, seed, out_dir, cand_log, rej_log, bundles(pool), max_traces)
         for family in families:
-            target, tally = targets[family], _Tally()
+            target = targets[family]
+            tally = _Tally(max_attempts=3 * target if max_attempts is None else max_attempts)
             for trace in order:
-                if tally.written + tally.skipped >= target:
+                if tally.written + tally.skipped >= target or tally.attempts_capped:
                     break
                 if not run.can_extract(trace):
                     tally.capped = report.trace_cap_hit = True
@@ -385,6 +438,8 @@ def generate(
                     made = _one(run, family, trace, cand, tally)
                     if made is None:
                         continue
+                    if made[0] == "capped":
+                        break
                     if made[0] == "written":
                         tally.written += 1
                         report.written.append(made[1])
@@ -396,6 +451,7 @@ def generate(
                     tally.reason(target, max_traces) if pool else _empty_pool_reason(len(traces), len(allowed), repos)
                 )
         report.rejected = run.rejected
+        report.first_llm_error = run.first_llm_error
     return report
 
 

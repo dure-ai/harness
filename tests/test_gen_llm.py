@@ -390,3 +390,57 @@ def test_make_client_wraps_anthropic_in_cache(tmp_path: Path) -> None:
     client = make_client(_cfg(provider="anthropic"), tmp_path / "llm")  # builds the SDK client, no request
     assert isinstance(client, CachedClient)
     assert (client.name, client.model) == ("anthropic", "claude-opus-5-5")
+
+
+# ---- errors that stop a run ---------------------------------------------------------------------
+
+
+def _sdk_errors(sdk: Any, url: str) -> dict[str, BaseException]:
+    """One instance of each error class that must stop a run, and of a timeout that must not."""
+    request = httpx2.Request("POST", url)
+    return {
+        "NotFoundError": sdk.NotFoundError("no such model", response=httpx2.Response(404, request=request), body=None),
+        "BadRequestError": sdk.BadRequestError("bad", response=httpx2.Response(400, request=request), body=None),
+        "APIConnectionError": sdk.APIConnectionError(request=request),
+        "APITimeoutError": sdk.APITimeoutError(request=request),
+    }
+
+
+FATAL = ["NotFoundError", "BadRequestError", "APIConnectionError"]
+
+
+@pytest.mark.parametrize("name", FATAL)
+def test_anthropic_wrong_model_bad_request_and_no_connection_are_fatal(name: str) -> None:
+    sdk, _ = _anthropic_sdk(_sdk_errors(anthropic, "https://api.anthropic.com/v1/messages")[name])
+    with pytest.raises(LLMError) as exc:
+        AnthropicClient(_cfg(), sdk=sdk).complete_json("k", "s", "u", Out)
+    assert exc.value.fatal is True
+    assert name in str(exc.value)
+
+
+@pytest.mark.parametrize("name", FATAL)
+def test_openai_wrong_model_bad_request_and_no_connection_are_fatal(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import openai
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    sdk, _ = _openai_sdk(_sdk_errors(openai, "http://x/v1/chat/completions")[name], [])
+    with pytest.raises(LLMError) as exc:
+        OpenAIClient(_cfg(provider="openai"), sdk=sdk).complete_json("k", "s", "u", Out)
+    assert exc.value.fatal is True
+    assert name in str(exc.value)
+
+
+def test_timeouts_are_not_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    import openai
+
+    sdk, _ = _anthropic_sdk(_sdk_errors(anthropic, "https://api.anthropic.com/v1/messages")["APITimeoutError"])
+    with pytest.raises(LLMError) as exc:
+        AnthropicClient(_cfg(), sdk=sdk).complete_json("k", "s", "u", Out)
+    assert exc.value.fatal is False
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    sdk, _ = _openai_sdk(_sdk_errors(openai, "http://x/v1/chat/completions")["APITimeoutError"], [])
+    with pytest.raises(LLMError) as exc:
+        OpenAIClient(_cfg(provider="openai"), sdk=sdk).complete_json("k", "s", "u", Out)
+    assert exc.value.fatal is False

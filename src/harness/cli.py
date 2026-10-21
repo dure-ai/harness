@@ -476,6 +476,10 @@ def generate_cmd(
     max_traces: Annotated[
         int, typer.Option(min=1, help="Most traces sent to candidate extraction in this run.")
     ] = 100,
+    max_attempts: Annotated[
+        int | None,
+        typer.Option(min=1, help="Most body-writing attempts per family; default 3 x that family's target."),
+    ] = None,
 ) -> None:
     """Make draft scenarios from cached traces with an LLM; they are saved with status draft."""
     cfg = _config(config)
@@ -510,10 +514,14 @@ def generate_cmd(
             if dry_run:
                 with tempfile.TemporaryDirectory() as scratch:
                     client = pipeline.DryRunClient(gen.provider, gen.model)
-                    pipeline.generate(families, n, seed, loaded, client, cfg, gen, out, Path(scratch), wanted, per_family, max_traces)
+                    pipeline.generate(
+                        families, n, seed, loaded, client, cfg, gen, out, Path(scratch), wanted, per_family, max_traces, max_attempts
+                    )
                 return
             client = make_client(gen, cache_root() / "llm")
-            report = pipeline.generate(families, n, seed, loaded, client, cfg, gen, out, run_dir, wanted, per_family, max_traces)
+            report = pipeline.generate(
+                families, n, seed, loaded, client, cfg, gen, out, run_dir, wanted, per_family, max_traces, max_attempts
+            )
         except pipeline.DryRun as d:
             typer.echo(f"[{d.kind}] system:\n{d.system}\n\nuser:\n{d.user}")
             typer.echo("--dry-run: 모델을 부르지 않았고 아무것도 저장하지 않았습니다.")
@@ -530,6 +538,8 @@ def generate_cmd(
             typer.echo(f"  부족 {fam}: {reason}")
         if report.trace_cap_hit:
             typer.echo(f"  --max-traces {max_traces}에서 후보 뽑기를 멈췄습니다. 더 만들려면 값을 올리세요.")
+        if report.first_llm_error is not None:
+            typer.echo(f"  first LLM error: {report.first_llm_error}")
         typer.echo(f"저장 위치: {out}")
 
 

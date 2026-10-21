@@ -786,6 +786,34 @@ def test_cli_generate_max_traces_is_reported(tmp_path, monkeypatch):
     assert runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--max-traces", "0")).exit_code == 2
 
 
+def test_cli_generate_max_attempts_is_reported(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "2", "--max-attempts", "1"))
+    assert result.exit_code == 0, result.output
+    assert "요청 2개 중 1개 생성" in result.output and "stopped at --max-attempts 1" in result.output
+    assert runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--max-attempts", "0")).exit_code == 2
+
+
+def test_cli_generate_prints_the_first_llm_error(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    canned = tmp_path / "canned.json"
+    canned.write_text(json.dumps({"bodies": ["{not json", "{still not json"]}), encoding="utf-8")
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "1", fake_responses=str(canned)))
+    assert result.exit_code == 0, result.output
+    assert "first LLM error: model output failed validation twice" in result.output
+    clean = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "1"))
+    assert clean.exit_code == 0 and "first LLM error" not in clean.output
+
+
+def test_cli_generate_stops_after_three_llm_errors_in_a_row(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    canned = tmp_path / "canned.json"
+    canned.write_text(json.dumps({"candidates": ["{bad"] * 6}), encoding="utf-8")
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "1", fake_responses=str(canned)))
+    assert result.exit_code == 2
+    assert "3 LLM errors in a row" in result.output and "first LLM error" in result.output
+
+
 # ---- review and scenario new -------------------------------------------------------------------
 
 
