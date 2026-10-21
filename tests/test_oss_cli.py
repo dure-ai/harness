@@ -24,13 +24,15 @@ def set_model_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def hindsight_fake() -> Iterator[FakeHindsight]:
-    with FakeHindsight() as fake:
+    fake = FakeHindsight()
+    with fake:
         yield fake
 
 
 @pytest.fixture
 def mem0_fake() -> Iterator[FakeMem0]:
-    with FakeMem0() as fake:
+    fake = FakeMem0()
+    with fake:
         yield fake
 
 
@@ -149,8 +151,35 @@ def test_label_check_flags_planted_labels():
     hits = leaked_labels(scenarios, planted)
     assert any(f"{first.id!r}" in h for h in hits)
     assert any(f"{first.family!r}" in h for h in hits)
-    marker = next(m for s in scenarios for e in s.events for m in e.secret_markers)
-    body = {"messages": [{"role": "user", "content": f"x {marker} y"}]}
-    owner = next(s for s in scenarios if any(marker in e.secret_markers for e in s.events))
-    if marker.lower() not in " ".join(e.text for e in owner.events).lower():
-        assert leaked_labels(scenarios, [Recorded("POST", "/memories", {}, body)])
+
+
+def synthetic_with_markers() -> Scenario:
+    """A scenario with known markers: two hidden ones, and two that its own event text contains."""
+    base = load_examples()[0]
+    event = base.events[0].model_copy(
+        update={"text": "Note mentioning Exempt-Secret and exempt-fact.",
+                "secret_markers": ["hidden-secret-9", "exempt-secret"]}
+    )
+    fact_id, fact = next(iter(base.facts.items()))
+    fact = fact.model_copy(update={"markers": ["hidden-fact-7", "exempt-fact"]})
+    probe = base.probes[0].model_copy(update={"query": "plain question"})
+    return base.model_copy(
+        update={"id": "synthetic-1", "events": [event], "facts": {fact_id: fact}, "probes": [probe]}
+    )
+
+
+def post(content: str) -> Recorded:
+    return Recorded("POST", "/memories", {}, {"messages": [{"role": "user", "content": content}]})
+
+
+def test_label_check_flags_planted_markers_and_keeps_exemption():
+    s = synthetic_with_markers()
+    assert leaked_labels([s], [post("an ordinary note")]) == []
+    assert leaked_labels([s], [post("see HIDDEN-SECRET-9 here")]) == [
+        "synthetic-1: marker 'hidden-secret-9' sent"
+    ]
+    assert leaked_labels([s], [post("see hidden-fact-7 here")]) == [
+        "synthetic-1: marker 'hidden-fact-7' sent"
+    ]
+    exempt = [post("exempt-secret and EXEMPT-FACT, as in the event text")]
+    assert leaked_labels([s], exempt) == []
