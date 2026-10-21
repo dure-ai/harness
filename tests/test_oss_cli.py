@@ -122,6 +122,8 @@ def test_engine_down_exits_2(tmp_path, monkeypatch):
         tmp_path, EXAMPLES, "--include-drafts", "--engine", "hindsight", "--repeat", "1"
     )
     assert result.exit_code == 2 and "cannot build engine 'hindsight'" in result.output
+    assert "EngineHTTPError" in result.output
+    assert "unknown engine" not in result.output
 
 
 def test_config_without_models_exits_2(tmp_path, fakes_env):
@@ -134,10 +136,16 @@ def test_config_without_models_exits_2(tmp_path, fakes_env):
 
 
 def test_no_hidden_labels_reach_engines(tmp_path, fakes_env, hindsight_fake, mem0_fake):
-    result, _ = run_both(tmp_path)
+    result, out = run_both(tmp_path)
     assert result.exit_code == 0, result.output
+    summary = json.loads((next(out.iterdir()) / "summary.json").read_text(encoding="utf-8"))
+    assert not any_errors(summary)
+    # The check below is only worth anything if both engines were really used.
+    assert any(r.method == "POST" and r.path.endswith("/memories") for r in hindsight_fake.requests)
+    assert any(r.method == "POST" and r.path.endswith("/memories/recall") for r in hindsight_fake.requests)
+    assert any(r.method == "POST" and r.path == "/memories" for r in mem0_fake.requests)
+    assert any(r.method == "POST" and r.path == "/search" for r in mem0_fake.requests)
     requests = hindsight_fake.requests + mem0_fake.requests
-    assert requests
     assert leaked_labels(load_examples(), requests) == []
 
 
