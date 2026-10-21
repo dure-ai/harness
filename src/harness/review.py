@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.table import Table
@@ -114,10 +113,21 @@ def list_drafts(root: Path) -> list[DraftRow]:
         try:
             s = load_scenario(path)
         except (ScenarioLoadError, UnicodeDecodeError, OSError):
-            rows.append(DraftRow(path.stem, "?", path, UNREADABLE, None, ["load_error"]))
+            rows.append(
+                DraftRow(path.stem, "?", path, UNREADABLE, None, ["load_error"])
+            )
             continue
         warnings = [i.code for i in validate_scenario(s)]
-        rows.append(DraftRow(s.id, s.family, path, s.review.status, s.provenance.generated_at, warnings))
+        rows.append(
+            DraftRow(
+                s.id,
+                s.family,
+                path,
+                s.review.status,
+                s.provenance.generated_at,
+                warnings,
+            )
+        )
     return rows
 
 
@@ -132,7 +142,11 @@ def find_draft(root: Path, scenario_id: str) -> list[Path]:
         The matching files; unreadable files are skipped. Empty when there is none, and more than
         one when the id is duplicated.
     """
-    return [r.path for r in list_drafts(root) if r.id == scenario_id and r.status != UNREADABLE]
+    return [
+        r.path
+        for r in list_drafts(root)
+        if r.id == scenario_id and r.status != UNREADABLE
+    ]
 
 
 # ---- edit and set -------------------------------------------------------------------------------
@@ -166,9 +180,17 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     original = load_scenario(path)
     before = path.read_bytes()
 
-    def revert(reason: str, after: bytes | None, changed: list[str] | None = None) -> EditResult:
-        kept = _keep_edit(original.id, after) if after is not None and after != before else None
-        return EditResult("reverted", changed_fields=changed or [], reason=reason, kept_copy=kept)
+    def revert(
+        reason: str, after: bytes | None, changed: list[str] | None = None
+    ) -> EditResult:
+        kept = (
+            _keep_edit(original.id, after)
+            if after is not None and after != before
+            else None
+        )
+        return EditResult(
+            "reverted", changed_fields=changed or [], reason=reason, kept_copy=kept
+        )
 
     with tempfile.TemporaryDirectory() as scratch:
         copy = Path(scratch) / path.name
@@ -189,18 +211,29 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
             return revert(f"the file no longer loads: {e.message}", after)
     if edited.model_dump(mode="json") == original.model_dump(mode="json"):
         return EditResult("unchanged")
-    if (edited.review.status, edited.review.reviewer) != (original.review.status, original.review.reviewer):
-        return revert("review status and reviewer change only with `harness review set`", after)
+    if (edited.review.status, edited.review.reviewer) != (
+        original.review.status,
+        original.review.reviewer,
+    ):
+        return revert(
+            "review status and reviewer change only with `harness review set`", after
+        )
     if changed := changed_label_fields(original, edited):
         return revert(
-            "ground-truth fields cannot be edited; if the labels are wrong, reject the draft", after, changed
+            "ground-truth fields cannot be edited; if the labels are wrong, reject the draft",
+            after,
+            changed,
         )
     edited.provenance.reviewer_edited = True
     reset = edited.review.status != "draft"
     if reset:
         edited.review = Review(status="draft", reviewer=None, notes=edited.review.notes)
     save_draft(edited, path)
-    return EditResult("saved", issues=check_draft(edited, cfg, gen, secret_events(edited)), reset_to_draft=reset)
+    return EditResult(
+        "saved",
+        issues=check_draft(edited, cfg, gen, secret_events(edited)),
+        reset_to_draft=reset,
+    )
 
 
 def _keep_edit(scenario_id: str, text: bytes) -> Path:
@@ -250,7 +283,9 @@ def set_status(
         issues = check_draft(s, cfg, gen, secret_events(s))
         if blocking(issues):
             return issues
-    s.review = Review(status=status, reviewer=reviewer, notes=s.review.notes if note is None else note)
+    s.review = Review(
+        status=status, reviewer=reviewer, notes=s.review.notes if note is None else note
+    )
     save_draft(s, path)
     return issues
 
@@ -274,7 +309,9 @@ def _zone(name: str) -> ZoneInfo | None:
         return None
 
 
-def _header(s: Scenario, issues: Sequence[Issue], tz: ZoneInfo | None) -> RenderableType:
+def _header(
+    s: Scenario, issues: Sequence[Issue], tz: ZoneInfo | None
+) -> RenderableType:
     p = s.provenance
     repos = ", ".join(f"{r.repo} ({r.license})" for r in p.source_repos) or "-"
     model = " / ".join(x for x in (p.provider, p.llm_model) if x) or "-"
@@ -282,11 +319,18 @@ def _header(s: Scenario, issues: Sequence[Issue], tz: ZoneInfo | None) -> Render
     rows = [
         ("id", s.id),
         ("family", f"{s.family}  mode={s.mode}  language={s.language}"),
-        ("status", f"{s.review.status}{reviewer}" + (f"  notes: {s.review.notes}" if s.review.notes else "")),
+        (
+            "status",
+            f"{s.review.status}{reviewer}"
+            + (f"  notes: {s.review.notes}" if s.review.notes else ""),
+        ),
         ("author", f"{p.author}  reviewer_edited={p.reviewer_edited}"),
         ("source repos", repos),
         ("source traces", ", ".join(p.source_traces) or "-"),
-        ("model", f"{model}  prompt={p.prompt_version or '-'}  generated={_clock(p.generated_at, tz)}"),
+        (
+            "model",
+            f"{model}  prompt={p.prompt_version or '-'}  generated={_clock(p.generated_at, tz)}",
+        ),
     ]
     table = Table.grid(padding=(0, 2))
     for key, value in rows:
@@ -295,7 +339,11 @@ def _header(s: Scenario, issues: Sequence[Issue], tz: ZoneInfo | None) -> Render
     if issues:
         found = Table.grid(padding=(0, 2))
         for i in issues:
-            found.add_row(Text(i.level, style=_LEVEL_STYLE[i.level]), Text(i.code), Text(i.message))
+            found.add_row(
+                Text(i.level, style=_LEVEL_STYLE[i.level]),
+                Text(i.code),
+                Text(i.message),
+            )
         parts += [Text("automatic checks", style="bold"), found]
     else:
         parts.append(Text("automatic checks: no findings", style="green"))
@@ -304,7 +352,15 @@ def _header(s: Scenario, issues: Sequence[Issue], tz: ZoneInfo | None) -> Render
 
 def _label_table(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
     table = Table(title="labels (facts)", title_justify="left", show_lines=True)
-    for name in ("fact", "valid_from", "valid_until", "conditions", "valid", "fix", "source"):
+    for name in (
+        "fact",
+        "valid_from",
+        "valid_until",
+        "conditions",
+        "valid",
+        "fix",
+        "source",
+    ):
         table.add_column(name, no_wrap=True)
     table.add_column("markers")
     table.add_column("text")
@@ -324,7 +380,11 @@ def _label_table(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
 
 
 def _timeline(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
-    table = Table(title="timeline (events and probes in time order)", title_justify="left", show_lines=True)
+    table = Table(
+        title="timeline (events and probes in time order)",
+        title_justify="left",
+        show_lines=True,
+    )
     table.add_column("time", no_wrap=True)
     table.add_column("id", no_wrap=True)
     table.add_column("user", no_wrap=True)
@@ -334,7 +394,9 @@ def _timeline(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
     table.add_column("text")
     evidence = {ev.event_id: ev for ev in s.provenance.evidence}
     # Events come before probes at the same time, as in the replay.
-    rows = [(e.t, 0, n) for n, e in enumerate(s.events)] + [(p.t, 1, n) for n, p in enumerate(s.probes)]
+    rows = [(e.t, 0, n) for n, e in enumerate(s.events)] + [
+        (p.t, 1, n) for n, p in enumerate(s.probes)
+    ]
     for t, is_probe, n in sorted(rows):
         if not is_probe:
             e = s.events[n]
@@ -356,7 +418,9 @@ def _timeline(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
             )
         else:
             p = s.probes[n]
-            true_now = [fid for fid, f in s.facts.items() if true_at(f, p.t, probe_ctx(p))]
+            true_now = [
+                fid for fid, f in s.facts.items() if true_at(f, p.t, probe_ctx(p))
+            ]
             table.add_row(
                 Text(_clock(t, tz), style="bold"),
                 Text(p.id, style="bold"),
@@ -381,20 +445,36 @@ def _cell(run: ScenarioRun, probe_id: str) -> Text:
 
 
 def _baselines(s: Scenario, cfg: EvalConfig) -> RenderableType:
-    names = ["oracle", "all_store", *(["all_store_noacl"] if any(p.kind == "leak" for p in s.probes) else [])]
-    runs = {n: run_scenario(make_engine(n, s, cfg), s, run_id=_RUN_ID, cfg=cfg) for n in names}
-    table = Table(title="baseline preview (outcome and leak count per probe)", title_justify="left")
+    names = [
+        "oracle",
+        "all_store",
+        *(["all_store_noacl"] if any(p.kind == "leak" for p in s.probes) else []),
+    ]
+    runs = {
+        n: run_scenario(make_engine(n, s, cfg), s, run_id=_RUN_ID, cfg=cfg)
+        for n in names
+    }
+    table = Table(
+        title="baseline preview (outcome and leak count per probe)",
+        title_justify="left",
+    )
     table.add_column("probe", no_wrap=True)
     table.add_column("kind", no_wrap=True)
     for n in names:
         table.add_column(n, no_wrap=True)
     for p in s.probes:
         table.add_row(Text(p.id), Text(p.kind), *(_cell(runs[n], p.id) for n in names))
-    notes = [Text(f"{n}: {r.error}", style="red") for n, r in runs.items() if r.error is not None]
+    notes = [
+        Text(f"{n}: {r.error}", style="red")
+        for n, r in runs.items()
+        if r.error is not None
+    ]
     return Group(table, *notes)
 
 
-def render_show(s: Scenario, cfg: EvalConfig, gen: GenConfig | None = None) -> RenderableType:
+def render_show(
+    s: Scenario, cfg: EvalConfig, gen: GenConfig | None = None
+) -> RenderableType:
     """Draw one scenario for review: header, label table, timeline and baseline preview.
 
     Needs nothing but the scenario itself (no trace cache, no rejection log).
@@ -418,6 +498,9 @@ def render_show(s: Scenario, cfg: EvalConfig, gen: GenConfig | None = None) -> R
         if not broken:
             issues += check_discrimination(s, cfg)
     parts = [_header(s, issues, tz), _label_table(s, tz), _timeline(s, tz)]
-    parts.append(Text("baseline preview skipped: fix the errors above", style="red") if broken else _baselines(s, cfg))
+    parts.append(
+        Text("baseline preview skipped: fix the errors above", style="red")
+        if broken
+        else _baselines(s, cfg)
+    )
     return Group(*parts)
-
