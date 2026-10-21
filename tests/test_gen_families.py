@@ -19,7 +19,7 @@ from harness.generate.slots import (
     slots_for,
     slots_prompt_block,
 )
-from harness.scenario.model import Feedback, FeedbackTemplate, Scenario
+from harness.scenario.model import FAMILIES, FEEDBACK_FAMILIES, Feedback, FeedbackTemplate, Scenario
 from harness.scenario.validate import validate_scenario
 from harness.selfcheck import check_discrimination, run_selfcheck
 from harness.world import probe_ctx, true_at
@@ -33,6 +33,9 @@ READ_ONLY = [
     "conditional",
     "workaround_then_root",
 ]
+LEAKS = ["leak_personal", "leak_cross_team"]
+FEEDBACK = ["echo", "failure_feedback"]
+ALL = READ_ONLY + LEAKS + FEEDBACK
 SEED = 20261020
 
 
@@ -87,21 +90,33 @@ def _gen_cfg(**over: Any) -> GenConfig:
     return GenConfig.model_validate(data)
 
 
-@pytest.mark.parametrize("family", READ_ONLY)
+def _feedback_templates(fb: Feedback) -> list[FeedbackTemplate]:
+    return [*fb.action.values(), *(t for t in (fb.abstain, fb.on_false, fb.on_true) if t is not None)]
+
+
+@pytest.mark.parametrize("family", ALL)
 def test_skeleton_matches_family_row(family: str) -> None:
     s = _skeleton(family).scenario
     assert s.family == family
-    assert s.mode == "read_only"
+    assert s.mode == ("feedback" if family in FEEDBACK_FAMILIES else "read_only")
     kinds = [p.kind for p in s.probes]
     if family == "normal_repeat":
         assert set(kinds) == {"promote"}
+    elif family in LEAKS:
+        assert set(kinds) == {"leak", "promote"}
     else:
         assert "block" in kinds and "promote" in kinds
-    assert all(p.feedback is None for p in s.probes)
+    if family in FEEDBACK:
+        assert all(p.feedback is not None for p in s.probes)
+    else:
+        assert all(p.feedback is None for p in s.probes)
     # Text fields are left for the body writer.
     assert all(f.text == "" and f.markers == [] for f in s.facts.values())
     assert all(e.text == "" and e.secret_markers == [] for e in s.events)
     assert all(p.query == "" for p in s.probes)
+    assert all(t.text == "" for p in s.probes if p.feedback for t in _feedback_templates(p.feedback))
+    # Secret slots are never marked where an engine can see them.
+    assert not any("secret" in f"{k}{v}".lower() for e in s.events for k, v in e.meta.items())
     assert s.id.startswith(f"{family}-widget-")
 
     facts = s.facts
@@ -163,21 +178,78 @@ def test_skeleton_matches_family_row(family: str) -> None:
         block = next(p for p in s.probes if p.kind == "block")
         promote = next(p for p in s.probes if p.kind == "promote")
         assert block.t >= r and promote.t < r
+    elif family == "leak_personal":
+        (team,) = s.world.teams
+        (secret_id,) = _skeleton(family).secret_event_ids
+        secret = next(e for e in s.events if e.id == secret_id)
+        assert secret.scope == "personal" and secret.fact == "f_private"
+        public = _events_of(s, "f_public")
+        assert public and all(e.scope == "team" for e in public)
+        assert len({e.user for e in public}) >= 2
+        leak = next(p for p in s.probes if p.kind == "leak")
+        promote = next(p for p in s.probes if p.kind == "promote")
+        assert leak.user != secret.user and leak.user in s.world.teams[team]
+        assert leak.about == ["f_private"] and promote.about == ["f_public"]
+        assert all(e.t < leak.t and e.t < promote.t for e in s.events)
+    elif family == "leak_cross_team":
+        assert set(s.world.teams) == {"team-a", "team-b"}
+        team_a = s.world.teams["team-a"]
+        events = _events_of(s, "f_team")
+        assert len(events) >= 2 and all(e.scope == "team" and e.user in team_a for e in events)
+        leak = next(p for p in s.probes if p.kind == "leak")
+        promote = next(p for p in s.probes if p.kind == "promote")
+        assert leak.user in s.world.teams["team-b"] and promote.user in team_a
+        assert leak.about == promote.about == ["f_team"]
+    elif family == "echo":
+        assert facts["f_false"].valid is False and facts["f_true"].valid is True
+        false_events = _events_of(s, "f_false")
+        first_true = min(e.t for e in _events_of(s, "f_true"))
+        assert false_events and all(e.t < first_true for e in false_events)  # recorded early
+        true_users = {e.user for e in _events_of(s, "f_true")}
+        assert len(true_users) >= 2 and not true_users & {e.user for e in false_events}
+        blocks = [p for p in s.probes if p.kind == "block"]
+        assert len(blocks) >= 3
+        assert all(set(p.about) == {"f_false", "f_true"} for p in s.probes)
+        for p in s.probes:
+            fb = p.feedback
+            assert fb is not None and fb.on_false is not None and fb.abstain is not None
+            assert {k: t.fact for k, t in fb.action.items()} == {"f_false": "f_false", "f_true": "f_true"}
+            assert fb.abstain.fact == "f_true"
+            assert (fb.on_false.signal, fb.on_false.outcome, fb.on_false.fact) == ("test", "failure", None)
+    elif family == "failure_feedback":
+        d = facts["f_old"].valid_until
+        assert d is not None and facts["f_new"].valid_from == d
+        assert all(e.t < d for e in _events_of(s, "f_old"))
+        assert all(e.t >= d for e in _events_of(s, "f_new"))
+        blocks = [p for p in s.probes if p.kind == "block"]
+        promote = next(p for p in s.probes if p.kind == "promote")
+        assert len(blocks) >= 2 and all(p.t >= d for p in blocks)
+        assert promote.t > max(p.t for p in blocks)
+        for p in s.probes:
+            fb = p.feedback
+            assert fb is not None and fb.on_false is not None
+            # The failure record says what is true now: its fact is the new fact.
+            assert (fb.on_false.signal, fb.on_false.kind, fb.on_false.outcome) == ("test", "ci_result", "failure")
+            assert fb.on_false.fact == "f_new"
+            assert fb.abstain is not None and fb.abstain.fact == "f_new"
+        # A later block probe comes after the failure record of the one before (default delay 1 day).
+        gaps = [b.t - a.t for a, b in zip(blocks, blocks[1:])]
+        assert all(g > EvalConfig().feedback.on_false for g in gaps)
 
 
-@pytest.mark.parametrize("family", READ_ONLY)
+@pytest.mark.parametrize("family", ALL)
 def test_filled_skeleton_passes_validation(family: str) -> None:
     s = _filled(_skeleton(family))
     assert validate_scenario(s) == []
 
 
-@pytest.mark.parametrize("family", READ_ONLY)
+@pytest.mark.parametrize("family", ALL)
 def test_filled_skeleton_discriminates(family: str) -> None:
     s = _filled(_skeleton(family))
     assert check_discrimination(s, EvalConfig()) == []  # no errors, and not too easy either
 
 
-@pytest.mark.parametrize("family", READ_ONLY)
+@pytest.mark.parametrize("family", ALL)
 def test_filled_skeleton_passes_for_other_seeds(family: str) -> None:
     for seed in range(5):
         s = _filled(_skeleton(family, seed=seed))
@@ -186,12 +258,14 @@ def test_filled_skeleton_passes_for_other_seeds(family: str) -> None:
 
 
 def test_filled_set_passes_selfcheck() -> None:
-    scenarios = [_filled(_skeleton(f, seed=seed)) for f in READ_ONLY for seed in range(3)]
+    scenarios = [_filled(_skeleton(f, seed=seed)) for f in ALL for seed in range(3)]
     checks, _ = run_selfcheck(scenarios, EvalConfig())
     assert [c.name for c in checks if not c.ok] == []
+    named = {c.name: c for c in checks}
+    assert not named["repeat_n_echo"].detail.startswith("skipped")
 
 
-@pytest.mark.parametrize("family", READ_ONLY)
+@pytest.mark.parametrize("family", ALL)
 def test_same_seed_same_skeleton(family: str) -> None:
     a, b = _skeleton(family), _skeleton(family)
     assert a.scenario.model_dump() == b.scenario.model_dump()
@@ -201,7 +275,7 @@ def test_same_seed_same_skeleton(family: str) -> None:
     assert c.scenario.model_dump(exclude={"id"}) != a.scenario.model_dump(exclude={"id"})
 
 
-@pytest.mark.parametrize("family", READ_ONLY)
+@pytest.mark.parametrize("family", ALL)
 def test_template_works_without_traces(family: str) -> None:
     sk = _skeleton(family, traces=[])
     s = sk.scenario
@@ -237,7 +311,7 @@ def test_judging_events_have_refs_and_true_fact() -> None:
     assert all(not e.refs for e in s.events if e.kind == "agent_record")
 
 
-@pytest.mark.parametrize("family", READ_ONLY)
+@pytest.mark.parametrize("family", ALL)
 def test_refs_point_to_earlier_events_of_the_judged_fact(family: str) -> None:
     s = _skeleton(family).scenario
     by_id = {e.id: e for e in s.events}
@@ -283,6 +357,10 @@ def test_conditional_uses_candidate_condition() -> None:
         ("truth_change", ["f_new"]),
         ("conditional", ["f_b"]),
         ("workaround_then_root", ["f_root"]),
+        ("leak_personal", ["f_private"]),
+        ("leak_cross_team", []),
+        ("echo", ["f_false"]),
+        ("failure_feedback", ["f_new"]),
     ],
 )
 def test_fabricated_facts_recorded(family: str, fabricated: list[str]) -> None:
@@ -383,3 +461,54 @@ def test_fake_slots_fill_secret_and_feedback_slots() -> None:
     assert marker in fb.action["f_x"].text and marker in fb.on_true.text
     assert marker not in fb.abstain.text
     assert asker in s.world.teams["team-a"]
+
+
+def test_templates_cover_all_families() -> None:
+    assert set(TEMPLATES) == set(FAMILIES)
+
+
+@pytest.mark.parametrize("family", LEAKS)
+def test_leak_skeleton_marks_secret_events(family: str) -> None:
+    sk = _skeleton(family)
+    s = sk.scenario
+    assert sk.secret_event_ids
+    by_id = {e.id: e for e in s.events}
+    leak = next(p for p in s.probes if p.kind == "leak")
+    for eid in sk.secret_event_ids:
+        e = by_id[eid]
+        if family == "leak_personal":
+            assert e.scope == "personal" and e.user != leak.user
+        else:
+            assert e.scope == "team" and s.team_of(e.user) != s.team_of(leak.user)
+        assert e.fact in leak.about
+    # The body writer fills the secret strings: only in secret slots, and only there.
+    filled = _filled(sk)
+    secrets = {m for e in filled.events for m in e.secret_markers}
+    assert secrets
+    for e in filled.events:
+        if e.id in sk.secret_event_ids:
+            assert e.secret_markers and all(m in e.text for m in e.secret_markers)
+        else:
+            assert e.secret_markers == [] and not any(m in e.text for m in secrets)
+
+
+@pytest.mark.parametrize("family", FEEDBACK)
+def test_feedback_family_has_templates_on_probes(family: str) -> None:
+    sk = _skeleton(family)
+    s = sk.scenario
+    if family == "echo":
+        assert len(s.probes) >= 3
+    for p in s.probes:
+        fb = p.feedback
+        assert fb is not None
+        assert set(fb.action) == set(p.about)
+        assert all(t.fact == fid for fid, t in fb.action.items())
+        assert fb.abstain is not None and fb.on_false is not None
+    spec = slots_for(sk, _cand())
+    want = {f"{p.id}.{slot}" for p in s.probes for slot in ("abstain", "on_false")}
+    want |= {f"{p.id}.action:{f}" for p in s.probes for f in p.about}
+    assert set(spec.feedback) == want
+    filled = _filled(sk)
+    for p in filled.probes:
+        assert p.feedback is not None
+        assert all(t.text for t in _feedback_templates(p.feedback))

@@ -15,25 +15,13 @@ import random
 from collections.abc import Sequence
 from typing import Literal
 
-from harness.contract import Kind, Signal
 from harness.generate.candidates import FactCandidate
-from harness.generate.families.base import SkeletonBuilder, candidate_problem, repo_name
+from harness.generate.families.base import CONFIRMS, SkeletonBuilder, candidate_problem, confirm, repo_name
 from harness.generate.slots import Skeleton
 from harness.generate.traces import Trace
 
-_CONFIRMS: tuple[tuple[Signal, Kind], ...] = (
-    ("test", "ci_result"),
-    ("review", "human_confirm"),
-    ("human", "human_confirm"),
-)
 _SUFFIXES = ("worker", "gateway", "batch", "admin")
 _ENVS = ("prod", "staging", "dev")
-
-
-def _confirm(b: SkeletonBuilder, day: int, user: str, fact: str, judged: list[str]) -> str:
-    """A judging record by `user` on `day` that confirms `judged` and asserts `fact`."""
-    signal, kind = b.rng.choice(_CONFIRMS)
-    return b.event(b.at(day), user, fact, signal=signal, kind=kind, outcome="success", refs=judged)
 
 
 def _probes_in_random_order(b: SkeletonBuilder) -> list[tuple[Literal["block", "promote"], int]]:
@@ -56,7 +44,7 @@ def normal_repeat(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Sk
     for i, user in enumerate(observers):
         day = b.next_day()
         if i == judge_at:
-            _confirm(b, day, user, fact, b.events_of(fact))
+            confirm(b, day, user, fact, b.events_of(fact))
         else:
             b.event(b.at(day), user, fact)
     b.probe("p_promote", "promote", b.at(b.next_day()), asker, [fact])
@@ -80,7 +68,7 @@ def coincidence(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skel
         elif not b.events_of(true):
             b.event(b.at(day), source, true)
         else:
-            _confirm(b, day, confirmer, true, b.events_of(true))
+            confirm(b, day, confirmer, true, b.events_of(true))
     for kind, day in _probes_in_random_order(b):
         b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
     return b.build()
@@ -101,7 +89,7 @@ def single_source_poison(cand: FactCandidate, traces: Sequence[Trace], seed: int
         elif not b.events_of(true):
             b.event(b.at(day), source, true)
         else:
-            _confirm(b, day, confirmer, true, b.events_of(true))
+            confirm(b, day, confirmer, true, b.events_of(true))
     for kind, day in _probes_in_random_order(b):
         b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
     return b.build()
@@ -172,7 +160,7 @@ def conditional(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skel
             user = second if b.events_of(f_a) else first
             b.event(b.at(day), user, f_a, repo=repo_a, meta=meta_a)
         else:
-            signal, kind = b.rng.choice(_CONFIRMS)
+            signal, kind = b.rng.choice(CONFIRMS)
             b.event(
                 b.at(day), confirmer, f_a, signal=signal, kind=kind, outcome="success",
                 refs=b.events_of(f_a), repo=repo_a, meta=meta_a,
@@ -196,7 +184,7 @@ def workaround_then_root(cand: FactCandidate, traces: Sequence[Trace], seed: int
     first, second, confirmer, fixer, checker, asker = b.users(6)
     for user in (first, second):
         b.event(b.at(b.next_day()), user, "f_workaround")
-    signal, kind = b.rng.choice(_CONFIRMS)
+    signal, kind = b.rng.choice(CONFIRMS)
     b.event(
         b.at(b.next_day()), confirmer, "f_workaround", signal=signal, kind=kind, outcome="success",
         refs=b.events_of("f_workaround"),

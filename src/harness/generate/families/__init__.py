@@ -2,6 +2,8 @@
 
 from harness.generate.candidates import FactCandidate
 from harness.generate.families.base import SkeletonBuilder, Template, candidate_problem
+from harness.generate.families.feedback import echo, failure_feedback
+from harness.generate.families.leaks import leak_cross_team, leak_personal
 from harness.generate.families.read_only import (
     coincidence,
     conditional,
@@ -16,10 +18,15 @@ TEMPLATES: dict[str, Template] = {
     "normal_repeat": normal_repeat,
     "coincidence": coincidence,
     "single_source_poison": single_source_poison,
+    "echo": echo,
+    "failure_feedback": failure_feedback,
     "truth_change": truth_change,
     "conditional": conditional,
     "workaround_then_root": workaround_then_root,
+    "leak_personal": leak_personal,
+    "leak_cross_team": leak_cross_team,
 }
+"""One template per family of `harness.scenario.model.FAMILIES`, in the same order."""
 
 
 def why_not(family: str, cand: FactCandidate) -> str | None:

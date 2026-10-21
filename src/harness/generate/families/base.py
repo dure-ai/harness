@@ -15,6 +15,7 @@ from harness.scenario.model import (
     FEEDBACK_FAMILIES,
     Fact,
     Family,
+    Feedback,
     Probe,
     Provenance,
     Scenario,
@@ -203,8 +204,12 @@ class SkeletonBuilder:
         *,
         repo: str | None = None,
         meta: dict[str, str] | None = None,
+        feedback: Feedback | None = None,
     ) -> str:
-        """Add a probe with an empty query, asked in a new session."""
+        """Add a probe with an empty query, asked in a new session.
+
+        `feedback` (feedback families only) is copied, so one value can serve several probes.
+        """
         self.probes.append(
             Probe(
                 id=pid,
@@ -216,6 +221,7 @@ class SkeletonBuilder:
                 query="",
                 about=list(about),
                 meta=dict(meta or {}),
+                feedback=None if feedback is None else feedback.model_copy(deep=True),
             )
         )
         return pid
@@ -245,6 +251,20 @@ class SkeletonBuilder:
             provenance=self._provenance(),
         )
         return Skeleton(scenario=scenario, secret_event_ids=tuple(secret_event_ids))
+
+
+CONFIRMS: tuple[tuple[Signal, Kind], ...] = (
+    ("test", "ci_result"),
+    ("review", "human_confirm"),
+    ("human", "human_confirm"),
+)
+"""(signal, kind) of the records that confirm earlier ones."""
+
+
+def confirm(b: SkeletonBuilder, day: int, user: str, fact: str, judged: list[str]) -> str:
+    """A judging record by `user` on `day` that confirms `judged` and asserts `fact`."""
+    signal, kind = b.rng.choice(CONFIRMS)
+    return b.event(b.at(day), user, fact, signal=signal, kind=kind, outcome="success", refs=judged)
 
 
 def _needs_fix(cand: FactCandidate) -> str | None:
