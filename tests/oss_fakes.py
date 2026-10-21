@@ -10,6 +10,13 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 @dataclass
+class RawResponse:
+    """Bytes a fake handler writes to the socket verbatim before closing the connection."""
+
+    data: bytes
+
+
+@dataclass
 class Recorded:
     """One request the fake server received."""
 
@@ -52,6 +59,11 @@ class FakeServer:
                     status, payload = failure, {"error": f"forced {failure}"}
                 else:
                     status, payload = outer.handle(self.command, parts.path, query, body)
+                if isinstance(payload, RawResponse):
+                    self.wfile.write(payload.data)
+                    self.wfile.flush()
+                    self.close_connection = True
+                    return
                 data = b"" if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
@@ -74,7 +86,7 @@ class FakeServer:
         """Answer one request; override in subclasses.
 
         Returns:
-            A (status, JSON-able payload) pair. A None payload means an empty body.
+            A (status, JSON-able payload) pair. A None payload means an empty body; a `RawResponse` is written to the socket as is.
         """
         return 404, {"error": "not found"}
 

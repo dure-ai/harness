@@ -6,7 +6,7 @@ import pytest
 from harness.config import LLM
 from harness.oss.http import EngineHTTPError, JsonClient, check_local_url
 from harness.oss.models import ENV_EMBEDDING, ENV_LLM, expected_models
-from tests.oss_fakes import FakeServer, free_port
+from tests.oss_fakes import FakeServer, RawResponse, free_port
 
 
 class Echo(FakeServer):
@@ -121,3 +121,48 @@ def test_models_env_missing():
     llm = LLM(provider="openai", model="gpt-4.1-mini", embedding_model="text-embedding-3-small")
     with pytest.raises(ValueError, match=ENV_LLM):
         expected_models(llm, environ={})
+
+
+TRUNCATED = RawResponse(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"a\"")
+GARBLED = RawResponse(b"not http at all\r\n\r\n")
+
+
+class Broken(FakeServer):
+    def __init__(self, reply: RawResponse) -> None:
+        super().__init__()
+        self.reply = reply
+
+    def handle(self, method, path, query, body):
+        return 200, self.reply
+
+
+@pytest.mark.parametrize("reply", [TRUNCATED, GARBLED])
+def test_dropped_or_garbled_reply_is_retried_engine_error(reply):
+    waits = []
+    with Broken(reply) as s:
+        with pytest.raises(EngineHTTPError) as ei:
+            JsonClient(s.url, sleep=waits.append).request("GET", "/x")
+        assert len(s.requests) == 4
+    assert ei.value.status is None and waits == [2.0, 8.0, 30.0]
+
+
+def test_dropped_reply_then_recovers():
+    class DropOnce(Echo):
+        def handle(self, method, path, query, body):
+            if len(self.requests) == 1:
+                return 200, TRUNCATED
+            return super().handle(method, path, query, body)
+
+    waits = []
+    with DropOnce() as s:
+        assert JsonClient(s.url, sleep=waits.append).request("POST", "/e", body={"a": 1}) == {"a": 1}
+    assert waits == [2.0] and len(s.requests) == 2
+
+
+def test_truncated_error_body_keeps_status():
+    reply = RawResponse(b"HTTP/1.1 500 Oops\r\nContent-Length: 100\r\n\r\nboom")
+    with Broken(reply) as s:
+        with pytest.raises(EngineHTTPError) as ei:
+            JsonClient(s.url, sleep=lambda _: None).request("GET", "/x")
+        assert len(s.requests) == 1
+    assert ei.value.status == 500 and ei.value.body

@@ -1,5 +1,6 @@
 """A small JSON-over-HTTP client that only talks to local engines and retries briefly."""
 
+import http.client
 import json
 import logging
 import time
@@ -62,6 +63,13 @@ def check_local_url(url: str) -> str:
     if port in _CLAUDE_MEM_PORTS:
         raise ValueError(f"engine url must not use the claude-mem ports 37701 or 37777: {url}")
     return url.rstrip("/")
+
+
+def _error_body(err: urllib.error.HTTPError) -> str:
+    try:
+        return err.read().decode("utf-8", errors="replace")
+    except (OSError, http.client.HTTPException):
+        return str(err)
 
 
 class JsonClient:
@@ -144,11 +152,12 @@ class JsonClient:
             with _opener.open(req, timeout=self._timeout) as resp:
                 raw: bytes = resp.read()  # pyright: ignore[reportAny]
         except urllib.error.HTTPError as err:
-            text = err.read().decode("utf-8", errors="replace")
             if err.code == 404 and ok_missing:
                 return None
-            raise EngineHTTPError(method, path, err.code, text[:_BODY_LIMIT]) from err
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as err:
+            raise EngineHTTPError(method, path, err.code, _error_body(err)[:_BODY_LIMIT]) from err
+        except (OSError, http.client.HTTPException) as err:
+            # URLError, timeouts and connection errors are OSErrors; a reply cut off or garbled
+            # mid-flight raises http.client exceptions, which urllib does not wrap.
             raise EngineHTTPError(method, path, None, str(err)[:_BODY_LIMIT]) from err
         if not raw.strip():
             return None
