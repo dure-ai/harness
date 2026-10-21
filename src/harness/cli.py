@@ -5,7 +5,7 @@ import secrets
 import os
 import tempfile
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -379,7 +379,7 @@ def run(
 
 
 @contextmanager
-def _needs_gen() -> Iterator[None]:
+def _needs_gen() -> Generator[None]:
     """Turn a missing `gen` dependency into the install hint and exit code 2."""
     try:
         yield
