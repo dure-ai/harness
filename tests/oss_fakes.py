@@ -115,7 +115,13 @@ class FakeHindsight(FakeServer):
         observation_of: Document ids; when set, recall puts one observation built from these facts first.
         extra_results: Raw result dicts appended to every recall.
         source_facts_null: Answer recall with `source_facts: null` and no stored results.
+        operations_reply: When set, the operations route answers this payload as is.
+
+    A bank that holds no memories (deleted, or never retained into) answers 404 on the
+    operations and recall routes, as the real API does.
     """
+
+    _UNSET: Any = object()
 
     def __init__(self) -> None:
         super().__init__()
@@ -124,6 +130,7 @@ class FakeHindsight(FakeServer):
         self.observation_of: list[str] | None = None
         self.extra_results: list[dict[str, Any]] = []
         self.source_facts_null = False
+        self.operations_reply: Any = self._UNSET
         self.banks: dict[str, list[dict[str, Any]]] = {}
         self._polls: dict[str, int] = {}
 
@@ -155,7 +162,11 @@ class FakeHindsight(FakeServer):
                     "tags": item.get("tags", []),
                 })
             return 200, {"success": True, "items_count": len(body["items"])}
+        if rest in ("/operations", "/memories/recall") and not self.banks.get(bank):
+            return 404, {"detail": f"bank {bank} not found"}
         if method == "GET" and rest == "/operations":
+            if self.operations_reply is not self._UNSET:
+                return 200, self.operations_reply
             status = query["status"]
             if status == "failed":
                 return 200, {"total": self.failed_total, "operations": []}

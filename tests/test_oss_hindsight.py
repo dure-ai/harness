@@ -61,7 +61,7 @@ def test_record_sends_format_time_id_tag(fake, engine):
 
 
 def test_flush_waits_then_checks_failed(fake, engine):
-    fake.pending_rounds = 2; engine.reset("ns"); engine.flush()
+    fake.pending_rounds = 2; engine.reset("ns"); engine.record(ev("e1")); engine.flush()
     assert sum(r.query.get("status") == "pending" for r in fake.requests) == 3
     assert sum(r.query.get("status") == "processing" for r in fake.requests) == 3
     assert fake.requests[-1].query["status"] == "failed"
@@ -70,13 +70,13 @@ def test_flush_waits_then_checks_failed(fake, engine):
 def test_flush_timeout(fake):
     fake.pending_rounds = 10**6
     eng = make(fake, clock=iter(range(0, 10**6, 100)).__next__, flush_timeout=600)
-    eng.reset("ns")
+    eng.reset("ns"); eng.record(ev("e1"))
     with pytest.raises(TimeoutError):
         eng.flush()
 
 
 def test_failed_background_operation_errors(fake, engine):
-    fake.failed_total = 1; engine.reset("ns")
+    fake.failed_total = 1; engine.reset("ns"); engine.record(ev("e1"))
     with pytest.raises(RuntimeError, match="1 background operations failed"):
         engine.flush()
 
@@ -107,12 +107,14 @@ def test_unknown_or_null_document_ids_dropped(fake, engine):
     fake.extra_results = [{"id": "m9", "text": "x", "type": "world", "document_id": None},
                           {"id": "m8", "text": "y", "type": "world", "document_id": "other"},
                           {"id": "m7", "text": "z", "type": "observation", "source_fact_ids": ["nope"]}]
-    engine.reset("ns")
-    assert [r.sources for r in engine.search(q(text="x"))] == [[], [], []]
+    engine.reset("ns"); engine.record(ev("e1", text="x"))
+    results = engine.search(q(text="x"))
+    assert [r.meta["id"] for r in results[-3:]] == ["m9", "m8", "m7"]
+    assert [r.sources for r in results[-3:]] == [[], [], []]
 
 
 def test_null_source_facts_and_empty_results(fake, engine):
-    fake.source_facts_null = True; engine.reset("ns")
+    fake.source_facts_null = True; engine.reset("ns"); engine.record(ev("e1"))
     assert engine.search(q(text="nothing")) == []
 
 
@@ -125,9 +127,34 @@ def test_cut_to_k(fake, engine):
 
 def test_reset_clears_known_event_ids(fake, engine):
     engine.reset("ns"); engine.record(ev("e1", text="replica"))
-    engine.reset("ns")
+    engine.reset("ns"); engine.record(ev("e2", text="replica"))
     fake.extra_results = [{"id": "m", "text": "t", "type": "world", "document_id": "e1"}]
-    assert engine.search(q(text="replica"))[0].sources == []
+    assert engine.search(q(text="replica"))[-1].sources == []
+
+
+def test_empty_bank_flush_and_search_tolerate_404(fake, engine):
+    engine.reset("ns")
+    engine.flush()
+    assert engine.search(q(text="anything")) == []
+
+
+def test_404_after_record_is_an_error(fake, engine):
+    engine.reset("ns"); engine.record(ev("e1"))
+    fake.banks.clear()  # the bank vanished behind the adapter's back
+    with pytest.raises(EngineHTTPError) as flush_err:
+        engine.flush()
+    assert flush_err.value.status == 404
+    with pytest.raises(EngineHTTPError) as search_err:
+        engine.search(q(text="x"))
+    assert search_err.value.status == 404
+
+
+@pytest.mark.parametrize("reply", [None, [], {}, {"total": None}, {"total": "0"}, {"total": 1.5}, {"total": True}])
+def test_malformed_operations_reply_raises(fake, engine, reply):
+    fake.operations_reply = reply
+    engine.reset("ns"); engine.record(ev("e1"))
+    with pytest.raises(RuntimeError, match="unexpected operations reply"):
+        engine.flush()
 
 
 def test_flush_before_reset_is_an_error(engine):

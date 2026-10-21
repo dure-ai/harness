@@ -119,10 +119,20 @@ class HindsightEngine(BaseEngine):
         self._event_ids.add(event.id)
 
     def _total(self, status: str) -> int:
+        # Hindsight answers 404 for a bank that holds no memories. That is normal before the
+        # first record of a scenario; after one it means the bank vanished, so it must raise.
         reply: Any = self._client.request(
-            "GET", f"{self._bank_path()}/operations", query={"status": status, "limit": "1"}
+            "GET",
+            f"{self._bank_path()}/operations",
+            query={"status": status, "limit": "1"},
+            ok_missing=not self._event_ids,
         )
-        return int(reply["total"]) if isinstance(reply, dict) else 0  # pyright: ignore[reportUnknownArgumentType]
+        if reply is None and not self._event_ids:
+            return 0
+        total: Any = reply.get("total") if isinstance(reply, dict) else None  # pyright: ignore[reportUnknownMemberType]
+        if not isinstance(total, int) or isinstance(total, bool):
+            raise RuntimeError("hindsight: unexpected operations reply")
+        return total
 
     @override
     def flush(self) -> None:
@@ -161,7 +171,9 @@ class HindsightEngine(BaseEngine):
             "tags_match": "any_strict",
             "include": {"source_facts": {}},
         }
-        reply: Any = self._client.request("POST", f"{self._bank_path()}/memories/recall", body=body)
+        reply: Any = self._client.request(
+            "POST", f"{self._bank_path()}/memories/recall", body=body, ok_missing=not self._event_ids
+        )
         data: dict[str, Any] = reply if isinstance(reply, dict) else {}  # pyright: ignore[reportUnknownVariableType]
         rows: list[dict[str, Any]] = data.get("results") or []
         facts: dict[str, Any] = data.get("source_facts") or {}
