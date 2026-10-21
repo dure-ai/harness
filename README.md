@@ -203,6 +203,7 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 - `show`: 머리(id, 계열, 모드, 원본 저장소·궤적, 공급자·모델, 자동 검증 경고), 정답표(사실마다 참인 기간, 조건, `valid`, `fix`, 지어낸 사실 여부, 마커, 문장), 시각 순서의 이벤트·문항 흐름(근거의 `origin`과 인용, 문항 시점에 참인 사실), 기준선 미리보기(oracle, all_store, 누출 계열은 all_store_noacl의 문항별 결과와 누출 수)를 한 화면에 보여 줍니다.
 - `edit`에서 **고칠 수 있는 것**: 사실의 `text`·`markers`, 이벤트의 `text`·`secret_markers`, 문항의 `query`, 되먹임 틀의 `text`, `review.notes`.
 - **고칠 수 없는 것**: 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열·모드·언어·세계·`provenance`, 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속합니다), `review.status`와 `reviewer`(`review set`으로만 바꿉니다). 건드리면 어느 필드인지 보여 주고 파일을 원래대로 되돌립니다(종료 코드 1). 정답이 틀렸다면 고치지 말고 거절하세요.
+- 이미 승인·거절된 파일을 고쳐 저장하면 `review`가 `draft`로 돌아가고(`reviewer`는 비워지고 `notes`는 남음) 다시 승인받아야 합니다.
 - 저장되면 `provenance.reviewer_edited: true`가 되고 자동 검증 결과가 나옵니다. 오류가 있어도 저장은 되지만 승인은 막힙니다. 편집기가 0이 아닌 코드로 끝나거나 YAML이 깨져도 원래대로 돌아갑니다.
 - `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
 - id가 없거나 같은 id의 파일이 여럿이면 종료 코드 1입니다. 다른 위치는 `--root`로 지정합니다.

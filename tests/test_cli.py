@@ -870,6 +870,7 @@ def test_cli_review_edit(tmp_path, monkeypatch):
     result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
     assert result.exit_code == 0, result.output
     assert "reviewer_edited" in path.read_text(encoding="utf-8")
+    assert "re-approval" not in result.output
 
     before = path.read_bytes()
     monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('valid: true', 'valid: false', 1))"))
@@ -950,3 +951,14 @@ def test_scenario_new_unknown_family_exit2(tmp_path):
     result = runner.invoke(app, ["scenario", "new", "--family", "nope", "--seed", "1", "--out", str(tmp_path)])
     assert result.exit_code == 2
     assert "nope" in result.output
+
+
+def test_cli_review_edit_of_approved_says_reapproval_needed(tmp_path, monkeypatch):
+    from tests.test_review import editor
+
+    root = review_root(tmp_path)
+    assert runner.invoke(app, ["review", "set", "tc-a", "approved", "--reviewer", "kim", "--root", str(root)]).exit_code == 0
+    monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))"))
+    result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
+    assert result.exit_code == 0, result.output
+    assert "draft" in result.output and "re-approval" in result.output

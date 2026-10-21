@@ -79,12 +79,15 @@ class EditResult:
         issues: Findings of `check_draft` on the saved draft; empty unless saved.
         changed_fields: Label fields the edit moved, when it was reverted for that.
         reason: Why the edit was reverted.
+        reset_to_draft: True when the file was approved or rejected and the saved edit put it
+            back to draft, so it needs approval again.
     """
 
     status: Literal["unchanged", "saved", "reverted"]
     issues: list[Issue] = field(default_factory=list)
     changed_fields: list[str] = field(default_factory=list)
     reason: str = ""
+    reset_to_draft: bool = False
 
 
 # ---- list and find ------------------------------------------------------------------------------
@@ -139,7 +142,9 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     accepted. The edit is thrown away when the editor fails, when the result is not a valid
     scenario, when a ground-truth label moved (`changed_label_fields`; the review status and
     reviewer only change through `set_status`). Otherwise the draft is saved with
-    `provenance.reviewer_edited` set and checked again.
+    `provenance.reviewer_edited` set and checked again. A saved edit of an approved or rejected
+    file puts it back to draft (reviewer cleared, notes kept): the approval was for the old
+    content.
 
     Args:
         path: The scenario file; it must load.
@@ -179,8 +184,11 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
             reason="ground-truth fields cannot be edited; if the labels are wrong, reject the draft",
         )
     edited.provenance.reviewer_edited = True
+    reset = edited.review.status != "draft"
+    if reset:
+        edited.review = Review(status="draft", reviewer=None, notes=edited.review.notes)
     save_draft(edited, path)
-    return EditResult("saved", issues=check_draft(edited, cfg, gen, secret_events(edited)))
+    return EditResult("saved", issues=check_draft(edited, cfg, gen, secret_events(edited)), reset_to_draft=reset)
 
 
 def set_status(

@@ -15,7 +15,6 @@ import typer
 
 from rich.console import Console
 
-from harness import review as review_mod
 from harness.config import EvalConfig, config_hash, load_config
 from harness.contract import BaseEngine, EngineInfo
 from harness.engines import BASELINES, make_engine
@@ -576,6 +575,8 @@ def _review_root(root: Path) -> Path:
 
 def _draft_path(root: Path, scenario_id: str) -> Path:
     """The one file holding `scenario_id`; exit 1 when there is none or several."""
+    from harness import review as review_mod
+
     found = review_mod.find_draft(_review_root(root), scenario_id)
     if not found:
         raise _fail(f"error: no scenario with id {scenario_id!r} under {root}", 1)
@@ -594,6 +595,8 @@ def review_list(
     root: Annotated[Path, typer.Argument(help="Directory (or file) with the drafts.")] = Path("scenarios/dev"),
 ) -> None:
     """List the scenario files: id, family, status, generation time, warnings and path."""
+    from harness import review as review_mod
+
     rows = review_mod.list_drafts(_review_root(root))
     if not rows:
         typer.echo(f"no scenario files under {root}")
@@ -611,6 +614,8 @@ def review_show(
     gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
 ) -> None:
     """Show a draft: header, labels, timeline and the baselines' results."""
+    from harness import review as review_mod
+
     path = _draft_path(root, scenario_id)
     cfg, gen = _config(config), _gen_config(gen_config)
     try:
@@ -628,6 +633,8 @@ def review_edit(
     gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
 ) -> None:
     """Edit a draft in $EDITOR (default vi). Text can change; labels cannot, and such edits are undone."""
+    from harness import review as review_mod
+
     path = _draft_path(root, scenario_id)
     cfg, gen = _config(config), _gen_config(gen_config)
     try:
@@ -643,6 +650,8 @@ def review_edit(
         raise typer.Exit(1)
     else:
         typer.echo(f"saved {path} (provenance.reviewer_edited: true)")
+        if result.reset_to_draft:
+            typer.echo("review status reset to draft: re-approval is needed (harness review set)")
         _echo_findings(result.issues)
 
 
@@ -657,6 +666,8 @@ def review_set(
     gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
 ) -> None:
     """Approve (only if every automatic check passes) or reject a draft."""
+    from harness import review as review_mod
+
     if status not in ("approved", "rejected"):
         raise _fail(f"error: status must be approved or rejected, not {status!r}", 2)
     path = _draft_path(root, scenario_id)

@@ -291,3 +291,51 @@ def test_review_works_without_gen_deps():
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_edit_of_approved_resets_to_draft(tmp_path):
+    path = draft(tmp_path)
+    set_status(path, "approved", "kim", "fine", CFG, GEN)
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'nothing useful here'))")
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "saved" and result.reset_to_draft is True
+    assert blocking(result.issues)
+    review = load_scenario(path).review
+    assert (review.status, review.reviewer, review.notes) == ("draft", None, "fine")
+    # the gate holds: it cannot be approved again while the issue stands
+    assert blocking(set_status(path, "approved", "kim", None, CFG, GEN))
+    assert load_scenario(path).review.status == "draft"
+
+
+def test_edit_of_rejected_resets_to_draft(tmp_path):
+    path = draft(tmp_path)
+    set_status(path, "rejected", "kim", "unsure", CFG, GEN)
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))")
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "saved" and result.reset_to_draft is True
+    review = load_scenario(path).review
+    assert (review.status, review.reviewer, review.notes) == ("draft", None, "unsure")
+
+
+def test_edit_of_draft_does_not_report_reset(tmp_path):
+    path = draft(tmp_path)
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))")
+    assert edit_draft(path, cmd, CFG, GEN).reset_to_draft is False
+
+
+def test_unchanged_edit_keeps_approval(tmp_path):
+    path = draft(tmp_path)
+    set_status(path, "approved", "kim", None, CFG, GEN)
+    assert edit_draft(path, editor(tmp_path, "pass"), CFG, GEN).status == "unchanged"
+    assert load_scenario(path).review.status == "approved"
+
+
+def test_cli_import_is_lazy():
+    code = (
+        "import sys\n"
+        "import harness.cli\n"
+        "bad = [m for m in ('harness.review', 'harness.generate.pipeline') if m in sys.modules]\n"
+        "assert not bad, bad\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
