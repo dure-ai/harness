@@ -29,7 +29,7 @@
 - LLM 프록시와 비용 지표(노션 7.7). 단, 지연과 컨텍스트 크기는 기록한다.
 - 길이 부풀리기, 잡음 배율(규모 저하), 순서 민감도, 모델 교체 뒤집힘률, 신뢰도 보정(Brier).
 - 원격 진실 변경 계열(커밋 이벤트 형식 미정), 삭제 시나리오, Skill 평가.
-- Mem0, Letta, Cognee, claude-mem 어댑터. 계약과 Docker 방식만 맞춰 두고 팀원 분담으로 넘긴다.
+- Graphiti, Letta, Cognee, claude-mem 어댑터. 계약과 Docker 방식만 맞춰 두고 팀원 분담으로 넘긴다.
 - 검토용 웹 UI. v0.1은 YAML 필드와 CLI로 검토한다.
 
 ### 1.3 반목표 (기술적으로 돌아가도 실패인 것)
@@ -122,7 +122,7 @@
 ```mermaid
 flowchart LR
   H["하네스<br/>재생 · 채점"] -->|"BaseEngine"| B["기준선 4종"]
-  H -->|"BaseEngine"| O["오픈소스 어댑터<br/>(Hindsight, Graphiti)"] -->|"각 엔진의 REST API"| D["Docker 컨테이너"]
+  H -->|"BaseEngine"| O["오픈소스 어댑터<br/>(Hindsight, Mem0)"] -->|"각 엔진의 REST API"| D["Docker 컨테이너"]
   H -->|"BaseEngine"| R["CortexRuntimeAdapter"] --> RT["cortex-mem Runtime<br/>+ InMemoryDatabase"] --> E["팀원 엔진 · PromoteAll"]
 ```
 
@@ -450,12 +450,12 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 구현 세부와 변경은 `2026-10-21-oss-adapters-design.md`를 따른다.
 
 - 각 엔진은 `engines/docker/<name>/compose.yaml`로 띄운다. 이미지 태그는 고정하고, 태그와 설정은 리포트에 남긴다.
-- LLM과 임베딩은 Upstage의 OpenAI 호환 엔드포인트로 설정한다. 엔진마다 호환되는지는 구현하면서 확인하고, 안 되면 리포트에 적는다. **임베딩 모델도 같이 정해야 한다(14장).**
+- LLM과 임베딩은 OpenAI로 설정한다(설계 3 §3). `OPENAI_BASE_URL`을 바꾸면 Upstage나 로컬 모델도 가능하다. 엔진마다 호환되는지는 구현하면서 확인하고, 안 되면 리포트에 적는다. **임베딩 모델도 같이 정해야 한다(14장).**
 - 하네스 쪽 어댑터는 HTTP로 각 엔진의 기본 API만 부른다. 하네스에 무거운 의존성이 생기지 않는다.
 - core 런타임 위에 올리지 않고 하네스 계약에 직접 붙인다. 출처를 돌려주지 않는 결과가 런타임 필터에서 버려지지 않게 하기 위해서다(4.5).
-- **스코프 대응** [판단]: 두 엔진에는 우리식 스코프가 없다. 그래서 엔진 고유의 격리 단위(Hindsight bank, Graphiti group_id)로 대응시킨다. 개인 기록은 `{ns}:user:{u}`, 팀 기록은 `{ns}:team:{t}`에 넣는다. 검색은 질문한 사람의 개인 단위와 소속 팀 단위를 합친다. 엔진의 판단을 대신하는 것이 아니라 엔진이 원래 가진 격리 기능을 쓰는 것이며, 리포트에 이 대응 방식을 적는다.
+- **스코프 대응** [판단]: 두 엔진에는 우리식 스코프가 없다. 그래서 엔진 고유의 격리 단위(Hindsight bank, Graphiti group_id)로 대응시킨다. 개인 기록은 `{ns}:user:{u}`, 팀 기록은 `{ns}:team:{t}`에 넣는다. 검색은 질문한 사람의 개인 단위와 소속 팀 단위를 합친다. 엔진의 판단을 대신하는 것이 아니라 엔진이 원래 가진 격리 기능을 쓰는 것이며, 리포트에 이 대응 방식을 적는다. (설계 3에서 대체됨: 시나리오마다 bank 또는 run_id 하나를 쓰고, 개인·팀 단위는 태그나 user_id로 구분한다.)
 - **Hindsight**: record → `retain`(bank, 본문, timestamp=가상 시각), search → `recall`. 결과의 근거 기록 id를 돌려주지 않으면 `sources`는 비우고 판정 문자열로 채점한다.
-- **Graphiti**: record → 에피소드 추가(기준 시각=가상 시각), search → 엣지 검색. 엣지의 에피소드 uuid를 Event id로 바꿔 `sources`에 넣는다. 무효화된 엣지를 건넬지는 Graphiti 기본값을 따르고 설정을 기록한다.
+- **Graphiti**: record → 에피소드 추가(기준 시각=가상 시각), search → 엣지 검색. 엣지의 에피소드 uuid를 Event id로 바꿔 `sources`에 넣는다. 무효화된 엣지를 건넬지는 Graphiti 기본값을 따르고 설정을 기록한다. (설계 3에서 대체됨: 이번 범위는 Hindsight와 Mem0이고 Graphiti는 뒤로 미뤘다.)
 - LLM을 쓰는 엔진이므로 3회 반복 실행해 재실행 뒤집힘률을 같이 보고한다. [노션 11.2의 6번]
 - 초기화: 이름공간 삭제 API가 있으면 쓰고, 없으면 볼륨을 지우고 컨테이너를 다시 띄운다.
 - 사용자의 로컬 claude-mem(포트 37701, 37777 등)이나 다른 실제 메모리에는 절대 연결하지 않는다.
