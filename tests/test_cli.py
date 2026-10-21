@@ -776,3 +776,11 @@ def test_gen_commands_without_gen_deps_exit2(tmp_path, monkeypatch):
         result = runner.invoke(app, argv)
         assert result.exit_code == 2, (argv, result.output)
         assert "uv sync --extra gen 이 필요합니다" in result.output
+
+
+def test_cli_generate_max_traces_is_reported(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "5", "--max-traces", "1"))
+    assert result.exit_code == 0, result.output
+    assert "stopped at --max-traces 1" in result.output and "--max-traces 1" in result.output.splitlines()[-2]
+    assert runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--max-traces", "0")).exit_code == 2

@@ -146,10 +146,11 @@ def test_generate_does_not_touch_an_unreadable_file(tmp_path: Path) -> None:
     client = fake_client(tmp_path)
     first = run(tmp_path, client, ["truth_change"], 1)
     path = tmp_path / "out" / "truth_change" / f"{first.written[0]}.yaml"
-    path.write_text("id: [", encoding="utf-8")
-    again = run(tmp_path, client, ["truth_change"], 1)
-    assert again.skipped_existing == [first.written[0]]
-    assert path.read_text(encoding="utf-8") == "id: ["
+    for content in (b"id: [", b"\xff\xfe"):
+        path.write_bytes(content)
+        again = run(tmp_path, client, ["truth_change"], 1)
+        assert again.skipped_existing == [first.written[0]]
+        assert path.read_bytes() == content
 
 
 def candidate(quote: str, **over: Any) -> dict[str, Any]:
@@ -314,3 +315,40 @@ def test_dry_run_client_stops_at_the_first_request(tmp_path: Path) -> None:
     with pytest.raises(pipeline.DryRun) as d:
         run(tmp_path, client, ["truth_change"], 1)
     assert d.value.kind == "candidates" and "Repository: acme/widget" in d.value.user
+
+
+def test_max_traces_stops_extraction_and_is_reported(tmp_path: Path) -> None:
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change"], 5, traces(3), max_traces=1)
+    assert len([1 for k, _, _ in client.requests if k == "candidates"]) == 1
+    assert report.trace_cap_hit is True and len(report.written) == 3
+    assert "stopped at --max-traces 1" in report.shortfall["truth_change"]
+
+
+def test_max_traces_counts_traces_across_families(tmp_path: Path) -> None:
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change", "coincidence"], 4, traces(3), max_traces=2)
+    assert len([1 for k, _, _ in client.requests if k == "candidates"]) == 2  # shared, not 2 per family
+    assert len(report.written) == 8 and report.shortfall == {}
+    assert report.trace_cap_hit is False  # the cap was never what stopped a family
+
+    capped = plain_fake()
+    report = run(tmp_path, capped, ["truth_change", "coincidence"], 4, traces(3), max_traces=1)
+    assert len([1 for k, _, _ in capped.requests if k == "candidates"]) == 1
+    assert report.trace_cap_hit is True and set(report.shortfall) == {"truth_change", "coincidence"}
+    assert all("stopped at --max-traces 1" in r for r in report.shortfall.values())
+
+
+def test_max_traces_not_reached_is_false(tmp_path: Path) -> None:
+    report = run(tmp_path, plain_fake(), ["truth_change"], 1, traces(3), max_traces=2)
+    assert report.trace_cap_hit is False and report.shortfall == {}
+    default = run(tmp_path, plain_fake(), ["truth_change"], 5, traces(3))
+    assert default.trace_cap_hit is False and "max-traces" not in default.shortfall.get("truth_change", "")
+
+
+def test_same_trajectory_twice_is_used_once(tmp_path: Path) -> None:
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change"], 4, [trace(1), trace(1)])
+    assert len(report.written) == 3 and len(set(report.written)) == 3  # 3 candidates, not 4 from a repeat
+    assert report.shortfall["truth_change"].startswith("3 of 4 made; looked at 1 traces")
+    assert len([1 for k, _, _ in client.requests if k == "candidates"]) == 1

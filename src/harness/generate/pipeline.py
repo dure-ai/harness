@@ -51,6 +51,8 @@ class GenerateReport(BaseModel):
         written: Ids of the drafts saved (an earlier draft with the same id is replaced).
         skipped_existing: Ids that already exist as a reviewed (not draft) file; left untouched.
             They count toward the target.
+        trace_cap_hit: True when extraction stopped at `max_traces` while a family still needed
+            drafts.
         rejected: Number of rejections logged: bad quotes, near-duplicate candidates, failed
             LLM calls and drafts that failed the checks.
         shortfall: Family -> why fewer than requested were made.
@@ -61,6 +63,7 @@ class GenerateReport(BaseModel):
     skipped_existing: list[str] = []
     rejected: int = 0
     shortfall: dict[str, str] = {}
+    trace_cap_hit: bool = False
 
 
 class DryRun(Exception):
@@ -171,14 +174,17 @@ class _Tally:
     rejected: int = 0
     written: int = 0
     skipped: int = 0
+    capped: bool = False
 
-    def reason(self, target: int) -> str:
+    def reason(self, target: int, max_traces: int) -> str:
         parts = [f"{self.written + self.skipped} of {target} made"]
         parts.append(f"looked at {self.traces} traces and {self.candidates} candidates")
         if self.no_fit:
             parts.append(f"{self.no_fit} did not fit ({self.first_no_fit})")
         if self.rejected:
             parts.append(f"{self.rejected} drafts rejected")
+        if self.capped:
+            parts.append(f"stopped at --max-traces {max_traces}")
         return "; ".join(parts)
 
 
@@ -194,6 +200,7 @@ class _Run:
     candidates_log: TextIO
     rejected_log: TextIO
     by_task: dict[str, list[Trace]]
+    max_traces: int
     cache: dict[str, list[FactCandidate]] = field(default_factory=dict)
     rejected: int = 0
 
@@ -201,6 +208,10 @@ class _Run:
         self.rejected += 1
         self.rejected_log.write(r.model_dump_json() + "\n")
         self.rejected_log.flush()
+
+    def can_extract(self, trace: Trace) -> bool:
+        """Whether the trace's candidates are known or the trace cap still allows extracting them."""
+        return trace.trajectory_id in self.cache or len(self.cache) < self.max_traces
 
     def candidates(self, trace: Trace) -> list[FactCandidate]:
         """Candidates of a trace, extracted at most once per run."""
@@ -248,7 +259,7 @@ def _existing_status(path: Path) -> str | None:
         return None
     try:
         return load_scenario(path).review.status
-    except ScenarioLoadError:
+    except (ScenarioLoadError, UnicodeDecodeError, OSError, ValueError):
         return "unreadable"
 
 
@@ -301,6 +312,7 @@ def generate(
     run_dir: Path,
     repos: set[str] | None = None,
     per_family: Mapping[str, int] | None = None,
+    max_traces: int = 100,
 ) -> GenerateReport:
     """Make draft scenarios, `n` per family, from real traces.
 
@@ -323,6 +335,8 @@ def generate(
         run_dir: Directory for `candidates.jsonl` and `rejected.jsonl`; created.
         repos: Only traces of these repositories ("owner/name" or the short name); None for all.
         per_family: Per-family override of `n`.
+        max_traces: Upper bound on the distinct traces sent to candidate extraction in the whole
+            run (the candidates are shared by the families). Traces already extracted stay usable.
 
     Returns:
         What was written, skipped and rejected, and why a family fell short.
@@ -334,6 +348,10 @@ def generate(
     run_dir.mkdir(parents=True, exist_ok=True)
     allowed = [t for t in traces if usable(t, gen)]
     pool = allowed if repos is None else [t for t in allowed if matches_repos(t, repos)]
+    unique: dict[str, Trace] = {}
+    for t in pool:
+        unique.setdefault(t.trajectory_id, t)  # the first occurrence of a trajectory wins
+    pool = list(unique.values())
     order = sorted(pool, key=lambda t: t.trajectory_id)
     random.Random(seed).shuffle(order)
     targets = {f: (per_family or {}).get(f, n) for f in families}
@@ -342,11 +360,14 @@ def generate(
         (run_dir / "candidates.jsonl").open("w", encoding="utf-8") as cand_log,
         (run_dir / "rejected.jsonl").open("w", encoding="utf-8") as rej_log,
     ):
-        run = _Run(client, cfg, gen, seed, out_dir, cand_log, rej_log, bundles(pool))
+        run = _Run(client, cfg, gen, seed, out_dir, cand_log, rej_log, bundles(pool), max_traces)
         for family in families:
             target, tally = targets[family], _Tally()
             for trace in order:
                 if tally.written + tally.skipped >= target:
+                    break
+                if not run.can_extract(trace):
+                    tally.capped = report.trace_cap_hit = True
                     break
                 tally.traces += 1
                 for cand in run.candidates(trace):
@@ -369,7 +390,7 @@ def generate(
                         report.skipped_existing.append(made[1])
             if tally.written + tally.skipped < target:
                 report.shortfall[family] = (
-                    tally.reason(target) if pool else _empty_pool_reason(len(traces), len(allowed), repos)
+                    tally.reason(target, max_traces) if pool else _empty_pool_reason(len(traces), len(allowed), repos)
                 )
         report.rejected = run.rejected
     return report
