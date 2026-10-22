@@ -57,34 +57,85 @@ def _cue_pattern(word: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
 
 
-_FENCE = re.compile(r"(?<!`)(`{3,})(?!`).*?(?<!`)\1(?!`)", re.DOTALL)
-_INLINE_SPAN = re.compile(r"(?<!`)(`{1,2})(?!`)([^\n]+?)(?<!`)\1(?!`)")
+# A fenced block: a line-opening run of 3+ backticks, a newline, and the same run closing it on
+# a later line. A one-line ```...``` span is not a block; it is a span like `...`.
+_FENCE = re.compile(r"(?<!`)(`{3,})(?!`)[^\n]*\n(?:.*?\n)?[ \t]*\1(?!`)", re.DOTALL)
+_INLINE_SPAN = re.compile(r"(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)")
 _MASK = "\0"  # neither a word character nor whitespace, so no cue phrase can span it
 _SPAN_MAX_CHARS = 80
 _SPAN_MAX_WORDS = 3
 _EDGE = string.punctuation + string.whitespace
+_CODE_CHARS = frozenset("=:-_./()")
+_VALUE_BEFORE = re.compile(r"[=:][\s`]*$")  # `key: <value>`, `x = <value>`
+_REST_EMPTY = re.compile(r"[\s`]*$")
+_FALSE_AFTER_ASSIGN = re.compile(r"(?<=[=:])false(?!\w)", re.IGNORECASE)  # debug=false, debug:false
 
 
-def _is_code(inner: str, cues: frozenset[str]) -> bool:
-    """Whether the text of a one-line backtick span reads as code, not as prose or a bare cue word.
+def _is_prose_word(token: str) -> bool:
+    """A whitespace token that is a plain word once edge punctuation is stripped (`wrong,`, `It's`)."""
+    core = token.strip(_EDGE).replace("'", "").replace("\u2019", "")
+    return core.isalpha()
 
-    Code is at most 80 characters, is not (apart from edge punctuation and case) a cue word or
-    phrase on its own, and has at most 3 plain alphabetic words (`enabled: false` and
-    `git log --oneline` qualify; `old value is outdated and wrong` does not).
+
+def _is_code(inner: str) -> bool:
+    """Whether the text of a one-line backtick span can be code at all.
+
+    It is at most 80 characters and has at most 3 plain words (`git log --oneline` qualifies;
+    `this is wrong, very wrong!` does not). A cue word inside such a span is still exempt only
+    when it is attached to code, see `_attached`.
     """
-    if len(inner) > _SPAN_MAX_CHARS or _fold(inner.strip(_EDGE)) in cues:
-        return False
-    return sum(1 for token in inner.split() if token.isalpha()) <= _SPAN_MAX_WORDS
+    return len(inner) <= _SPAN_MAX_CHARS and sum(map(_is_prose_word, inner.split())) <= _SPAN_MAX_WORDS
 
 
-def _mask_code(text: str, cues: frozenset[str]) -> str:
-    """Replace the code in `text` with a mask: fenced blocks always, one-line spans if `_is_code`."""
+def _attached(inner: str, start: int, end: int) -> bool:
+    """Whether the cue occurrence `inner[start:end]` of a code span reads as code, not as prose.
+
+    True when a code character (`= : - _ . / ( )`) touches it on the left (`--legacy`,
+    `api.deprecated`), or touches it on the right and joins it to more code (`deprecated=true`,
+    `legacy-x`; a trailing `obsolete:` or `outdated.` is prose punctuation); when it is the whole
+    value after `=` or `:` (`enabled: false`, ``x = `false` ``); or when it is the literal `false`
+    alone in the span. A cue phrase with plain words around it (`stale cache`, `is deprecated`,
+    `It's outdated`) is not attached.
+    """
+    before, after = inner[:start], inner[end:]
+    if before and before[-1] in _CODE_CHARS:
+        return True
+    if len(after) >= 2 and after[0] in _CODE_CHARS and not after[1].isspace():
+        return True
+    if _VALUE_BEFORE.search(before) and _REST_EMPTY.match(after):
+        return True
+    return inner.strip(" `").casefold() == "false" == inner[start:end].casefold()
+
+
+def _mask_code(text: str, patterns: Mapping[str, re.Pattern[str]]) -> str:
+    """Mask the code in `text`: fenced blocks whole, and the attached cue words of one-line spans.
+
+    A one-line span (any number of backticks, `` `x` `` to ```` ```x``` ````) that is not code
+    by `_is_code` is left as prose; in one that is, only cue words `_attached` to code are
+    masked. Outside code, the literal `false` right after `=` or `:` (`debug=false`) is masked.
+    """
     masked = _FENCE.sub(_MASK, text)
 
     def span(m: re.Match[str]) -> str:
-        return _MASK if _is_code(m.group(2), cues) else m.group(0)
+        inner = m.group(2)
+        if not _is_code(inner):
+            return m.group(0)
+        hits = sorted(
+            (h.start(), h.end())
+            for pat in patterns.values()
+            for h in pat.finditer(inner)
+            if _attached(inner, h.start(), h.end())
+        )
+        out, pos = [], 0
+        for start, end in hits:
+            if start >= pos:
+                out += [inner[pos:start], _MASK]
+                pos = end
+        out.append(inner[pos:])
+        return m.group(1) + "".join(out) + m.group(1)
 
-    return _INLINE_SPAN.sub(span, masked)
+    masked = _INLINE_SPAN.sub(span, masked)
+    return _FALSE_AFTER_ASSIGN.sub(_MASK, masked)
 
 
 def _mask_marker(text: str, marker: str, patterns: Mapping[str, re.Pattern[str]]) -> str:
@@ -113,13 +164,12 @@ def _cue_words(
 ) -> list[str]:
     """Banned cue words found in `text` outside code and the `own_markers`.
 
-    Code (`_mask_code`: fenced blocks, and short one-line `` `enabled: false` `` spans) and every
-    whole-word occurrence of one of the event's own fact markers (`_mask_marker`) are masked
-    first, longest marker first, so a cue word inside them is allowed and the same word anywhere
-    else in the text is not.
+    Code (`_mask_code`: multi-line fenced blocks, and cue words attached to code in short
+    one-line spans such as `` `enabled: false` ``) and every whole-word occurrence of one of the
+    `own_markers` (`_mask_marker`) are masked first, longest marker first, so a cue word inside
+    them is allowed and the same word anywhere else in the text is not.
     """
-    cues = frozenset(_fold(w) for w in patterns)
-    masked = _mask_code(text, cues)
+    masked = _mask_code(text, patterns)
     for marker in sorted((m for m in own_markers if m), key=len, reverse=True):
         masked = _mask_marker(masked, marker, patterns)
     return [word for word, pat in patterns.items() if pat.search(masked)]
@@ -132,6 +182,7 @@ def _text_issues(
     other_facts: Sequence[str],
     s: Scenario,
     patterns: dict[str, re.Pattern[str]],
+    mask_facts: Sequence[str] = (),
 ) -> list[Issue]:
     """The answer-cue checks for one piece of text that reaches an engine or is written back.
 
@@ -146,6 +197,8 @@ def _text_issues(
         other_facts: Facts whose markers the text must not contain.
         s: The scenario holding the facts.
         patterns: Compiled banned cue words.
+        mask_facts: More facts whose markers the cue-word scan masks, without requiring one
+            in the text (a probe query may reuse the markers of the facts it asks about).
 
     Returns:
         Errors `marker_not_in_body`, `other_fact_marker` and `cue_word`.
@@ -169,7 +222,8 @@ def _text_issues(
                     f"{where}: text contains marker {hit!r} of fact {fid}",
                 )
             )
-    for word in _cue_words(text, patterns, own):
+    masked = [*own, *(m for fid in mask_facts for m in s.facts[fid].markers)]
+    for word in _cue_words(text, patterns, masked):
         issues.append(
             Issue("error", "cue_word", f"{where}: text contains cue word {word!r}")
         )
@@ -203,8 +257,10 @@ def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
         own, other = states(e.fact)
         issues += _text_issues(f"event {e.id}", e.text, own, other, s, patterns)
     for p in s.probes:
-        # A query names the facts it asks about, so only its cue words are checked.
-        issues += _text_issues(f"probe {p.id}", p.query, [], [], s, patterns)
+        # A query names the facts it asks about, so only its cue words are checked, and the
+        # markers of those facts are masked like an event's own markers.
+        about = [fid for fid in p.about if fid in s.facts]
+        issues += _text_issues(f"probe {p.id}", p.query, [], [], s, patterns, about)
         for where, tpl in _feedback_bodies(p):
             own, other = states(tpl.fact)
             issues += _text_issues(where, tpl.text, own, other, s, patterns)
@@ -214,8 +270,10 @@ def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
 def _secret_issues(s: Scenario) -> list[Issue]:
     """Where the secret strings are, and are not.
 
-    The secret events come from `secret_events`. A leak family needs at least one, recorded or
-    not. A listed event must exist, carry secret markers and contain one of them. No other event body, no fact text or marker and no
+    The secret events come from `secret_events`. When `provenance.secret_events` is recorded it
+    must name exactly the events that have `secret_markers` (`secret_events_mismatch`), so a
+    secret cannot sit in an unlisted event the other checks skip. A leak family needs at least
+    one, recorded or not. A listed event must exist, carry secret markers and contain one of them. No other event body, no fact text or marker and no
     feedback template body may contain any of them. (A probe query or a visible event holding a
     secret is the core validator's `secret_marker_not_exclusive`, which runs first.)
     """
@@ -231,6 +289,24 @@ def _secret_issues(s: Scenario) -> list[Issue]:
                 "events that have secret_markers",
             )
         )
+    if recorded:
+        listed = set(ids)
+        marked = {e.id for e in s.events if e.secret_markers}
+        if listed != marked:
+            parts = []
+            if unlisted := sorted(marked - listed):
+                parts.append(f"events with secret_markers not listed: {', '.join(unlisted)}")
+            if unmarked := sorted(listed - marked):
+                parts.append(f"listed events without secret_markers: {', '.join(unmarked)}")
+            issues.append(
+                Issue(
+                    "error",
+                    "secret_events_mismatch",
+                    "provenance.secret_events differs from the events that have secret_markers ("
+                    + "; ".join(parts)
+                    + ")",
+                )
+            )
     if s.family in LEAK_FAMILIES and not ids:
         where = "provenance.secret_events is empty" if recorded else "no event has secret_markers"
         issues.append(

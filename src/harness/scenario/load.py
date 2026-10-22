@@ -110,8 +110,8 @@ def approval_issue(raw: Mapping[str, Any], s: Scenario) -> Issue | None:
         None for a scenario that is not approved or whose `review.approved_hash` matches; an
         error `approved_content_changed` when the content changed after approval; a warning
         `approval_unverified` when there is no hash in an older file (approved before it existed)
-        or its version is unknown; an error `approved_hash_missing` when there is none in a file
-        that carries `provenance.generated_hash` or `provenance.label_fingerprint` (written by
+        or its version is unknown; an error `approved_hash_missing` when there is none (or its
+        version prefix is unknown) in a file that carries `provenance.generated_hash` or `provenance.label_fingerprint` (written by
         the current tooling, which records a hash on every approval: the status was set by hand).
     """
     if s.review.status != "approved":
@@ -128,7 +128,7 @@ def approval_issue(raw: Mapping[str, Any], s: Scenario) -> Issue | None:
             "error",
             APPROVAL_MISSING,
             "marked approved by hand: the file was generated with the review tooling but has no "
-            "review.approved_hash; review it and approve it with harness review set",
+            "valid review.approved_hash; review it and approve it with harness review set",
         )
     if state == "unverified":
         return Issue(

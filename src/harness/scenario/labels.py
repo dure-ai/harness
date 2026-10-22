@@ -198,16 +198,14 @@ def approval_state(raw: Mapping[str, Any], s: Scenario) -> ApprovalState:
     Returns:
         "verified" when `review.approved_hash` matches `content_hash(raw, "approval")`, "changed"
         when it is a current-version hash that does not match (edited after approval, or a
-        generated hash copied in), "unverified" when it has an unknown version prefix, or when
-        there is none in a file without the fields the current tooling writes (an older file),
-        and "missing" when there is none in a file that has `provenance.generated_hash` or
-        `provenance.label_fingerprint`: the tooling records a hash on every approval, so the
-        status was set by hand.
+        generated hash copied in), "unverified" when there is none or it has an unknown version
+        prefix in a file without the fields the current tooling writes (an older file), and
+        "missing" when there is none or it has an unknown prefix in a file that has
+        `provenance.generated_hash` or `provenance.label_fingerprint`: the tooling records a
+        current-version hash on every approval, so the status (or the hash) was set by hand.
     """
     stored = s.review.approved_hash
-    if stored is None:
+    if stored is None or not stored.startswith(f"{CONTENT_HASH_VERSION}:"):
         prov = s.provenance
         return "missing" if prov.generated_hash or prov.label_fingerprint else "unverified"
-    if not stored.startswith(f"{CONTENT_HASH_VERSION}:"):
-        return "unverified"
     return "verified" if stored == content_hash(raw, "approval") else "changed"

@@ -458,6 +458,20 @@ def test_hand_approval_of_a_generated_file_is_an_error(tmp_path, fields):
         assert e.value.code == "approved_hash_missing" and e.value.path == p
 
 
+@pytest.mark.parametrize("stored", ["v9:0123", "forged", "", "V1:" + "0" * 64])
+def test_malformed_approved_hash_on_a_generated_file_counts_as_missing(tmp_path, stored):
+    # G-C (a): an unknown prefix is only "unverified" for files the current tooling did not write.
+    p = approved_by_hand(tmp_path, generated_hash="v1:" + "0" * 64)
+    from harness.yamlio import load_yaml
+
+    raw = load_yaml(p.read_text(encoding="utf-8"))
+    raw["review"]["approved_hash"] = stored
+    p.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ScenarioLoadError) as e:
+        load_set([tmp_path], include_drafts=False)
+    assert e.value.code == "approved_hash_missing"
+
+
 def test_hand_approval_without_new_fields_stays_a_warning(tmp_path):
     approved_by_hand(tmp_path)
     ss = load_set([tmp_path], include_drafts=False)

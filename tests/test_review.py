@@ -585,6 +585,30 @@ def test_set_approved_with_an_unprefixed_fingerprint_warns_but_approves(tmp_path
     assert load_scenario(path).review.status == "approved"
 
 
+def test_set_approved_of_an_llm_draft_whose_fingerprint_was_removed_is_refused(tmp_path):
+    # G-C (b): `generate` always records both hashes for an LLM draft, so a missing fingerprint
+    # next to a generated hash was removed by hand.
+    s = truth_change()
+    s.provenance.author = "llm"
+    path = generated(tmp_path, s)
+    _edit_yaml(path, lambda d: d["provenance"].pop("label_fingerprint"))
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["labels_changed_outside_review"]
+    assert load_scenario(path).review.status == "draft"
+
+
+def test_set_approved_of_a_non_llm_skeleton_without_fingerprint_still_warns(tmp_path):
+    from harness.generate.pipeline import mark_generated
+
+    s = truth_change()
+    s.provenance.author = "human"
+    mark_generated(s, fingerprint=False)  # a `scenario new` skeleton filled by hand
+    path = tmp_path / "h.yaml"
+    save_draft(s, path)
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["label_fingerprint_not_recorded"] and not blocking(issues)
+
+
 def test_set_approved_with_a_prefixed_wrong_fingerprint_is_refused(tmp_path):
     path = generated(tmp_path)
     _edit_yaml(path, lambda d: d["provenance"].update(label_fingerprint="l1:" + "0" * 64))
@@ -646,3 +670,26 @@ def test_list_flags_an_approval_that_does_not_verify(tmp_path):
 
     _edit_yaml(path, reword)
     assert list_drafts(tmp_path)[0].warnings[0] == "approved_content_changed"
+
+
+def _with_nel(s: Scenario) -> Scenario:
+    """U+0085 (NEL) is written raw by PyYAML with allow_unicode and read back as a space."""
+    e = s.events[0]
+    s.events[0] = e.model_copy(update={"text": e.text + " a\x85b"})
+    return s
+
+
+def test_hashes_are_taken_from_the_text_that_is_written(tmp_path):
+    # G-E (repro fuzz.py): hashing model_dump() missed a YAML round-trip change.
+    from harness.scenario.labels import content_hash
+    from harness.scenario.load import load_set
+    from harness.yamlio import load_yaml
+
+    path = generated(tmp_path, _with_nel(truth_change()))
+    raw = load_yaml(path.read_text(encoding="utf-8"))
+    assert raw["provenance"]["generated_hash"] == content_hash(raw, "generated")
+    assert not blocking(set_status(path, "approved", "kim", None, CFG, GEN))
+    raw = load_yaml(path.read_text(encoding="utf-8"))
+    assert raw["review"]["approved_hash"] == content_hash(raw, "approval")
+    ss = load_set([tmp_path], include_drafts=False)
+    assert [x.id for x in ss.scenarios] == [truth_change().id] and ss.warnings == []

@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from harness.config import EvalConfig
@@ -210,8 +211,10 @@ def test_code_span_of_prose_is_flagged_but_code_is_not():
     assert _scan("see `old value is outdated and wrong` ok") == ["outdated"]
     assert _scan("see `three plain words` and `outdated` x") == ["outdated"]
     assert _scan("run `git log --oneline` and `enabled: false`") == []
-    assert _scan("run `git log --oneline outdated` now") == []  # 3 plain words: still code
-    assert _scan("run `git log outdated --oneline` now") == []  # 3 plain words
+    # 3 plain words: a code span, but a cue word in it needs code characters next to it
+    assert _scan("run `git log --oneline outdated` now") == ["outdated"]
+    assert _scan("run `git log outdated --oneline` now") == ["outdated"]
+    assert _scan("run `git log --outdated-only` now") == []
     assert _scan("run `git log outdated now --oneline`") == ["outdated"]  # 4 plain words
 
 
@@ -227,6 +230,81 @@ def test_stray_backticks_across_lines_do_not_swallow_prose():
     assert _scan("a ` stray\nthe doc is outdated here\nanother ` stray") == ["outdated"]
     # a real span after a stray backtick still counts as code
     assert _scan("a ` stray\nset `enabled: false` there") == []
+
+
+WORDS = ("outdated", "no longer", "false", "wrong", "stale", "deprecated", "obsolete", "legacy")
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        # one-line ``` spans are not fenced blocks; they follow the inline-span rule (G-A a)
+        ("the ```outdated``` value", ["outdated"]),
+        ("```this value is outdated and wrong, do not use it any more please```", ["outdated", "wrong"]),
+        ("see ```stale value``` here", ["stale"]),
+        # edge punctuation does not hide a prose word (G-A b)
+        ("`this is wrong, very wrong!`", ["wrong"]),
+        ("`outdated, wrong`", ["outdated", "wrong"]),
+        ("`It's outdated`", ["outdated"]),
+        ("Note: `obsolete: use v2 instead`", ["obsolete"]),
+        # a cue phrase plus one plain word is prose (G-A c)
+        ("The `stale cache` path is used", ["stale"]),
+        ("this flag `is deprecated` now", ["deprecated"]),
+        ("``stale value`` note", ["stale"]),
+        ("`` `outdated` ``", ["outdated"]),
+    ],
+)
+def test_review_cue_spans_are_flagged(text, found):
+    assert _scan(text, words=WORDS) == found
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Use `enabled: false` in config",
+        "run `git log --oneline` first",
+        "install with `--legacy-peer-deps`",
+        "pass `--legacy-x` to it",
+        "set `legacy_mode` on",
+        "Set `deprecated=true` now",
+        "call `api.deprecated()` once",
+        "multi-line:\n```\nthis is outdated\n```",
+    ],
+)
+def test_code_spans_with_attached_cue_words_stay_allowed(text):
+    assert _scan(text, words=WORDS) == []
+
+
+def test_false_literal_in_code_is_allowed_but_prose_false_is_not():
+    # G-B: the code literal `false` alone in a span or right after = or :
+    assert _scan("set `debug` to `false`", words=WORDS) == []
+    assert _scan("set `debug` to `FALSE`.", words=WORDS) == []
+    assert _scan("run it with debug=false and DEBUG:False", words=WORDS) == []
+    assert _scan("that claim is false", words=WORDS) == ["false"]
+    assert _scan("a false positive in ci", words=WORDS) == ["false"]
+    assert _scan("debug = false, really", words=WORDS) == ["false"]  # prose spacing outside code
+
+
+def test_probe_query_may_reuse_the_markers_of_its_about_facts():
+    # G-B: prompt rule 9 tells the model to reuse marker words in queries.
+    facts = {
+        "dep": fact(text="the legacy flag is gone", markers=["legacy flag"]),
+        "other": fact(text="use --modern", markers=["use --modern"]),
+    }
+    events = [
+        ev("e1", T("10-01 10:00"), fact="dep", text="the legacy flag is gone from the cli"),
+        ev("e2", T("10-02 10:00"), fact="other", text="please use --modern for new jobs"),
+    ]
+    gen = GEN.model_copy(update={"banned_cue_words": [*GEN.banned_cue_words, "legacy"]})
+    probes = [probe("p1", "promote", T("10-05 10:00"), ["dep"], query="what about the legacy flag?")]
+    s = scenario(facts, events, probes, family="normal_repeat")
+    assert "cue_word" not in codes(check_draft(s, CFG, gen))
+    probes = [probe("p1", "promote", T("10-05 10:00"), ["dep"], query="legacy flag or the legacy mode?")]
+    s = scenario(facts, events, probes, family="normal_repeat")
+    assert "legacy" in only(check_draft(s, CFG, gen), "cue_word").message
+    probes = [probe("p1", "promote", T("10-05 10:00"), ["other"], query="what about the legacy flag?")]
+    s = scenario(facts, events, probes, family="normal_repeat")
+    assert "cue_word" in codes(check_draft(s, CFG, gen))  # not an about fact of this probe
 
 
 def test_fenced_block_stays_exempt_even_over_lines():
@@ -617,3 +695,22 @@ def test_quoted_evidence_on_false_or_missing_fact_is_an_error():
     ])
     issue = only(check_draft(p.model_copy(update={"provenance": prov}), CFG, GEN), "quoted_unsupported")
     assert "sp_b1" in issue.message
+
+
+def test_recorded_secret_events_must_match_the_events_with_secret_markers():
+    # G-D (repro secret.py): an unlisted event with secret markers escaped every secret check.
+    s = leak_scenario()
+    pub = next(e for e in s.events if e.id == "pub")
+    pub.secret_markers = ["hunter2-token"]
+    s.facts["f"].text += " hunter2-token"
+    issue = only(check_draft(s, CFG, GEN), "secret_events_mismatch")
+    assert issue.level == "error" and "pub" in issue.message
+    assert issue in blocking(check_draft(s, CFG, GEN))
+
+
+def test_secret_events_mismatch_needs_a_recorded_list():
+    s = leak_scenario(recorded=False)
+    assert "secret_events_mismatch" not in codes(check_draft(s, CFG, GEN))
+    s = leak_scenario()
+    s.provenance.secret_events = ["sec", "pub"]  # pub has no secret markers
+    assert "pub" in only(check_draft(s, CFG, GEN), "secret_events_mismatch").message

@@ -25,9 +25,10 @@ from harness.generate.families import TEMPLATES, why_not
 from harness.generate.families.base import repo_name
 from harness.generate.llm import LLMClient, LLMError
 from harness.generate.traces import Trace, bundles, read_parquet, usable
-from harness.scenario.labels import content_hash, label_fingerprint
+from harness.scenario.labels import HashPurpose, content_hash, label_fingerprint
 from harness.scenario.load import ScenarioLoadError, read_scenario
 from harness.scenario.model import Scenario
+from harness.yamlio import load_yaml
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -152,20 +153,52 @@ def read_all(shards: Sequence[Path]) -> Iterator[Trace]:
         yield from read_parquet(path)
 
 
-def save_draft(s: Scenario, path: Path) -> None:
+def draft_text(s: Scenario) -> str:
+    """The YAML text `save_draft` writes for `s`.
+
+    Args:
+        s: The scenario.
+
+    Returns:
+        The YAML document.
+    """
+    return yaml.safe_dump(s.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+
+
+def saved_hash(s: Scenario, purpose: HashPurpose) -> str:
+    """`content_hash` of the file `save_draft` writes for `s`, as `load_scenario` will read it.
+
+    The hash is taken from the parsed text, not from the model: a YAML round trip can change a
+    string (PyYAML writes U+0085 raw and reads it back as a space), and the stored hash must
+    match the file. The fields the hash leaves out (`review`, `provenance.generated_hash` and
+    `provenance.label_fingerprint`) can be set after this call.
+
+    Args:
+        s: The scenario about to be saved.
+        purpose: As for `content_hash`.
+
+    Returns:
+        The content hash.
+    """
+    return content_hash(load_yaml(draft_text(s)), purpose)
+
+
+def save_draft(s: Scenario, path: Path) -> str:
     """Write a scenario as YAML that `load_scenario` reads back.
 
     Args:
         s: Scenario to write.
         path: Target file; parent directories are created.
+
+    Returns:
+        The text written (`draft_text`).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = yaml.safe_dump(
-        s.model_dump(mode="json"), sort_keys=False, allow_unicode=True
-    )
+    text = draft_text(s)
     tmp = path.with_suffix(".yaml.tmp")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
+    return text
 
 
 def mark_generated(s: Scenario, fingerprint: bool = True) -> None:
@@ -173,8 +206,8 @@ def mark_generated(s: Scenario, fingerprint: bool = True) -> None:
 
     `provenance.label_fingerprint` lets `review set approved` refuse labels changed outside
     `review edit`; `provenance.generated_hash` lets a regeneration recognise a hand-edited draft.
-    `save_draft` writes the model dump, whose parsed YAML is the same data, so the hash taken
-    here is the hash of the saved file.
+    The generated hash is taken from the text `save_draft` writes (`saved_hash`), so it is the
+    hash of the saved file.
 
     Args:
         s: The scenario, changed in place; call it just before the first `save_draft`.
@@ -182,7 +215,7 @@ def mark_generated(s: Scenario, fingerprint: bool = True) -> None:
             person still fills in by hand (the secret strings of a `scenario new` leak family).
     """
     s.provenance.label_fingerprint = label_fingerprint(s) if fingerprint else None
-    s.provenance.generated_hash = content_hash(s.model_dump(mode="json"), "generated")
+    s.provenance.generated_hash = saved_hash(s, "generated")
 
 
 def matches_repos(trace: Trace, repos: set[str]) -> bool:
