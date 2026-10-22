@@ -139,7 +139,7 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
 | 코드 | 뜻 |
 |---|---|
 | 0 | 성공 |
-| 1 | 시나리오 오류(로드 실패, 검증 오류, id 중복, 승인 뒤 고친 파일 `approved_content_changed`) 또는 자가 검증 실패 |
+| 1 | 시나리오 오류(로드 실패, 검증 오류, id 중복, 승인 뒤 고친 파일 `approved_content_changed`, 새 도구가 만든 파일을 손으로 승인해 해시가 없는 `approved_hash_missing`) 또는 자가 검증 실패. `review set ... approved`가 막힌 경우(자동 검증 오류·`too_easy`, `labels_changed_outside_review`)와 id가 없거나 여럿인 `review` 명령도 1 |
 | 2 | 사용법 문제: 경로 없음, 평가할(승인된) 시나리오 없음, 설정 파일 오류, 엔진을 만들 수 없음 |
 
 ## 시나리오 세트
@@ -207,7 +207,7 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 
 - `show`: 머리(id, 계열, 모드, 원본 저장소·궤적, 공급자·모델, 자동 검증 경고), 정답표(사실마다 참인 기간, 조건, `valid`, `fix`, 지어낸 사실 여부, 마커, 문장), 시각 순서의 이벤트·문항 흐름(근거의 `origin`과 인용, 문항 시점에 참인 사실), 기준선 미리보기(oracle, all_store, 누출 계열은 all_store_noacl의 문항별 결과와 누출 수)를 한 화면에 보여 줍니다.
 - `edit`에서 **고칠 수 있는 것**: 사실의 `text`·`markers`, 이벤트의 `text`, 문항의 `query`, 되먹임 틀의 `text`, `review.notes`.
-- **고칠 수 없는 것**: 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`·`secret_markers`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열·모드·언어·세계·`provenance`(`secret_events` 포함), 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속합니다), `review.status`와 `reviewer`(`review set`으로만 바꿉니다). 건드리면 어느 필드인지 보여 주고 파일을 원래대로 되돌립니다(종료 코드 1). 고친 내용은 버리지 않고 캐시의 `review/<id>-<YYYYmmdd-HHMMSS>.yaml`에 남기며 그 경로를 "your edit was kept at …"으로 알려 줍니다. 정답이 틀렸다면 고치지 말고 거절하세요. `secret_markers`도 같습니다: 비밀 문자열이 본문과 맞지 않으면 고치지 말고 거절하고 다시 생성하세요.
+- **고칠 수 없는 것**: 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·팀·신호·종류·결과·연결 사실·`refs`·`meta`·`secret_markers`, 문항의 id·종류·시각·사용자·세션·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`·`signal`·`kind`·`outcome`·`scope`·`delay`, 계열·모드·언어·세계·`provenance`(`secret_events` 포함), 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속합니다), `review.status`와 `reviewer`(`review set`으로만 바꿉니다). 건드리면 어느 필드인지 보여 주고 파일을 원래대로 되돌립니다(종료 코드 1). 고친 내용은 버리지 않고 캐시의 `review/<id>-<YYYYmmdd-HHMMSS>.yaml`에 남기며 그 경로를 "your edit was kept at …"으로 알려 줍니다. 정답이 틀렸다면 고치지 말고 거절하세요. `secret_markers`도 같습니다: 비밀 문자열이 본문과 맞지 않으면 고치지 말고 거절하고 다시 생성하세요.
 - 이미 승인·거절된 파일을 고쳐 저장하면 `review`가 `draft`로 돌아가고(`reviewer`는 비워지고 `notes`는 남음) 다시 승인받아야 합니다.
 - 저장되면 `provenance.reviewer_edited: true`가 되고 자동 검증 결과가 나옵니다. 오류가 있어도 저장은 되지만 승인은 막힙니다. 편집기가 0이 아닌 코드로 끝나거나 YAML이 깨져도 원래대로 돌아갑니다(바뀐 내용이 있으면 마찬가지로 `review/`에 남깁니다).
 - `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
@@ -271,7 +271,7 @@ uv run harness generate --family all --n 1 --max-traces 10 --seed 20261020
 ### 2. 검토하기
 
 ```bash
-uv run harness review list          # 초안 목록과 자동 검증 경고
+uv run harness review list          # 시나리오 파일 목록(모든 상태)과 경고 코드
 uv run harness review show <id>     # 정답표, 이벤트·문항 흐름, 기준선 미리보기
 uv run harness review edit <id>     # 글만 고침
 uv run harness review set <id> approved --reviewer 이름

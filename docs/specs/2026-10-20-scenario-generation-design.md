@@ -66,7 +66,7 @@ flowchart LR
 | `harness traces fetch --config v1.2 --split minisweagent --shard 0 [--timeout 60]` | 조각 하나를 캐시 폴더에 받는다. **받기 전에 파일 크기를 보여 주고 `y`를 받는다** [설계]. `--yes`로 건너뛴다. `--timeout`(초, 0보다 큼, 기본 60)은 서버가 연결만 받고 답하지 않을 때 멈추는 한도다. 목록을 받을 때는 호출 전체에, 내려받을 때는 "답도 진행도 없는 시간"에 적용한다(큰 파일이 60초를 넘겨도 바이트가 계속 오면 끊지 않는다) [판단] |
 | `harness traces list` | 받은 조각과 저장소별 궤적 수, 같은 `instance_id` 묶음 수를 보여 준다 |
 | `harness generate --family <계열> --n <개수> --seed <정수> [--repos a,b] [--out <폴더>]` | 2~6단계를 돌려 초안을 만든다. `--family all`은 10개 계열 전부다 |
-| `harness review list [<폴더>]` | 검토 대기(`draft`) 목록: id, 계열, 생성일, 자동 검증 경고 수 |
+| `harness review list [<폴더>]` | 폴더 아래 모든 시나리오 파일(상태 `draft`·`approved`·`rejected` 전부, 읽지 못하는 파일은 `unreadable`): id, 계열, 상태, 생성 시각, 경고 코드, 경로. 경고는 `validate_scenario`의 코드에 승인 검증(`approval_issue`)의 코드를 더한 것이며, 승인 전 자동 검증 `check_draft`는 돌리지 않는다 |
 | `harness review show <id>` | 정답과 본문을 나란히 보여 주고, 미리 돌린 기준선 결과를 붙인다 |
 | `harness review edit <id>` | `$EDITOR`로 YAML을 연다. 저장하면 검증을 다시 돌린다 |
 | `harness review set <id> approved\|rejected --reviewer <이름> [--note <글>]` | 상태를 바꾼다. 승인은 검증을 통과해야만 된다 |
@@ -77,7 +77,7 @@ flowchart LR
 ### 4.2 저장 위치
 
 - **궤적 조각**: `~/.cache/t5-harness/traces/<config>/<split>/<파일>`. 레포에 넣지 않는다. [판단]
-- **LLM 응답 캐시**: `~/.cache/t5-harness/llm/<sha256>.json`. 키는 (공급자, 모델, 프롬프트 버전, 요청 본문)의 해시다. 같은 입력이면 다시 부르지 않는다. [설계]
+- **LLM 응답 캐시**: `~/.cache/t5-harness/llm/<sha256>.json`. 키는 (공급자, 모델, 프롬프트 버전, 요청 종류, 시스템 프롬프트, 응답 스키마, 요청 본문, 생성 설정)의 해시다. 생성 설정의 목록은 8장을 따른다. 같은 입력이면 다시 부르지 않는다. [설계]
 - **중간 산출물**: `~/.cache/t5-harness/runs/<run_id>/`에 사실 후보(`candidates.jsonl`)와 거절 로그(`rejected.jsonl`)를 둔다. 검토 때 왜 버려졌는지 볼 수 있다. [판단]
 - **초안**: `scenarios/dev/<계열>/<id>.yaml`. `review.status: draft`, `provenance.author: llm`. 승인되면 같은 파일의 상태만 바뀐다. 평가에는 `approved`만 들어간다. [설계] git으로 커밋해 모은다. [결정]
 - **다시 생성할 때**: 같은 id의 파일은 손대지 않은 LLM 초안일 때만 새로 쓴다. 상태가 draft가 아니거나, `reviewer_edited`이거나, 작성자가 `llm`이 아니거나, 읽을 수 없거나, 지금 내용의 해시(`content_hash`)가 생성 때 적은 `provenance.generated_hash`와 다르면(편집기로 직접 고친 초안) 건드리지 않는다. `generated_hash`가 없는 이전 초안은 앞의 규칙만 쓴다. [결정]
@@ -170,7 +170,7 @@ flowchart LR
    - 질문(`query`)에는 마커 예외가 없고 코드 조각만 지운다.
 5. **비밀 문자열**: 비밀 기록이 어느 이벤트인지는 파일에서 다시 계산하지 않고 생성 시점에 `provenance.secret_events`에 적어 둔 목록을 쓴다(계열 틀의 비밀 자리). 목록의 이벤트는 `secret_markers`가 비어 있지 않아야 하고(`secret_missing`) 그 본문에 하나 이상 들어 있어야 한다(`secret_not_in_secret_event`). 누출 계열인데 비밀 기록이 하나도 없으면(목록이 비었거나, 목록이 없는 파일에서 유도할 `secret_markers`가 없으면) 오류(`no_secret_events`). 비밀 문자열은 다른 이벤트 본문(`secret_in_public_event`), 사실의 `text`·`markers`(`secret_in_fact_text`), 되먹임 틀 본문(`secret_in_feedback`)에 없어야 한다. 질문자가 볼 수 있는 기록과 질문에 새면 검증기(`secret_marker_not_exclusive`)가 먼저 잡고, 이 검사는 아무 질문자도 볼 수 없는 기록과 사실·되먹임 본문까지 맡는다. 이 목록이 없는 파일(이전 버전이나 손으로 쓴 초안. 값은 `null`이고 하네스가 다시 저장해도 `null`로 남는다)은 `secret_markers`가 있는 이벤트에서 유도하고 경고 `secret_events_not_recorded`를 붙인다(저장·승인은 막지 않는다).
 6. **인용 근거**: `origin: quoted`인 근거는 그 이벤트가 원래 후보의 참인 사실을 말할 때만 허용하고(`quoted_unsupported`), 인용문이 본문에 들어 있어야 한다(`quoted_evidence_mismatch`).
-7. 경고(저장은 함): `markers_missing` 등 기존 경고.
+7. 경고: `markers_missing` 등 기존 경고는 저장과 승인을 막지 않는다. 단 변별력 검사의 `too_easy` 경고(전부 저장 기준선도 틀리지 않는 문항이 있어 변별하지 못함)는 저장도 승인도 막는다(`checks.blocking`: 오류 전부와 `too_easy`).
 
 떨어진 초안은 거절 로그에 (단계, 검사 코드, 메시지)로 남긴다. 같은 후보로 한 번 더 시도하지는 않는다. [판단]
 
@@ -217,7 +217,7 @@ flowchart LR
 
 - `$EDITOR`(없으면 `vi`)로 시나리오 YAML을 연다.
 - 저장 뒤 **정답 지문**을 비교한다. 정답 지문은 고칠 수 없는 필드의 해시다.
-  - 고칠 수 없는 필드: `provenance` 전체(단 하네스가 쓰는 `reviewer_edited`·`label_fingerprint`·`generated_hash`는 지문에서 빼고, 편집기에서 바꿔도 원래 값으로 저장한다. 지문이 자기 자신을 담을 수 없기 때문이다. `secret_events` 포함), 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`·`secret_markers`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열, 모드, 세계.
+  - 고칠 수 없는 필드: `provenance` 전체(단 하네스가 쓰는 `reviewer_edited`·`label_fingerprint`·`generated_hash`는 지문에서 빼고, 편집기에서 바꿔도 원래 값으로 저장한다. 지문이 자기 자신을 담을 수 없기 때문이다. `secret_events` 포함), 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·팀·신호·종류·결과·연결 사실·`refs`·`meta`·`secret_markers`, 문항의 id·종류·시각·사용자·세션·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`·`signal`·`kind`·`outcome`·`scope`·`delay`, 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속한다), 계열, 모드, 언어, 세계.
   - 고칠 수 있는 필드: 사실의 `text`·`markers`, 이벤트 `text`, 문항 `query`, 되먹임 틀 `text`, `review.notes`.
 - 지문이 바뀌었으면 어느 필드가 바뀌었는지 보여 주고 **파일을 원래대로 되돌린다**. 정답이 틀렸으면 거절하라고 안내한다.
 - `secret_markers`는 무엇이 누출인지를 정하는 라벨이라 고칠 수 없다. 비우면 누출 검사가 꺼지고, 엉뚱한 문자열로 바꾸면 누출을 못 잡기 때문이다. 비밀 문자열이 본문과 맞지 않으면 고치지 말고 거절한 뒤 다시 생성한다. 편집본은 다른 정답 편집처럼 캐시에 남는다. (`harness scenario new`로 만든 누출 계열 빈 틀은 비밀 문자열이 비어 있으므로 `review edit`가 아니라 파일을 직접 열어 채운다. `review edit`를 돌리기 전에 채우고, 이어서 `review set`의 자동 검증이 목록·본문을 확인한다.)
@@ -239,8 +239,9 @@ flowchart LR
 | | Claude (기본) | OpenAI 호환 |
 |---|---|---|
 | 대상 | Anthropic API | Upstage, OpenAI (`base_url`) |
+| `base_url` | 주면 SDK의 접속 주소를 바꾼다(프록시·게이트웨이용) | 주면 그 주소로 보낸다. 없으면 OpenAI 기본 주소 |
 | SDK | `anthropic` | `openai` |
-| 키 | `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필). `api_key_env`를 주면 그 변수를 읽는다 | 설정의 `api_key_env`(예: `UPSTAGE_API_KEY`) |
+| 키 | `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필). `api_key_env`를 주면 그 변수를 읽는다 | 설정의 `api_key_env`(예: `UPSTAGE_API_KEY`). 없으면 `OPENAI_API_KEY` |
 | 기본 모델 | `claude-opus-5-5` [판단] | 설정에서 지정(Upstage 모델명은 미정) |
 | 깊이 조절 | `effort`(기본 `medium`). 온도는 받지 않음 | `temperature`(기본 0.2) |
 | JSON 출력 | 구조화 출력(스키마 지정) | JSON 모드 |
@@ -253,8 +254,8 @@ flowchart LR
   model: claude-opus-5-5
   effort: medium               # anthropic only
   temperature: 0.2             # openai only
-  base_url: null               # openai only, e.g. Upstage endpoint
-  api_key_env: null            # env var holding the key; anthropic falls back to ANTHROPIC_API_KEY
+  base_url: null               # endpoint override, either provider (e.g. Upstage endpoint for openai)
+  api_key_env: null            # env var holding the key; unset: anthropic uses ANTHROPIC_API_KEY (or its login profile), openai uses OPENAI_API_KEY
   max_output_tokens: 16000
   timeout_s: 300               # per request
   max_retries: 2               # SDK retries
@@ -269,7 +270,7 @@ flowchart LR
 - 출력 토큰 한도: Claude는 `max_tokens`로 보낸다. OpenAI 호환 서버는 이름이 서버마다 달라 `token_param`(`max_completion_tokens` 기본, `max_tokens`, 또는 `none`=보내지 않음)으로 고르며, 한도에 닿으면(`finish_reason: length`) 잘림으로 보고한다. [판단]
 - 응답 캐시 키에는 프롬프트 판, 공급자, 모델, 요청 내용, 스키마에 더해 생성 설정(`effort`, `temperature`, `max_output_tokens`, `base_url`, `token_param`)이 들어간다. 설정을 바꾸면 이전 응답을 재사용하지 않는다. 이 변경 뒤 첫 실행은 기존 캐시를 한 번 놓친다. [판단]
 - 프롬프트는 `src/harness/generate/prompts/`에 파일로 두고, 바꾸면 `prompt_version`을 올린다.
-- 추가 의존성(`anthropic`, `openai`, `pyarrow`, `huggingface_hub`, `rich`)은 **선택 설치** `uv sync --extra gen`으로 둔다. 채점만 하는 사람은 설치하지 않는다. [판단] 하네스 본체(`harness run` 등)는 이 의존성 없이 돌아야 한다.
+- 추가 의존성(`anthropic`, `openai`, `pyarrow`, `huggingface_hub`)은 **선택 설치** `uv sync --extra gen`으로 둔다. 채점만 하는 사람은 설치하지 않는다. [판단] 하네스 본체(`harness run` 등)는 이 의존성 없이 돌아야 한다. `rich`는 `review show`의 출력에도 쓰이지만 CLI 자체(`cli.py`)가 불러오므로 본체의 기본 의존성이다.
 
 ## 9. 테스트
 
