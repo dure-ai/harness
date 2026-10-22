@@ -138,7 +138,7 @@
 - **실패한 백그라운드 작업** [판단]: Hindsight는 관찰을 만드는 백그라운드 작업이 실패해도 저장 응답은 성공으로 준다. 그 실패는 `failed` 작업으로만 남는다. [확인] 그대로 두면 관찰이 조용히 빠진 채 채점되므로, flush에서 확인해 시나리오 오류로 만든다.
 - 기본 설정(`observation_scopes` 없음 = combined)에서 관찰은 태그 묶음이 같은 사실끼리만 만들어진다. 그래서 `user:` 사실과 `team:` 사실이 한 관찰로 섞이지 않는다. [확인]
 - **가상 시각**: 저장 시각(`timestamp`)과 질문 시각(`query_timestamp`)을 요청에 직접 싣는다. 그래서 `info().virtual_clock=True`로 두고 `tick()`은 아무것도 하지 않는다 [판단]. 리포트는 `virtual_clock=False`인 엔진에 "가상 시계 미지원" 주석을 다는데, 가상 시각을 받는 Hindsight에 그 주석이 붙으면 틀린 표시가 된다.
-- **모델 확인**: 실행 중인 엔진의 모델 설정을 돌려주는 API가 있으면 그 값을, 없으면 환경 변수를 하네스 설정과 비교한다. 구현할 때 확인한다.
+- **모델 확인** [확인, 구현]: 환경 변수 `HARNESS_LLM_MODEL`·`HARNESS_EMBEDDING_MODEL`만 읽어 하네스 설정(`llm`)과 비교한다(`harness/oss/models.py`의 `expected_models`, 다르면 어댑터를 만들 때 멈춘다). Hindsight가 실제로 쓰는 모델을 읽는 API는 부르지 않으므로, 컨테이너를 다른 값으로 띄웠다면 어댑터가 알지 못한다. 그래서 점검 목록에서 환경 변수와 컨테이너 설정을 눈으로 대조한다. Mem0와 다른 점이다(7장).
 - `info()`: `name="hindsight"`, `version="1.0.0"`, `config`에 모델 이름, 범위 대응 방식, 주소. `sources=True`, `scopes=True`, `virtual_clock=True`.
 
 ## 7. Mem0 어댑터
@@ -166,7 +166,7 @@
 - 반복: 기본 `llm_repeats: 3`. [설계 15장 6번]
 - 측정 순서(README에 적음):
   1. `OPENAI_API_KEY`, `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`을 환경 변수로 넣는다(키는 본인이 직접).
-  2. `docker compose -f engines/docker/hindsight/compose.yaml up -d`, `docker compose -f engines/docker/mem0/compose.yaml up -d --build`
+  2. `docker compose -f engines/docker/hindsight/compose.yaml up -d --wait`, `docker compose -f engines/docker/mem0/compose.yaml up -d --wait --build`. `--wait`는 healthcheck가 통과할 때까지 기다린다.
   3. `uv run harness run --scenarios scenarios/dev --engine hindsight --engine mem0`
   4. 끝나면 두 compose 모두 `down -v`.
 - 소요 예상 [판단]: 시나리오 40개 × 이벤트 약 8개 × 3회 = 기록 약 1,000건. 기록마다 LLM 호출이 몇 번씩 일어나고 동기 처리라 엔진당 1~3시간으로 본다. 첫 실제 점검에서 시나리오 1개 시간을 재고 README에 적는다.
@@ -190,7 +190,7 @@
 |---|---|
 | 10/21 | 이 문서와 구현 계획 |
 | 10/22 | 구현(가짜 서버까지). 같은 날 시나리오 첫 실제 생성 |
-| 10/23~24 | 이미지 받기·빌드, 키로 실제 연결 점검(Mem0 OR 필터, 두 엔진 동시 메모리 사용량, Hindsight 모델 설정 API 포함), 시나리오 1개 시간 측정 |
+| 10/23~24 | 이미지 받기·빌드, 키로 실제 연결 점검(Mem0 OR 필터, 두 엔진 동시 메모리 사용량, Hindsight는 환경 변수와 컨테이너 설정을 눈으로 대조), 시나리오 1개 시간 측정 |
 | 10/25 | 기준선 4종 + 오픈소스 2종 측정 |
 
 ## 11. 열린 문제 (팀)
