@@ -87,6 +87,34 @@ def test_empty_quote_rejected():
     assert ok == [] and [r.code for r in rejected] == ["quote_not_found"]
 
 
+def _quote_trace():
+    text = "Run uv run pytest --no-cache-dir from the repo root, then e2e."
+    return make_trace(messages=[TraceMessage(index=0, role="assistant", content=text)])
+
+
+def test_one_character_quote_is_rejected():
+    # Before: any substring passed, so "e" was accepted as evidence (repro d7_quoted.py).
+    # too few characters, or one word only however long
+    for quote in ("e", "uv", "e2e.", "uv run", "--no-cache-dir"):
+        ok, rejected = check_quotes(_quote_trace(), [_cand(message_index=0, quote=quote)])
+        assert ok == [], quote
+        assert [r.code for r in rejected] == ["quote_too_short"], quote
+        assert "8" in rejected[0].message
+
+
+def test_short_command_quote_is_accepted():
+    for quote in ("uv run pytest", "the repo root"):
+        ok, rejected = check_quotes(_quote_trace(), [_cand(message_index=0, quote=quote)])
+        assert len(ok) == 1 and rejected == [], quote
+
+
+def test_quote_length_floor_comes_from_the_argument():
+    ok, rejected = check_quotes(_quote_trace(), [_cand(message_index=0, quote="uv run")], min_chars=4)
+    assert len(ok) == 1 and rejected == []
+    ok, rejected = check_quotes(_quote_trace(), [_cand(message_index=0, quote="uv run pytest")], min_chars=20)
+    assert ok == [] and [r.code for r in rejected] == ["quote_too_short"]
+
+
 def test_quote_index_out_of_range_rejected():
     ok, rejected = check_quotes(make_trace(), [_cand(message_index=99), _cand(message_index=-1)])
     assert ok == []

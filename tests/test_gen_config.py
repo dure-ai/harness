@@ -16,7 +16,8 @@ def test_gen_config_defaults_from_file():
     assert cfg.model == "claude-opus-5-5"
     assert cfg.effort == "medium"
     assert cfg.temperature == 0.2
-    assert cfg.prompt_version == "gen-v0.2"
+    assert cfg.prompt_version == "gen-v0.3"
+    assert cfg.min_quote_chars == 8
     assert cfg.max_candidates_per_trace == 5
     assert cfg.max_output_tokens == 16000
     assert (cfg.timeout_s, cfg.max_retries, cfg.token_param) == (300, 2, "max_completion_tokens")
@@ -38,6 +39,17 @@ def test_gen_config_defaults_from_file():
         "unverified",
         "fake",
         "deprecated",
+        "false",
+        "no longer true",
+        "legacy",
+        "obsolete",
+        "superseded",
+        "stale",
+        "incorrect",
+        "wrong",
+        "retired",
+        "replaced by",
+        "not valid anymore",
     ]
 
 

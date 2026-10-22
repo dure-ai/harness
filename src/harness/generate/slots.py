@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from harness.contract import Kind, Outcome, Scope, Signal
 from harness.generate.candidates import FactCandidate
+from harness.generate.checks import quote_problem
 from harness.scenario.model import FeedbackTemplate, Probe, Scenario
 from harness.world import probe_ctx, true_at
 
@@ -308,8 +309,9 @@ def apply_slots(sk: Skeleton, slots: BodySlots) -> Scenario:
         and feedback template text filled in.
 
     Raises:
-        ValueError: If the reply's keys differ from the skeleton's slots, or an event that is
-            not a secret slot gets secret markers.
+        ValueError: If the reply's keys differ from the skeleton's slots, an event that is
+            not a secret slot gets secret markers, or an event whose fact the trace cannot
+            support (fabricated, never true, or no fact) claims `origin: quoted`.
     """
     s = sk.scenario.model_copy(deep=True)
     got = {
@@ -334,6 +336,18 @@ def apply_slots(sk: Skeleton, slots: BodySlots) -> Scenario:
     if public_secrets:
         problems.append(
             f"events: secret markers on events that are not secret slots {public_secrets}"
+        )
+    unsupported = [
+        f"{e.id} ({why})"
+        for e in s.events
+        if e.id in slots.events
+        and slots.events[e.id].origin == "quoted"
+        and (why := quote_problem(s, e.fact)) is not None
+    ]
+    if unsupported:
+        problems.append(
+            "events: origin quoted is only for events stating the candidate's own true fact; "
+            f"use written for {', '.join(unsupported)}"
         )
     if problems:
         raise ValueError("; ".join(problems))

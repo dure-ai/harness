@@ -273,7 +273,7 @@ class _Run:
             self.llm_failed(e)
             return []
         self.llm_ok()
-        checked, bad = check_quotes(trace, extracted)
+        checked, bad = check_quotes(trace, extracted, self.gen.min_quote_chars)
         kept = dedupe(checked)
         kept_ids = {c.index for c in kept}
         for r in bad:

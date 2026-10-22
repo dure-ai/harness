@@ -188,3 +188,33 @@ def test_trace_excerpt_is_capped() -> None:
     write_bodies(client, sk, _cand(), [long], _gen())
     excerpt = client.requests[0][2].split("for style only:\n", 1)[1]
     assert len(excerpt) <= 4000
+
+
+def _rule(system: str, n: int) -> str:
+    return next(line for line in system.splitlines() if line.startswith(f"{n}. "))
+
+
+def test_prompt_rules_forbid_hinting_question_wording() -> None:
+    sk = _skeleton()
+    client = _client(_reply(sk))
+    write_bodies(client, sk, _cand(), [], _gen())
+    system = client.requests[0][1]
+    rule9, rule10 = _rule(system, 9), _rule(system, 10)
+    # Rule 9 no longer tells the writer what each probe kind is scored on (repro d14).
+    for said in ("should not use", "should be recalled", "of kind `block`", "`promote` probe", "`leak` probe"):
+        assert said not in rule9, said
+    assert "not paraphrases" in rule9
+    for need in ("same form and tone", "guess", "presuppose", "doubt"):
+        assert need in rule10, need
+    assert "{banned_cue_words}" not in system
+
+
+def test_quoted_origin_on_fabricated_fact_fails_the_reply_check() -> None:
+    sk = _skeleton()  # truth_change: f_new is fabricated
+    bad = _reply(sk)
+    fabricated = next(e.id for e in sk.scenario.events if e.fact == "f_new")
+    bad["events"][fabricated]["origin"] = "quoted"
+    client = _client(bad, bad)
+    with pytest.raises(LLMError, match="failed validation twice"):
+        write_bodies(client, sk, _cand(), [make_trace()], _gen())
+    assert "quoted" in client.requests[1][2] and fabricated in client.requests[1][2]

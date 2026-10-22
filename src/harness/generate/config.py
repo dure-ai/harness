@@ -24,7 +24,10 @@ class GenConfig(_Strict):
         prompt_version: Prompt revision, recorded in each scenario's provenance.
         max_candidates_per_trace: Upper bound on candidate scenarios taken from one trace.
         license_allowlist: SPDX ids of source-repo licenses that may be used.
-        banned_cue_words: Words that give away a fact's validity when they appear in event text.
+        banned_cue_words: Words that give away a fact's validity when they appear in event text
+            or a probe query. The event's own fact markers and backtick code spans are skipped.
+        min_quote_chars: Least number of non-space characters of a candidate quote; a quote
+            also needs at least two words.
         max_output_tokens: Output token limit of one generation call.
         timeout_s: Seconds the SDK waits on one request before giving up.
         max_retries: Times the SDK retries a failed request (connection errors, 429, 5xx).
@@ -45,6 +48,7 @@ class GenConfig(_Strict):
     max_candidates_per_trace: int = 5
     license_allowlist: list[str]
     banned_cue_words: list[str]
+    min_quote_chars: int = Field(default=8, ge=1)
     max_output_tokens: int = 16000
     timeout_s: float = Field(default=300, gt=0)
     max_retries: int = Field(default=2, ge=0)

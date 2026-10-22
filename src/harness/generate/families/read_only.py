@@ -12,6 +12,7 @@ None when the candidate does not fit. Rules shared by all of them (generation de
 """
 
 import random
+import re
 from collections.abc import Sequence
 from typing import Literal
 
@@ -26,8 +27,29 @@ from harness.generate.families.base import (
 from harness.generate.slots import Skeleton
 from harness.generate.traces import Trace
 
-_SUFFIXES = ("worker", "gateway", "batch", "admin")
-_ENVS = ("prod", "staging", "dev")
+_SERVICES = (
+    "api",
+    "web",
+    "auth",
+    "billing",
+    "search",
+    "payments",
+    "scheduler",
+    "ingest",
+    "notifications",
+    "reports",
+)
+_ENVS = ("prod", "staging", "dev", "qa")
+_OSES = ("linux", "macos", "windows")
+_VARIANTS = ("stable", "beta", "canary", "nightly", "edge", "lts")
+_POOLS: dict[str, tuple[str, ...]] = {
+    "service": _SERVICES,
+    "env": _ENVS,
+    "environment": _ENVS,
+    "os": _OSES,
+    "platform": _OSES,
+}
+_VERSION = re.compile(r"\d+(?:\.\d+)*")
 
 
 def _probes_in_random_order(
@@ -144,10 +166,30 @@ def truth_change(
     return b.build()
 
 
+def _pick(rng: random.Random, pool: Sequence[str], value: str) -> str:
+    return rng.choice([v for v in pool if v.casefold() != value.casefold()])
+
+
 def _other_value(rng: random.Random, key: str, value: str) -> str:
-    if key == "env":
-        return rng.choice([e for e in _ENVS if e != value])
-    return f"{value}-{rng.choice(_SUFFIXES)}"
+    """A different value of the same kind as `value`, drawn by seed, never `value` plus a suffix.
+
+    Services, environments and operating systems come from fixed name pools, a repository
+    keeps its owner and takes a service name, a version changes one of its numbers by 1 or 2,
+    and any other value comes from a pool of release-channel names.
+    """
+    if key == "repo":
+        owner, _, name = value.rpartition("/")
+        other = _pick(rng, _SERVICES, name)
+        return f"{owner}/{other}" if owner else other
+    if key in _POOLS:
+        return _pick(rng, _POOLS[key], value)
+    if _VERSION.fullmatch(value):
+        parts = value.split(".")
+        i = rng.randrange(len(parts))
+        n = int(parts[i])
+        parts[i] = str(rng.choice([m for m in (n - 2, n - 1, n + 1, n + 2) if m >= 0]))
+        return ".".join(parts)
+    return _pick(rng, _VARIANTS, value)
 
 
 def _context(b: SkeletonBuilder, cond: dict[str, str]) -> tuple[str, dict[str, str]]:
@@ -161,8 +203,12 @@ def conditional(
     """The candidate holds under condition A only; a fabricated fact holds under condition B.
 
     A is the candidate's condition, or `{"service": <repository name>}` when it has none. B
-    changes one value of A (`service` when present). The block probe is asked under B, the
-    promote probe under A.
+    changes one value of A (`service` when present) to another value of the same kind from a
+    name pool. Each fact gets the same support in its own context: two records by different
+    users and one confirmation (the same signal for both) that refs them, interleaved in a
+    seeded order. The seed also decides in which context the block probe is asked; the promote
+    probe is asked in the other. So neither the values, nor the amount of support, nor which
+    value was made up tells the probe kind (generation design 5.4).
     """
     b = SkeletonBuilder("conditional", cand, traces, seed)
     cond_a = dict(cand.condition) or {"service": repo_name(b.repo)}
@@ -174,34 +220,48 @@ def conditional(
     cond_b = {**cond_a, key: _other_value(b.rng, key, cond_a[key])}
     f_a = b.fact("f_a", conditions=cond_a)
     f_b = b.fact("f_b", fabricated=True, conditions=cond_b)
-    (repo_a, meta_a), (repo_b, meta_b) = _context(b, cond_a), _context(b, cond_b)
+    context = {f_a: _context(b, cond_a), f_b: _context(b, cond_b)}
 
-    first, second, confirmer, other, asker = b.users(5)
-    order = ["a", "a", "confirm"] if b.rng.random() < 0.5 else ["a", "confirm", "a"]
-    order.insert(b.rng.randint(0, len(order)), "b")
-    for slot in order:
-        day = b.next_day()
-        if slot == "b":
-            b.event(b.at(day), other, f_b, repo=repo_b, meta=meta_b)
-        elif slot == "a":
-            user = second if b.events_of(f_a) else first
-            b.event(b.at(day), user, f_a, repo=repo_a, meta=meta_a)
+    signal, kind = b.rng.choice(CONFIRMS)
+    writers = {f: b.users(3) for f in (f_a, f_b)}
+    asker = b.users(1)[0]
+    plans = {
+        f: (["rec", "rec", "confirm"] if b.rng.random() < 0.5 else ["rec", "confirm", "rec"])
+        for f in (f_a, f_b)
+    }
+    turns = [f_a] * 3 + [f_b] * 3
+    b.rng.shuffle(turns)
+    for fact in turns:
+        slot = plans[fact].pop(0)
+        user = writers[fact].pop(0)
+        repo, meta = context[fact]
+        if slot == "rec":
+            b.event(b.at(b.next_day()), user, fact, repo=repo, meta=meta)
         else:
-            signal, kind = b.rng.choice(CONFIRMS)
             b.event(
-                b.at(day),
-                confirmer,
-                f_a,
+                b.at(b.next_day()),
+                user,
+                fact,
                 signal=signal,
                 kind=kind,
                 outcome="success",
-                refs=b.events_of(f_a),
-                repo=repo_a,
-                meta=meta_a,
+                refs=b.events_of(fact),
+                repo=repo,
+                meta=meta,
             )
-    for kind, day in _probes_in_random_order(b):
-        repo, meta = (repo_b, meta_b) if kind == "block" else (repo_a, meta_a)
-        b.probe(f"p_{kind}", kind, b.at(day), asker, [f_a, f_b], repo=repo, meta=meta)
+    block_in = b.rng.choice([f_a, f_b])
+    for probe_kind, day in _probes_in_random_order(b):
+        held = block_in if probe_kind == "block" else (f_b if block_in == f_a else f_a)
+        repo, meta = context[held]
+        b.probe(
+            f"p_{probe_kind}",
+            probe_kind,
+            b.at(day),
+            asker,
+            [f_a, f_b],
+            repo=repo,
+            meta=meta,
+        )
     return b.build()
 
 

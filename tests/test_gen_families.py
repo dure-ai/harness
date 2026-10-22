@@ -166,9 +166,12 @@ def test_skeleton_matches_family_row(family: str) -> None:
         assert a == {"service": "widget"} and b and b != a
         block = next(p for p in s.probes if p.kind == "block")
         promote = next(p for p in s.probes if p.kind == "promote")
-        assert not true_at(facts["f_a"], block.t, probe_ctx(block))
-        assert true_at(facts["f_b"], block.t, probe_ctx(block))
-        assert true_at(facts["f_a"], promote.t, probe_ctx(promote))
+        # The two probes are asked in the two contexts; which one gets the block probe is
+        # seeded (it used to be always B), so each holds exactly one of the facts.
+        for p in (block, promote):
+            held = [f for f in ("f_a", "f_b") if true_at(facts[f], p.t, probe_ctx(p))]
+            assert len(held) == 1, p.id
+        assert probe_ctx(block) != probe_ctx(promote)
     elif family == "workaround_then_root":
         wa, root = facts["f_workaround"], facts["f_root"]
         assert (wa.fix, root.fix) == ("workaround", "root")
@@ -375,6 +378,108 @@ def test_conditional_uses_candidate_condition() -> None:
     assert validate_scenario(_filled(_skeleton("conditional", cand), cand)) == []
 
 
+_OLD_SUFFIXES = ("worker", "gateway", "batch", "admin")
+_CONDITIONS: list[dict[str, str]] = [
+    {},
+    {"service": "api"},
+    {"env": "prod"},
+    {"os": "linux"},
+    {"repo": "acme/widget"},
+    {"python": "3.11"},
+]
+
+
+def _conditional(cond: dict[str, str], seed: int) -> Scenario:
+    return _skeleton("conditional", _cand(condition=cond), seed=seed).scenario
+
+
+def _changed(s: Scenario) -> tuple[str, str, str]:
+    """(key, A value, B value) of the one condition the two contexts differ in."""
+    a, b = s.facts["f_a"].conditions, s.facts["f_b"].conditions
+    (key,) = [k for k in a if a[k] != b[k]]
+    return key, a[key], b[key]
+
+
+def test_conditional_block_context_is_not_predictable_from_the_suffix() -> None:
+    # Before: B was A plus a suffix ("api-worker") and the block probe was always asked under
+    # B, so "block iff the context value has a suffix" was right every time (repro d8).
+    for cond in _CONDITIONS:
+        block_in_b = 0
+        for seed in range(300):
+            s = _conditional(cond, seed)
+            key, va, vb = _changed(s)
+            assert va != vb
+            assert not vb.startswith(va) and not va.startswith(vb), (cond, seed, va, vb)
+            assert not any(vb.endswith(f"-{x}") for x in _OLD_SUFFIXES), vb
+            block = next(p for p in s.probes if p.kind == "block")
+            block_in_b += probe_ctx(block).get(key) == vb
+        # The block probe is asked under the derived value about half the time: knowing which
+        # value was made up does not tell the probe kind. 300 fair draws stay in 0.4-0.6.
+        assert 0.4 <= block_in_b / 300 <= 0.6, (cond, block_in_b)
+
+
+def test_conditional_second_value_comes_from_a_pool_of_its_kind() -> None:
+    seen: dict[str, set[str]] = {}
+    for cond in ({"service": "api"}, {"env": "prod"}, {"os": "linux"}, {"repo": "acme/widget"}):
+        for seed in range(60):
+            key, va, vb = _changed(_conditional(cond, seed))
+            seen.setdefault(key, set()).add(vb)
+    assert seen["env"] <= {"staging", "dev", "qa", "test"}
+    assert seen["os"] <= {"macos", "windows"}
+    assert all(v.startswith("acme/") and v != "acme/widget" for v in seen["repo"])
+    assert "api" not in seen["service"] and len(seen["service"]) >= 3  # drawn by seed
+
+
+def _support(s: Scenario, fact: str) -> list[tuple]:
+    return sorted((e.signal, e.kind, e.outcome, bool(e.refs)) for e in s.events if e.fact == fact)
+
+
+def test_conditional_contexts_have_equal_support() -> None:
+    # Before: A had two records and a confirmation, B a single record, so "fewer records in
+    # the probe's context" also gave the block probe away.
+    for cond in _CONDITIONS:
+        for seed in range(50):
+            s = _conditional(cond, seed)
+            assert _support(s, "f_a") == _support(s, "f_b"), (cond, seed)
+            assert len(_support(s, "f_a")) == 3
+            for f in ("f_a", "f_b"):
+                users = {e.user for e in s.events if e.fact == f}
+                assert len(users) == 3
+            counts = [
+                sum((e.repo, e.meta) == (p.repo, p.meta) for e in s.events) for p in s.probes
+            ]
+            assert counts[0] == counts[1] == 3, (cond, seed)
+
+
+def test_conditional_roles_swap_across_seeds() -> None:
+    roles = set()
+    for seed in range(40):
+        s = _conditional({"service": "api"}, seed)
+        block = next(p for p in s.probes if p.kind == "block")
+        promote = next(p for p in s.probes if p.kind == "promote")
+        false_at_block = next(f for f in ("f_a", "f_b") if not true_at(s.facts[f], block.t, probe_ctx(block)))
+        true_at_promote = next(f for f in ("f_a", "f_b") if true_at(s.facts[f], promote.t, probe_ctx(promote)))
+        assert false_at_block == true_at_promote
+        roles.add(false_at_block)
+    assert roles == {"f_a", "f_b"}
+
+
+@pytest.mark.parametrize("family", ALL)
+def test_filled_skeleton_passes_validation_for_many_seeds(family: str) -> None:
+    for seed in range(150):
+        s = _filled(_skeleton(family, seed=seed))
+        assert validate_scenario(s) == [], seed
+
+
+def test_conditional_passes_the_checks_for_every_condition_kind() -> None:
+    for cond in _CONDITIONS:
+        for seed in range(20):
+            cand = _cand(condition=cond)
+            s = _filled(_skeleton("conditional", cand, seed=seed), cand)
+            assert validate_scenario(s) == [], (cond, seed)
+            assert check_discrimination(s, EvalConfig()) == [], (cond, seed)
+
+
 @pytest.mark.parametrize(
     ("family", "fabricated"),
     [
@@ -427,6 +532,40 @@ def test_apply_slots_rejects_secret_markers_outside_secret_events() -> None:
     first = next(iter(data["events"]))
     data["events"][first]["secret_markers"] = ["hunter2"]
     with pytest.raises(ValueError, match="secret"):
+        apply_slots(sk, BodySlots(**data))
+
+
+def test_quoted_origin_on_fabricated_fact_is_rejected() -> None:
+    # Before: any event could claim `origin: quoted`, even one stating an invented fact (repro d7).
+    cases = [
+        ("truth_change", lambda s: next(e.id for e in s.events if e.fact == "f_new")),  # fabricated
+        ("coincidence", lambda s: next(e.id for e in s.events if e.fact == "f_false")),  # never true
+    ]
+    for family, pick in cases:
+        sk = _skeleton(family)
+        data = fake_slots("", slots_prompt_block(slots_for(sk, _cand())))
+        eid = pick(sk.scenario)
+        data["events"][eid]["origin"] = "quoted"
+        with pytest.raises(ValueError, match=f"quoted.*{eid}"):
+            apply_slots(sk, BodySlots(**data))
+    # The candidate's own fact may be quoted.
+    sk = _skeleton("truth_change")
+    data = fake_slots("", slots_prompt_block(slots_for(sk, _cand())))
+    own = next(e.id for e in sk.scenario.events if e.fact == "f_old")
+    data["events"][own]["origin"] = "quoted"
+    apply_slots(sk, BodySlots(**data))
+
+
+def test_quoted_origin_on_noise_event_is_rejected() -> None:
+    sk = _skeleton("truth_change")
+    noise = sk.scenario.events[0].model_copy(update={"id": "e_noise", "fact": None, "refs": []})
+    sk = Skeleton(
+        scenario=sk.scenario.model_copy(update={"events": [*sk.scenario.events, noise]}),
+        secret_event_ids=sk.secret_event_ids,
+    )
+    data = fake_slots("", slots_prompt_block(slots_for(sk, _cand())))
+    data["events"]["e_noise"]["origin"] = "quoted"
+    with pytest.raises(ValueError, match="quoted.*e_noise"):
         apply_slots(sk, BodySlots(**data))
 
 

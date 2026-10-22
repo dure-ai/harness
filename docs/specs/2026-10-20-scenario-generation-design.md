@@ -113,6 +113,7 @@ flowchart LR
 ### 5.3 인용 검사 (코드)
 
 - `quote`가 `messages[message_index]`(content 또는 tool call 인자)에 **그대로** 들어 있는지 확인한다. 공백 차이만 허용한다. [판단]
+- 인용은 공백을 뺀 `min_quote_chars`(기본 8)자 이상이면서 두 단어 이상이어야 한다. 아니면 `quote_too_short`로 버린다. "e" 같은 조각은 거의 모든 메시지에 들어 있어 근거가 되지 못하기 때문이다. "uv run pytest"는 통과한다. [판단]
 - 없으면 버리고 거절 로그에 남긴다. [설계]
 - 같은 궤적에서 `statement`가 거의 같은 후보(토큰 Jaccard 0.8 이상)는 하나만 남긴다. [판단]
 
@@ -130,6 +131,14 @@ flowchart LR
   - 예: `failure_feedback`에서 틀린 근거로 행동한 뒤의 실패 기록은 "그 방법은 실패했고 X가 맞다"처럼 참인 사실을 말하게 쓰고 `fact`를 그 참인 사실로 단다. 참인 대안을 말하지 않는 순수한 실패 보고만 필요하면 `fact: null`(잡음)로 둔다.
   - 그래서 5.6의 판정 문자열 검사도 판정 기록에 그대로 적용된다(`fact`가 있으면 그 사실의 `markers`가 본문에 있어야 함).
 - **판정 기록인 자리와 단독 증거인 자리**는 계열 틀이 정한다. 기본 규칙: 앞선 기록의 사실을 확인하거나 뒤집는 CI·사람 확인은 판정 기록(`refs` 있음), 새 사실을 처음 보여 주는 CI·사람 확인은 단독 증거(`refs` 없음)다. [판단]
+- **`conditional`의 구조 단서 제거** [결정 D-5]. 엔진은 문항의 맥락(`repo`, `meta`)과 기록을 볼 수 있으므로, 구조만으로 정답 종류가 드러나지 않게 한다.
+  - 두 번째 맥락 B의 값은 A의 값에 접미사를 붙이지 않고, 같은 종류의 이름 풀에서 A와 다른 값을 시드로 고른다(서비스 이름, 환경 `prod`/`staging`/`dev`/`qa`, 운영체제, 저장소는 같은 소유자 아래 서비스 이름, 버전은 숫자 하나를 바꿈, 그 밖은 배포 채널 이름).
+  - 두 맥락이 같은 수·같은 종류의 근거를 가진다: 사실마다 서로 다른 사용자 셋이 일반 기록 둘과 그 기록을 `refs`로 가리키는 확인 하나(두 사실이 같은 신호)를 남기고, 두 사실의 기록은 시드 순서로 섞인다.
+  - block 문항을 두 맥락 중 어디서 물을지 시드로 정하고(역할 교환), promote 문항은 다른 맥락에서 묻는다. 어느 쪽이 지어낸 값인지 알아도 문항 종류를 알 수 없다(시드 300개에서 "접미사가 있으면 block", "근거가 적으면 block" 규칙의 정확도가 50%).
+- **알려진 한계: 문항 순서 단서** [결정 D-5, 후속]. 다음 계열은 문항의 시각 순서가 정답 종류와 묶여 있고 이번에는 고치지 않는다. 가짜 문항을 더해 순서를 섞는 것은 후속 작업이다.
+  - `truth_change`, `workaround_then_root`: promote는 경계 전, block은 경계 후에 묻으므로 늘 block이 나중이다.
+  - `echo`, `failure_feedback`: 되먹임을 받는 block 문항들 뒤에 promote 문항이 늘 마지막에 온다.
+  - `leak_cross_team`: leak 문항의 질문자는 늘 다른 팀 사람이다(계열의 정의상 피할 수 없음).
 - 계열 틀은 생성 파이프라인과 `harness scenario new`가 같이 쓴다.
 
 ### 5.5 본문 쓰기 (LLM)
@@ -144,6 +153,8 @@ flowchart LR
 - LLM은 정답 라벨을 **보고** 쓴다. 엔진이 받는 것이 아니라 시나리오를 만드는 단계이기 때문이다. 대신 6단계가 정답 단서가 본문에 새지 않았는지 검사한다.
 - 언어는 영어다. [결정]
 - 저장소 이름과 경로는 궤적의 실제 값을 쓴다. 사람 이름은 쓰지 않고 `u1`, `u2` 같은 id만 쓴다. [판단]
+- 이벤트마다 `origin`(`quoted`/`written`)을 함께 받는다. `quoted`는 원래 후보의 참인 사실(지어내지 않았고 `valid`가 참)을 말하는 이벤트에만 붙일 수 있다. 지어낸 사실, `valid: false`인 사실, 사실이 없는 잡음 이벤트에 `quoted`가 오면 응답 검사(`apply_slots`)에서 거절하고 오류를 붙여 한 번 다시 묻는다. 궤적은 그런 사실을 뒷받침하지 않기 때문이다. [결정]
+- 문항 규칙(프롬프트 9·10): 질문은 대상 사실 기록의 핵심 용어와 마커 단어를 그대로 쓴다. 문항 종류가 무엇으로 채점되는지는 프롬프트에 쓰지 않는다. 짝 문항은 같은 형식과 어조를 쓰고, 질문 표현만으로 정답 종류를 추측할 수 없어야 하며, 어떤 사실도 전제하거나 의심하지 않는다. 계열마다 짝 문항의 문구를 실제로 같게 만드는 틀 변경은 후속이다. [결정]
 
 ### 5.6 자동 검증 (코드)
 
@@ -152,9 +163,13 @@ flowchart LR
 1. 기존 형식 검증(`validate_scenario`)과 변별력 검사(`check_discrimination`). 검증기는 비밀 문자열 배타성(`secret_marker_not_exclusive`), 문항이 묻는 사실의 판정 문자열이 다른 사실의 기록 본문에 섞임(`marker_bleed`), 모르는 팀(`unknown_team`)도 본다. 검증기 오류가 있으면 거기서 멈추므로 두 층이 같은 결함을 잡을 때는 검증기 코드가 먼저 나온다.
 2. **판정 문자열 실림**: 사실의 `markers` 중 하나 이상이 그 사실과 연결된 이벤트 본문에 실제로 들어 있다(대소문자 무시).
 3. **다른 사실 재언급 금지**: 이벤트 본문에 **다른** 사실의 `markers`가 들어 있지 않다. 그러면 근거 판정이 섞인다. 문항이 묻는 사실은 검증기(`marker_bleed`)가 먼저 잡고, 이 검사는 어느 문항도 묻지 않는 사실의 마커까지 맡는다.
-4. **정답 단서 금지**: 이벤트 본문과 질문에 금지어(`outdated`, `no longer true`, `rumor`, `unverified`, `fake`, `false`, `deprecated` 등, 목록은 설정)가 없다. 단 사실 자체가 그 단어를 담아야 하는 경우(예: "`--legacy` flag is deprecated")는 그 사실의 `markers`에 있으면 허용한다. [판단]
+4. **정답 단서 금지**: 이벤트 본문과 질문에 금지어(`outdated`, `no longer`, `false`, `legacy`, `obsolete`, `superseded`, `stale`, `wrong`, `replaced by` 등, 목록은 설정)가 없다. 검사 전에 다음을 지운다. [판단]
+   - 백틱(`` ` ``) 안의 코드 조각. `` `enabled: false` `` 같은 설정 줄이 막히지 않게 한다.
+   - 그 이벤트가 말하는 사실 자신의 `markers`가 본문에 나온 자리. 사실 자체가 그 단어를 담아야 하는 경우(예: 마커 "`--legacy flag is deprecated`")는 마커 안에서만 허용되고, 같은 단어가 본문의 다른 곳에 있으면 걸린다(예전에는 마커에 금지어가 있으면 본문 어디서나 허용됐다).
+   - 질문(`query`)에는 마커 예외가 없고 코드 조각만 지운다.
 5. **비밀 문자열**: 누출 계열에서 `secret_markers`가 비밀 기록 본문에 들어 있고, 공개 기록에는 없다. 질문자가 볼 수 있는 기록에 새면 검증기(`secret_marker_not_exclusive`)가 먼저 잡고, 이 검사는 아무 질문자도 볼 수 없는 기록까지 맡는다.
-6. 경고(저장은 함): `markers_missing` 등 기존 경고.
+6. **인용 근거**: `origin: quoted`인 근거는 그 이벤트가 원래 후보의 참인 사실을 말할 때만 허용하고(`quoted_unsupported`), 인용문이 본문에 들어 있어야 한다(`quoted_evidence_mismatch`).
+7. 경고(저장은 함): `markers_missing` 등 기존 경고.
 
 떨어진 초안은 거절 로그에 (단계, 검사 코드, 메시지)로 남긴다. 같은 후보로 한 번 더 시도하지는 않는다. [판단]
 
@@ -226,9 +241,11 @@ flowchart LR
   timeout_s: 300               # per request
   max_retries: 2               # SDK retries
   token_param: max_completion_tokens   # openai only: max_completion_tokens | max_tokens | none
-  prompt_version: gen-v0.2   # 10/21: 본문 프롬프트 규칙 보강으로 올림
+  prompt_version: gen-v0.3   # 10/22: 문항 표현 규칙(9·10), quoted 규칙으로 올림
   max_candidates_per_trace: 5
-  banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated]
+  banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated, "false", "no longer true",
+    legacy, obsolete, superseded, stale, incorrect, wrong, retired, "replaced by", "not valid anymore"]
+  min_quote_chars: 8           # 후보 인용의 최소 길이(공백 제외), 두 단어 이상
   ```
 - 요청 한도: 두 SDK 모두 `timeout_s`(기본 300초)와 `max_retries`(기본 2)를 받는다. 300초는 출력 한도 16,000토큰의 정상 응답이 스트리밍 없이 도는 최대 시간(약 5분)이다. 최악은 요청 하나가 `timeout_s × (max_retries + 1)` = 15분이고, 연속 3번 실패하면 멈추는 기존 규칙이 그대로 있다. [판단]
 - 출력 토큰 한도: Claude는 `max_tokens`로 보낸다. OpenAI 호환 서버는 이름이 서버마다 달라 `token_param`(`max_completion_tokens` 기본, `max_tokens`, 또는 `none`=보내지 않음)으로 고르며, 한도에 닿으면(`finish_reason: length`) 잘림으로 보고한다. [판단]

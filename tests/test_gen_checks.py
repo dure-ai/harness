@@ -1,6 +1,8 @@
+from pathlib import Path
+
 from harness.config import EvalConfig
 from harness.generate.checks import _secret_issues, check_draft, secret_events
-from harness.generate.config import GenConfig
+from harness.generate.config import GenConfig, load_gen_config
 from harness.scenario.model import Evidence, Provenance, Scenario
 from harness.scenario.validate import Issue
 from tests.factories import T, ev, fact, probe, scenario
@@ -126,8 +128,67 @@ def deprecated_flag_scenario(text: str) -> Scenario:
 
 
 def test_cue_word_allowed_when_part_of_marker():
+    # The marker's own occurrences are masked before the scan, so a cue word inside them is
+    # fine; the same word anywhere else in the body is not (see the masked-not-exempt test).
     s = deprecated_flag_scenario("note: the --legacy flag is deprecated in the cli")
     assert check_draft(s, CFG, GEN) == []
+    s = deprecated_flag_scenario("the --LEGACY flag is deprecated; again: --legacy flag is deprecated")
+    assert check_draft(s, CFG, GEN) == []
+
+
+def test_cue_word_in_own_marker_is_masked_not_exempt():
+    # Before: a cue word inside the event's own marker was allowed anywhere in the body.
+    s = deprecated_flag_scenario("the --legacy flag is deprecated, and the old cli is deprecated too")
+    issue = only(check_draft(s, CFG, GEN), "cue_word")
+    assert "e1" in issue.message and "deprecated" in issue.message
+
+
+def test_cue_word_masking_does_not_join_a_phrase_across_the_marker():
+    facts = {"f": fact(text="use the cache flag", markers=["cache flag"])}
+    events = [ev("e1", T("10-01 10:00"), fact="f", text="no cache flag longer than a week")]
+    probes = [probe("p1", "promote", T("10-05 10:00"), ["f"], query="cache flag")]
+    s = scenario(facts, events, probes, family="normal_repeat")
+    assert "cue_word" not in codes(check_draft(s, CFG, GEN))
+
+
+REVIEW_CUE_WORDS = [
+    "false",
+    "no longer true",
+    "legacy",
+    "obsolete",
+    "superseded",
+    "stale",
+    "incorrect",
+    "wrong",
+    "retired",
+    "replaced by",
+    "not valid anymore",
+]
+"""Words the review found passing the default list (repro d5_cuewords.py)."""
+
+
+def test_cue_words_include_review_list():
+    gen = load_gen_config(Path(__file__).resolve().parent.parent / "config" / "gen-v0.1.yaml")
+    for word in REVIEW_CUE_WORDS:
+        s = with_event_text(truth_change(), "tc_o1", f"vendor v1 {word} option")
+        hits = [i for i in check_draft(s, CFG, gen) if i.code == "cue_word"]
+        assert hits and all("tc_o1" in i.message for i in hits), word
+        q = [p.model_copy(update={"query": f"vendor v2 {word}?"}) if p.id == "p_promote" else p
+             for p in truth_change().probes]
+        s = truth_change().model_copy(update={"probes": q})
+        assert any("p_promote" in i.message for i in check_draft(s, CFG, gen) if i.code == "cue_word"), word
+
+
+def test_cue_word_inside_code_span_is_allowed():
+    gen = GEN.model_copy(update={"banned_cue_words": [*GEN.banned_cue_words, "false"]})
+    s = with_event_text(truth_change(), "tc_o1", "vendor v1 builds with `enabled: false` in setup.cfg")
+    assert "cue_word" not in codes(check_draft(s, CFG, gen))
+    s = with_event_text(truth_change(), "tc_o1", "vendor v1 builds with ``x = `false` ``, see docs")
+    assert "cue_word" not in codes(check_draft(s, CFG, gen))
+    s = with_event_text(truth_change(), "tc_o1", "vendor v1 says `enabled` is false")
+    assert "false" in only(check_draft(s, CFG, gen), "cue_word").message
+    s = with_event_text(truth_change(), "tc_o1", "vendor v1 is false `unclosed span")
+    assert "false" in only(check_draft(s, CFG, gen), "cue_word").message
 
 
 def test_cue_word_not_allowed_for_other_event_fact():
@@ -243,3 +304,32 @@ def test_quoted_evidence_match_folds_whitespace_and_case():
         Evidence(event_id="tc_n", origin="quoted"),
     )
     assert check_draft(s, CFG, GEN) == []
+
+
+def test_quoted_evidence_on_false_or_missing_fact_is_an_error():
+    # Only the candidate's own true fact comes from the trace; a fabricated or never-true fact,
+    # or a noise event, cannot be quoted from it.
+    s = truth_change()
+    noise = ev("noise", T("10-05 10:00"), text="the build runs nightly")
+    s = s.model_copy(update={"events": [*s.events, noise]})
+    prov = Provenance(
+        author="llm",
+        fabricated_facts=["f_new"],
+        evidence=[
+            Evidence(event_id="tc_o1", quote="vendor v1 works", origin="quoted"),
+            Evidence(event_id="tc_n", quote="vendor v2 is required", origin="quoted"),
+            Evidence(event_id="noise", quote="the build runs", origin="quoted"),
+        ],
+    )
+    issues = [i for i in check_draft(s.model_copy(update={"provenance": prov}), CFG, GEN)
+              if i.code == "quoted_unsupported"]
+    assert [i.level for i in issues] == ["error", "error"]
+    assert "tc_n" in issues[0].message and "noise" in issues[1].message
+
+    p = poison()
+    prov = Provenance(author="llm", evidence=[
+        Evidence(event_id="sp_b1", quote="skip lint step", origin="quoted"),
+        Evidence(event_id="sp_g1", quote="run lint before commit", origin="quoted"),
+    ])
+    issue = only(check_draft(p.model_copy(update={"provenance": prov}), CFG, GEN), "quoted_unsupported")
+    assert "sp_b1" in issue.message

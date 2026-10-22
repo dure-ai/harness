@@ -38,15 +38,23 @@ def _cue_pattern(word: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
 
 
+_CODE_SPAN = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+_MASK = "\0"  # neither a word character nor whitespace, so no cue phrase can span it
+
+
 def _cue_words(
-    text: str, patterns: dict[str, re.Pattern[str]], allowed: Sequence[str] = ()
+    text: str, patterns: dict[str, re.Pattern[str]], own_markers: Sequence[str] = ()
 ) -> list[str]:
-    """Banned cue words found in `text`, except those inside one of the `allowed` markers."""
-    return [
-        word
-        for word, pat in patterns.items()
-        if pat.search(text) and not any(pat.search(marker) for marker in allowed)
-    ]
+    """Banned cue words found in `text` outside backtick code spans and the `own_markers`.
+
+    Code spans (`` `enabled: false` ``) and every occurrence of one of the event's own fact
+    markers are masked first, longest marker first, so a cue word inside them is allowed and
+    the same word anywhere else in the text is not.
+    """
+    masked = _CODE_SPAN.sub(_MASK, text)
+    for marker in sorted((m for m in own_markers if m), key=len, reverse=True):
+        masked = re.sub(re.escape(marker), _MASK, masked, flags=re.IGNORECASE)
+    return [word for word, pat in patterns.items() if pat.search(masked)]
 
 
 def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
@@ -118,20 +126,52 @@ def _secret_issues(s: Scenario, secret_event_ids: Sequence[str]) -> list[Issue]:
     return issues
 
 
+def quote_problem(s: Scenario, fact: str | None) -> str | None:
+    """Why an event stating `fact` cannot be quoted from the source trace, or None if it can.
+
+    The trace supports only true facts the template did not invent: a fact with `valid=False`,
+    a fact listed in `provenance.fabricated_facts`, and noise (no fact) cannot be quoted.
+
+    Args:
+        s: The scenario (or skeleton) holding the facts and provenance.
+        fact: The event's fact id.
+
+    Returns:
+        A short reason, or None.
+    """
+    if fact is None:
+        return "it states no fact"
+    if fact in s.provenance.fabricated_facts:
+        return f"its fact {fact} is fabricated"
+    if fact in s.facts and not s.facts[fact].valid:
+        return f"its fact {fact} is never true"
+    return None
+
+
 def _evidence_issues(s: Scenario) -> list[Issue]:
     events = {e.id: e for e in s.events}
-    return [
-        Issue(
-            "error",
-            "quoted_evidence_mismatch",
-            f"event {ev.event_id}: text does not contain its quoted evidence {ev.quote!r}",
-        )
-        for ev in s.provenance.evidence
-        if ev.origin == "quoted"
-        and ev.quote
-        and ev.event_id in events
-        and _fold(ev.quote) not in _fold(events[ev.event_id].text)
-    ]
+    issues: list[Issue] = []
+    for ev in s.provenance.evidence:
+        if ev.origin != "quoted" or ev.event_id not in events:
+            continue
+        event = events[ev.event_id]
+        if (why := quote_problem(s, event.fact)) is not None:
+            issues.append(
+                Issue(
+                    "error",
+                    "quoted_unsupported",
+                    f"event {ev.event_id}: origin is quoted but {why}",
+                )
+            )
+        elif ev.quote and _fold(ev.quote) not in _fold(event.text):
+            issues.append(
+                Issue(
+                    "error",
+                    "quoted_evidence_mismatch",
+                    f"event {ev.event_id}: text does not contain its quoted evidence {ev.quote!r}",
+                )
+            )
+    return issues
 
 
 def blocking(issues: Sequence[Issue]) -> list[Issue]:
@@ -156,7 +196,8 @@ def check_draft(
 
     Order: structural validation; if that finds an error, stop and return its issues.
     Otherwise discrimination, then the body checks (markers, other-fact markers, cue words,
-    secret placement, quoted evidence).
+    secret placement, quoted evidence: only a true, non-fabricated fact can be quoted, and the
+    quote must be in the body).
 
     Args:
         s: The draft scenario.

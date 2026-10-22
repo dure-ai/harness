@@ -75,10 +75,11 @@ def run(
     families: list[str],
     n: int,
     pool: list[Trace] | None = None,
+    gen: GenConfig = GEN,
     **kw: Any,
 ) -> GenerateReport:
     return generate(
-        families, n, SEED, traces() if pool is None else pool, client, CFG, GEN, tmp_path / "out", tmp_path / "run", **kw
+        families, n, SEED, traces() if pool is None else pool, client, CFG, gen, tmp_path / "out", tmp_path / "run", **kw
     )
 
 
@@ -205,6 +206,17 @@ def test_generate_shortfall_reported(tmp_path: Path) -> None:
     reason = report.shortfall["workaround_then_root"]
     assert "0 of 2 made" in reason and "3 traces" in reason and "fix" in reason
     assert not (tmp_path / "out").exists()
+
+
+def test_generate_rejects_short_quotes_with_the_configured_floor(tmp_path: Path) -> None:
+    canned = {"candidates": [{"candidates": [candidate("run the")]} for _ in range(3)]}
+    client = FakeClient(responses=canned, responders={"bodies": fake_slots})
+    report = run(tmp_path, client, ["truth_change"], 1)
+    assert report.written == []
+    assert {r["code"] for r in rejections(tmp_path)} == {"quote_too_short"}
+    low = GEN.model_copy(update={"min_quote_chars": 6})
+    client = FakeClient(responses=canned, responders={"bodies": fake_slots})
+    assert len(run(tmp_path / "low", client, ["truth_change"], 1, gen=low).written) == 1
 
 
 def test_generate_shortfall_when_no_trace_is_usable(tmp_path: Path) -> None:

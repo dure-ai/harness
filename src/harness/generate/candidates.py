@@ -13,6 +13,8 @@ from harness.text import jaccard
 
 _DEDUPE_THRESHOLD = 0.8
 _QUOTE_CHARS = 40
+_MIN_QUOTE_CHARS = 8
+_MIN_QUOTE_WORDS = 2
 _SPACES = re.compile(r"\s+")
 
 Kind = Literal[
@@ -124,15 +126,18 @@ def _fold(text: str) -> str:
 
 
 def check_quotes(
-    trace: Trace, cands: list[FactCandidate]
+    trace: Trace, cands: list[FactCandidate], min_chars: int = _MIN_QUOTE_CHARS
 ) -> tuple[list[FactCandidate], list[Rejection]]:
-    """Keep the candidates whose quote really appears in the message they cite.
+    """Keep the candidates whose quote really appears in the message they cite and is long enough.
 
-    Whitespace runs are folded to one space on both sides before comparing.
+    Whitespace runs are folded to one space on both sides before comparing. A quote found in
+    the message must also have at least `min_chars` non-space characters and two words, so a
+    fragment like "e" (found in almost any message) is not taken as evidence.
 
     Args:
         trace: Trajectory the candidates came from.
         cands: Candidates to check.
+        min_chars: Least number of non-space characters (`GenConfig.min_quote_chars`).
 
     Returns:
         The passing candidates in order, and a rejection for each of the others.
@@ -158,6 +163,19 @@ def check_quotes(
                     stage="candidates",
                     code="quote_not_found",
                     message=f"candidate {c.index} quote not found in message #{c.message_index}",
+                    trace_id=trace.trajectory_id,
+                )
+            )
+            continue
+        if len(quote.replace(" ", "")) < min_chars or len(quote.split()) < _MIN_QUOTE_WORDS:
+            rejected.append(
+                Rejection(
+                    stage="candidates",
+                    code="quote_too_short",
+                    message=(
+                        f"candidate {c.index} quote {quote!r} is shorter than {min_chars} "
+                        f"non-space characters or {_MIN_QUOTE_WORDS} words"
+                    ),
                     trace_id=trace.trajectory_id,
                 )
             )
