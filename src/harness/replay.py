@@ -165,11 +165,19 @@ def _generated(
     default_delay,
     scenario: Scenario,
     refs: Sequence[str] = (),
+    not_before: datetime | None = None,
 ) -> LabeledEvent:
-    """Build the agent-side record for `probe`; no marker says it followed a search result."""
+    """Build the agent-side record for `probe`; no marker says it followed a search result.
+
+    The record is written `probe.t` plus the template's `delay` (or `default_delay`), but never
+    earlier than `not_before`.
+    """
+    t = probe.t + (tmpl.delay if tmpl.delay is not None else default_delay)
+    if not_before is not None:
+        t = max(t, not_before)
     event = Event(
         id=event_id,
-        t=probe.t + (tmpl.delay if tmpl.delay is not None else default_delay),
+        t=t,
         user=probe.user,
         session=probe.session,
         repo=probe.repo,
@@ -205,15 +213,21 @@ def feedback_events(
 
     Returns:
         (slot, event) pairs: the action record, then the outcome record when the agent acted.
+        The outcome record is never earlier than the action record (it is clamped to the action
+        record's time); with no action record it is `probe.t` plus its delay.
     """
     used = set(taken)
 
     def make(
-        tmpl: FeedbackTemplate, slot: str, delay, refs: Sequence[str] = ()
+        tmpl: FeedbackTemplate,
+        slot: str,
+        delay,
+        refs: Sequence[str] = (),
+        not_before: datetime | None = None,
     ) -> tuple[str, LabeledEvent]:
         event_id = generated_event_id(scenario, probe, slot, used)
         used.add(event_id)
-        return slot, _generated(probe, tmpl, event_id, delay, scenario, refs)
+        return slot, _generated(probe, tmpl, event_id, delay, scenario, refs, not_before)
 
     feedback = probe.feedback
     if feedback is None:
@@ -228,15 +242,18 @@ def feedback_events(
         pick = wrong[0] if wrong else min(choice.basis)
         action_tmpl = feedback.action.get(pick)
     generated = []
+    action_t = None
     if action_tmpl is not None:
         generated.append(make(action_tmpl, "action", cfg.feedback.action))
+        action_t = generated[0][1].event.t
     if not abstained:
         if is_wrong(choice.basis, probe, scenario):
             tmpl, delay = feedback.on_false, cfg.feedback.on_false
         else:
             tmpl, delay = feedback.on_true, cfg.feedback.on_true
         if tmpl is not None:
-            generated.append(make(tmpl, "outcome", delay, judged))
+            # The outcome never precedes the action record; equal times keep insertion order.
+            generated.append(make(tmpl, "outcome", delay, judged, action_t))
     return generated
 
 

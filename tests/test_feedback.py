@@ -94,6 +94,83 @@ def test_on_true_outcome_immediate_and_template_delay():
     assert gen(run, "p1", "action").event.t == T("10-10 10:01")
 
 
+def test_explicit_template_delay_is_clamped_to_action_time():
+    s = _scenario()
+    s.probes[0].feedback.on_true = _tmpl("deploy passed", outcome="success", delay=timedelta(0))
+    s.probes[0].feedback.action["f_new"] = _tmpl("beta", delay=timedelta(minutes=1))
+    s.probes[0] = s.probes[0].model_copy(update={"query": "beta host"})
+    s.events.append(ev("e_new", T("10-06 10:00"), fact="f_new", text="deploy host beta"))
+    run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=CFG)
+    assert gen(run, "p1", "outcome").event.t == T("10-10 10:01")
+
+
+class _OrderRecorder(AllStoreEngine):
+    def __init__(self):
+        super().__init__()
+        self.log = []
+
+    def record(self, event):
+        self.log.append((event.t, event.text))
+        super().record(event)
+
+
+def _true_follow_scenario(*, with_action=True, on_true_delay=None):
+    fb = Feedback(
+        action={"f_new": _tmpl("ACTION did it", fact="f_act")} if with_action else {},
+        on_true=_tmpl("OUTCOME passed", signal="test", outcome="success", delay=on_true_delay),
+        on_false=_tmpl("OUTCOME failed", signal="test", outcome="failure"),
+    )
+    return scenario(
+        family="echo",
+        mode="feedback",
+        facts={"f_new": fact(valid_from=T("10-05 00:00"))},
+        events=[ev("e_new", T("10-06 10:00"), fact="f_new", text="deploy host beta")],
+        probes=[probe("p1", "promote", T("10-10 10:00"), ["f_new"], query="beta host", feedback=fb)],
+    )
+
+
+def test_outcome_is_never_recorded_before_its_action():
+    engine = _OrderRecorder()
+    run = run_scenario(engine, _true_follow_scenario(), run_id="r", cfg=CFG)
+    assert run.error is None
+    assert gen(run, "p1", "outcome").event.t == gen(run, "p1", "action").event.t == T("10-10 10:05")
+    texts = [text for _, text in engine.log]
+    assert texts.index("ACTION did it") < texts.index("OUTCOME passed")
+    times = [t for t, _ in engine.log]
+    assert times == sorted(times)
+
+
+def test_same_time_outcome_follows_action_in_insertion_order():
+    s = _true_follow_scenario(on_true_delay=timedelta(minutes=5))  # exactly the action time
+    engine = _OrderRecorder()
+    run = run_scenario(engine, s, run_id="r", cfg=CFG)
+    assert gen(run, "p1", "outcome").event.t == gen(run, "p1", "action").event.t
+    texts = [text for _, text in engine.log]
+    assert texts[-2:] == ["ACTION did it", "OUTCOME passed"]
+    # the action is built first, so the timeline's insertion order keeps it ahead
+    events = feedback_events(
+        s.probes[0], Choice(index=0, basis=frozenset({"f_new"})), s, CFG, judged=["e_new"]
+    )
+    assert [slot for slot, _ in events] == ["action", "outcome"]
+
+
+def test_failure_outcome_time_is_unchanged():
+    run = run_scenario(AllStoreEngine(), _scenario(), run_id="r", cfg=CFG)
+    assert gen(run, "p1", "action").event.t == T("10-10 10:05")
+    assert gen(run, "p1", "outcome").event.t == T("10-11 10:00")
+
+
+def test_outcome_counts_from_probe_time_when_no_action_record():
+    s = _true_follow_scenario(with_action=False)
+    engine = _OrderRecorder()
+    run = run_scenario(engine, s, run_id="r", cfg=CFG)
+    assert ("p1", "action") not in run.generated_ids
+    assert gen(run, "p1", "outcome").event.t == T("10-10 10:00")
+    s = _true_follow_scenario(with_action=False, on_true_delay=timedelta(hours=2))
+    run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=CFG)
+    assert gen(run, "p1", "outcome").event.t == T("10-10 12:00")
+
+
 def test_missing_templates_generate_nothing():
     s = _scenario()
     s.probes[0].feedback = Feedback()
