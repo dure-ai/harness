@@ -47,6 +47,15 @@ def test_gen_config_rejects_unknown_key(tmp_path):
         load_gen_config(p)
 
 
+def test_gen_config_rejects_duplicate_key(tmp_path):
+    import yaml
+
+    p = tmp_path / "gen.yaml"
+    p.write_text(GEN_CONFIG.read_text(encoding="utf-8") + "model: other\n", encoding="utf-8")
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'model'"):
+        load_gen_config(p)
+
+
 def test_gen_config_rejects_unknown_provider():
     with pytest.raises(ValidationError):
         GenConfig.model_validate({"provider": "bogus", "model": "m", "prompt_version": "p"})

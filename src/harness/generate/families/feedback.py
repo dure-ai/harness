@@ -18,10 +18,13 @@ from harness.generate.traces import Trace
 from harness.scenario.model import Feedback, FeedbackTemplate
 
 ACTION_DELAY = timedelta(minutes=5)
-"""Delay of the action and abstain records after the probe (spec 6.2)."""
+"""Delay of the action and abstain records, counted from the probe time (spec 6.2)."""
 
 FAILURE_DELAY = timedelta(days=1)
-"""Delay of the `on_false` failure record after the probe (spec 6.2)."""
+"""Delay of the `on_false` failure record, counted from the probe time (spec 6.2).
+
+The replay never records an outcome before its action record (it clamps to the action time);
+a day is far past `ACTION_DELAY`, so the clamp does not move the failure record."""
 
 _BLOCK_GAP_DAYS = (2, 3)
 """Day gap between successive block probes; at least 2 days exceeds `FAILURE_DELAY` whatever

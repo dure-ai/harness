@@ -4,9 +4,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
-import yaml
-
 from harness.config import _Strict
+from harness.yamlio import load_yaml
 
 
 class GenConfig(_Strict):
@@ -52,8 +51,9 @@ def load_gen_config(path: Path) -> GenConfig:
 
     Raises:
         pydantic.ValidationError: If a key is unknown or a value has the wrong type.
+        yaml.YAMLError: If the YAML is invalid or a key appears twice (the message names it).
     """
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    data = load_yaml(Path(path).read_text(encoding="utf-8"))
     return GenConfig.model_validate(data or {})
 
 

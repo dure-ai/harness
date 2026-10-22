@@ -1,8 +1,8 @@
 """The `harness` command line: scenario check and new, selfcheck, run, review, traces and generate."""
 
 import json
-import secrets
 import os
+import secrets
 import tempfile
 from collections import Counter
 from collections.abc import Generator
