@@ -160,7 +160,7 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
 
 ```bash
 uv sync --extra gen                      # anthropic, openai, pyarrow, huggingface_hub 설치
-export ANTHROPIC_API_KEY=...             # openai 호환 공급자는 config/gen-v0.1.yaml의 api_key_env 변수
+export ANTHROPIC_API_KEY=...             # config/gen-v0.1.yaml의 api_key_env를 주면 두 공급자 모두 그 변수를 읽음
 
 # 1. 궤적 조각 받기: 크기(MB)를 보여 주고 y/N을 묻는다. --yes로 건너뜀. 조각 하나가 수백 MB
 uv run harness traces fetch --config v1.2 --split minisweagent --shard 0
@@ -177,7 +177,8 @@ uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하�
 - 자동 검증(`check_draft`)에서 오류가 나거나 `too_easy` 경고가 뜬 초안은 저장하지 않고 거절 로그에 남깁니다. 같은 id의 파일은 손대지 않은 LLM 초안일 때만 새로 씁니다. 상태가 draft가 아니거나, 검토자가 고쳤거나(`provenance.reviewer_edited: true`), 사람이 쓴(`provenance.author`가 `llm`이 아닌) 파일, 읽을 수 없는 파일은 덮어쓰지 않고 요약에 "건너뜀"으로 보여 줍니다.
 - 후보 뽑기에 보내는 궤적은 한 번 실행에 최대 `--max-traces`(기본 100)개입니다. 한도에 닿으면 요약에 표시됩니다.
 - 본문 쓰기 시도는 계열마다 최대 `--max-attempts`(기본: 그 계열 목표 개수 × 3)번입니다. 한도에 닿으면 그 계열을 멈추고 부족 사유에 "stopped at --max-attempts N"이 나옵니다.
-- 같은 입력·시드면 같은 id가 나오고, LLM 응답은 캐시되어 다시 돌려도 호출하지 않습니다.
+- 같은 입력·시드면 같은 id가 나오고, LLM 응답은 캐시되어 다시 돌려도 호출하지 않습니다. 캐시 키에는 `effort`·`temperature`·`max_output_tokens`·`base_url`·`token_param`이 들어가므로 이 설정을 바꾸면 새로 호출합니다.
+- 요청 하나는 `timeout_s`(기본 300초) 안에 끝나야 하고 SDK가 `max_retries`(기본 2)번까지 다시 시도합니다(최악 15분). OpenAI 호환 서버가 `max_completion_tokens`를 모르면 `token_param: max_tokens`(또는 `none`)로 바꿉니다.
 - 키가 없거나 인증이 거부되거나, 모델 이름이 틀렸거나(NotFoundError), 요청이 거부되거나(BadRequestError), 서버에 닿지 않으면(APIConnectionError) 전체가 멈춥니다(종료 코드 2). 그 밖의 LLM 오류(시간 초과, 잘린 응답 등)는 해당 후보나 초안만 거절하지만, 연달아 3번 나면 마지막 오류와 함께 실행을 멈춥니다(종료 코드 2). 요약에는 실행 중 처음 난 LLM 오류가 `first LLM error:`로 나옵니다.
 
 캐시 위치(`T5_HARNESS_CACHE`, 기본 `~/.cache/t5-harness`):

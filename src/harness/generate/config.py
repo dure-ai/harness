@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
+
 from harness.config import _Strict
 from harness.yamlio import load_yaml
 
@@ -24,6 +26,12 @@ class GenConfig(_Strict):
         license_allowlist: SPDX ids of source-repo licenses that may be used.
         banned_cue_words: Words that give away a fact's validity when they appear in event text.
         max_output_tokens: Output token limit of one generation call.
+        timeout_s: Seconds the SDK waits on one request before giving up.
+        max_retries: Times the SDK retries a failed request (connection errors, 429, 5xx).
+            A request takes at most `timeout_s * (max_retries + 1)` seconds.
+        token_param: Name under which an OpenAI-compatible server takes the output token
+            limit: `max_completion_tokens` (OpenAI), `max_tokens` (older servers) or `none`
+            (send no limit). Not used by the anthropic provider.
     """
 
     provider: Literal["anthropic", "openai", "fake"]
@@ -38,6 +46,9 @@ class GenConfig(_Strict):
     license_allowlist: list[str]
     banned_cue_words: list[str]
     max_output_tokens: int = 16000
+    timeout_s: float = Field(default=300, gt=0)
+    max_retries: int = Field(default=2, ge=0)
+    token_param: Literal["max_completion_tokens", "max_tokens", "none"] = "max_completion_tokens"
 
 
 def load_gen_config(path: Path) -> GenConfig:

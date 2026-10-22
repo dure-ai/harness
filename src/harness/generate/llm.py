@@ -206,17 +206,28 @@ class CachedClient:
         hits: Requests answered from disk.
     """
 
-    def __init__(self, inner: LLMClient, cache_dir: Path, prompt_version: str) -> None:
+    def __init__(
+        self,
+        inner: LLMClient,
+        cache_dir: Path,
+        prompt_version: str,
+        settings: Mapping[str, object] | None = None,
+    ) -> None:
         """Wrap a client.
 
         Args:
             inner: Client that answers cache misses.
             cache_dir: Directory for one JSON file per cached reply.
             prompt_version: Prompt revision; part of the key so prompt changes never reuse replies.
+            settings: Generation settings that change what the model returns (effort,
+                temperature, output token limit, endpoint, token parameter name). Part of the
+                key, so a reply made under other settings is never reused. Omitted or empty
+                leaves the key as it was.
         """
         self._inner = inner
         self._dir = Path(cache_dir)
         self._prompt_version = prompt_version
+        self._settings = dict(settings or {})
         self.name = inner.name
         self.model = inner.model
         self.last_model: str | None = None
@@ -233,6 +244,8 @@ class CachedClient:
             user,
             schema.model_json_schema(),
         ]
+        if self._settings:
+            parts.append(self._settings)
         return hashlib.sha256(
             json.dumps(parts, sort_keys=True).encode("utf-8")
         ).hexdigest()
@@ -321,7 +334,7 @@ class AnthropicClient:
     """
 
     name = "anthropic"
-    _KEY_HINT = "ANTHROPIC_API_KEY (or ant auth login)"
+    _DEFAULT_KEY_HINT = "ANTHROPIC_API_KEY (or ant auth login)"
 
     def __init__(self, cfg: GenConfig, sdk: Any = None) -> None:
         """Create the client.
@@ -330,15 +343,28 @@ class AnthropicClient:
             cfg: Generation config.
             sdk: Object with an `Anthropic(**kwargs)` factory, replacing the `anthropic`
                 module. Tests inject a fake.
+
+        Raises:
+            LLMError: Fatal, if `api_key_env` is set but that variable is empty or unset.
         """
         if sdk is None:
             import anthropic as sdk
         self._cfg = cfg
         self.model = cfg.model
         self.last_model: str | None = None
-        self._client = sdk.Anthropic(
-            **({"base_url": cfg.base_url} if cfg.base_url else {})
-        )
+        kwargs: dict[str, Any] = {
+            "timeout": cfg.timeout_s,
+            "max_retries": cfg.max_retries,
+        }
+        if cfg.base_url:
+            kwargs["base_url"] = cfg.base_url
+        if cfg.api_key_env:
+            key = os.environ.get(cfg.api_key_env)
+            if not key:
+                raise LLMError(f"anthropic: {cfg.api_key_env} is not set", fatal=True)
+            kwargs["api_key"] = key
+        self._key_hint = cfg.api_key_env or self._DEFAULT_KEY_HINT
+        self._client = sdk.Anthropic(**kwargs)
 
     def _send(self, system: str, user: str, schema: dict[str, Any]) -> str:
         try:
@@ -359,7 +385,7 @@ class AnthropicClient:
                 isinstance(exc, TypeError) and "authentication method" in str(exc)
             ):
                 raise LLMError(
-                    f"anthropic: authentication failed; set {self._KEY_HINT}",
+                    f"anthropic: authentication failed; set {self._key_hint}",
                     fatal=True,
                 ) from exc
             raise _api_error("anthropic", exc) from exc
@@ -433,10 +459,20 @@ class OpenAIClient:
         self._cfg = cfg
         self.model = cfg.model
         self.last_model: str | None = None
-        self._client = sdk.OpenAI(base_url=cfg.base_url, api_key=key)
+        self._client = sdk.OpenAI(
+            base_url=cfg.base_url,
+            api_key=key,
+            timeout=cfg.timeout_s,
+            max_retries=cfg.max_retries,
+        )
 
     def _send(self, system: str, user: str) -> str:
         try:
+            limit: dict[str, int] = (
+                {}
+                if self._cfg.token_param == "none"
+                else {self._cfg.token_param: self._cfg.max_output_tokens}
+            )
             reply = self._client.chat.completions.create(
                 model=self.model,
                 temperature=self._cfg.temperature,
@@ -445,6 +481,7 @@ class OpenAIClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                **limit,
             )
         except Exception as exc:
             if _is_auth_error(exc):
@@ -496,6 +533,17 @@ class OpenAIClient:
         )
 
 
+def _cache_settings(cfg: GenConfig) -> dict[str, object]:
+    """Generation settings that must separate cached replies."""
+    return {
+        "effort": cfg.effort,
+        "temperature": cfg.temperature,
+        "max_output_tokens": cfg.max_output_tokens,
+        "base_url": cfg.base_url,
+        "token_param": cfg.token_param,
+    }
+
+
 def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
     """Build the client for `cfg.provider`.
 
@@ -526,8 +574,8 @@ def make_client(cfg: GenConfig, cache_dir: Path) -> LLMClient:
             canned = json.loads(Path(cfg.fake_responses).read_text(encoding="utf-8"))
         fake = FakeClient(responses=canned, responders=responders)
         fake.model = cfg.model
-        return CachedClient(fake, cache_dir, cfg.prompt_version)
+        return CachedClient(fake, cache_dir, cfg.prompt_version, _cache_settings(cfg))
     inner: LLMClient = (
         AnthropicClient(cfg) if cfg.provider == "anthropic" else OpenAIClient(cfg)
     )
-    return CachedClient(inner, cache_dir, cfg.prompt_version)
+    return CachedClient(inner, cache_dir, cfg.prompt_version, _cache_settings(cfg))

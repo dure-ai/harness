@@ -19,6 +19,7 @@ def test_gen_config_defaults_from_file():
     assert cfg.prompt_version == "gen-v0.2"
     assert cfg.max_candidates_per_trace == 5
     assert cfg.max_output_tokens == 16000
+    assert (cfg.timeout_s, cfg.max_retries, cfg.token_param) == (300, 2, "max_completion_tokens")
     assert cfg.base_url is None and cfg.api_key_env is None and cfg.fake_responses is None
     assert cfg.license_allowlist == [
         "MIT",
@@ -75,3 +76,19 @@ def test_cache_root_default(monkeypatch, tmp_path):
     monkeypatch.delenv("T5_HARNESS_CACHE", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     assert cache_root() == tmp_path / ".cache" / "t5-harness"
+
+
+def _minimal(**over):
+    data = {"provider": "openai", "model": "m", "prompt_version": "v", "license_allowlist": [],
+            "banned_cue_words": []}
+    data.update(over)
+    return data
+
+
+def test_gen_config_request_limit_defaults_and_bounds():
+    cfg = GenConfig.model_validate(_minimal())
+    assert (cfg.timeout_s, cfg.max_retries, cfg.token_param) == (300, 2, "max_completion_tokens")
+    assert GenConfig.model_validate(_minimal(max_retries=0, token_param="none")).max_retries == 0
+    for bad in ({"timeout_s": 0}, {"timeout_s": -1}, {"max_retries": -1}, {"token_param": "x"}):
+        with pytest.raises(ValidationError):
+            GenConfig.model_validate(_minimal(**bad))

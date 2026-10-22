@@ -207,7 +207,7 @@ flowchart LR
 |---|---|---|
 | 대상 | Anthropic API | Upstage, OpenAI (`base_url`) |
 | SDK | `anthropic` | `openai` |
-| 키 | `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필) | 설정의 `api_key_env`(예: `UPSTAGE_API_KEY`) |
+| 키 | `ANTHROPIC_API_KEY`(또는 `ant auth login` 프로필). `api_key_env`를 주면 그 변수를 읽는다 | 설정의 `api_key_env`(예: `UPSTAGE_API_KEY`) |
 | 기본 모델 | `claude-opus-5-5` [판단] | 설정에서 지정(Upstage 모델명은 미정) |
 | 깊이 조절 | `effort`(기본 `medium`). 온도는 받지 않음 | `temperature`(기본 0.2) |
 | JSON 출력 | 구조화 출력(스키마 지정) | JSON 모드 |
@@ -221,11 +221,18 @@ flowchart LR
   effort: medium               # anthropic only
   temperature: 0.2             # openai only
   base_url: null               # openai only, e.g. Upstage endpoint
-  api_key_env: null            # openai only
+  api_key_env: null            # env var holding the key; anthropic falls back to ANTHROPIC_API_KEY
+  max_output_tokens: 16000
+  timeout_s: 300               # per request
+  max_retries: 2               # SDK retries
+  token_param: max_completion_tokens   # openai only: max_completion_tokens | max_tokens | none
   prompt_version: gen-v0.2   # 10/21: 본문 프롬프트 규칙 보강으로 올림
   max_candidates_per_trace: 5
   banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated]
   ```
+- 요청 한도: 두 SDK 모두 `timeout_s`(기본 300초)와 `max_retries`(기본 2)를 받는다. 300초는 출력 한도 16,000토큰의 정상 응답이 스트리밍 없이 도는 최대 시간(약 5분)이다. 최악은 요청 하나가 `timeout_s × (max_retries + 1)` = 15분이고, 연속 3번 실패하면 멈추는 기존 규칙이 그대로 있다. [판단]
+- 출력 토큰 한도: Claude는 `max_tokens`로 보낸다. OpenAI 호환 서버는 이름이 서버마다 달라 `token_param`(`max_completion_tokens` 기본, `max_tokens`, 또는 `none`=보내지 않음)으로 고르며, 한도에 닿으면(`finish_reason: length`) 잘림으로 보고한다. [판단]
+- 응답 캐시 키에는 프롬프트 판, 공급자, 모델, 요청 내용, 스키마에 더해 생성 설정(`effort`, `temperature`, `max_output_tokens`, `base_url`, `token_param`)이 들어간다. 설정을 바꾸면 이전 응답을 재사용하지 않는다. 이 변경 뒤 첫 실행은 기존 캐시를 한 번 놓친다. [판단]
 - 프롬프트는 `src/harness/generate/prompts/`에 파일로 두고, 바꾸면 `prompt_version`을 올린다.
 - 추가 의존성(`anthropic`, `openai`, `pyarrow`, `huggingface_hub`, `rich`)은 **선택 설치** `uv sync --extra gen`으로 둔다. 채점만 하는 사람은 설치하지 않는다. [판단] 하네스 본체(`harness run` 등)는 이 의존성 없이 돌아야 한다.
 

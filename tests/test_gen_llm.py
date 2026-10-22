@@ -193,9 +193,12 @@ def _anthropic_reply(text: str, stop_reason: str = "end_turn") -> Any:
     return SimpleNamespace(content=blocks, stop_reason=stop_reason)
 
 
-def test_anthropic_request_shape() -> None:
-    sdk, rec = _anthropic_sdk(_anthropic_reply('{"ok": true}'))
+def test_anthropic_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    made: list[dict[str, Any]] = []
+    sdk, rec = _anthropic_sdk(_anthropic_reply('{"ok": true}'), made)
     client = AnthropicClient(_cfg(), sdk=sdk)
+    assert made == [{"timeout": 300, "max_retries": 2}]  # no api_key: the SDK reads its own env
     assert (client.name, client.model) == ("anthropic", "claude-opus-5-5")
     assert client.complete_json("k", "SYS", "USR", Out) == Out(ok=True)
     (call,) = rec.calls
@@ -261,7 +264,8 @@ def test_anthropic_auth_errors_are_fatal_and_name_the_key(
     assert exc.value.fatal is True
 
 
-def test_anthropic_missing_credentials_is_fatal() -> None:
+def test_anthropic_missing_credentials_is_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     err = TypeError("Could not resolve authentication method. Expected one of api_key, auth_token")
     sdk, _ = _anthropic_sdk(err)
     with pytest.raises(LLMError, match="ANTHROPIC_API_KEY") as exc:
@@ -304,10 +308,19 @@ def test_openai_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     client = OpenAIClient(cfg, sdk=sdk)
     assert (client.name, client.model) == ("openai", "local-model")
     assert client.complete_json("k", "SYS", "USR", Out) == Out(ok=True)
-    assert made == [{"base_url": "http://localhost:8000/v1", "api_key": "secret-value"}]
+    assert made == [
+        {
+            "base_url": "http://localhost:8000/v1",
+            "api_key": "secret-value",
+            "timeout": 300,
+            "max_retries": 2,
+        }
+    ]
     (call,) = rec.calls
     assert call["model"] == "local-model"
     assert call["temperature"] == 0.2
+    assert call["max_completion_tokens"] == 16000
+    assert "max_tokens" not in call
     assert call["response_format"] == {"type": "json_object"}
     system, user = call["messages"]
     assert system["role"] == "system"
@@ -470,10 +483,12 @@ def test_openai_length_is_truncation_without_retry(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("OPENAI_API_KEY", "k1")
     choice = SimpleNamespace(message=SimpleNamespace(content='{"ok": tr'), finish_reason="length")
     sdk, rec = _openai_sdk(SimpleNamespace(choices=[choice], model="m"), [])
+    cfg = _cfg(provider="openai", max_output_tokens=123)
     with pytest.raises(LLMError, match="reply truncated at max_output_tokens") as exc:
-        OpenAIClient(_cfg(provider="openai"), sdk=sdk).complete_json("k", "s", "u", Out)
+        OpenAIClient(cfg, sdk=sdk).complete_json("k", "s", "u", Out)
     assert exc.value.fatal is False
     assert len(rec.calls) == 1
+    assert rec.calls[0]["max_completion_tokens"] == 123  # the limit is what makes `length` possible
 
 
 # ---- the model that served the reply ------------------------------------------------------------
@@ -507,3 +522,118 @@ def test_cache_keeps_the_served_model(tmp_path: Path) -> None:
     again = CachedClient(inner, tmp_path, "v1")
     assert again.complete_json("k", "s", "u", Out) == Out(ok=True)
     assert again.hits == 1 and again.last_model == "served-1"
+
+
+# ---- generation settings: cache key, SDK limits, token parameter, Claude key variable ----------
+
+_SETTING_VARIANTS: dict[str, tuple[Any, Any]] = {
+    "effort": ("low", "max"),
+    "temperature": (0.2, 1.0),
+    "max_output_tokens": (16000, 50),
+    "base_url": (None, "http://other-server:8000/v1"),
+    "token_param": ("max_completion_tokens", "max_tokens"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_SETTING_VARIANTS))
+def test_cache_key_differs_when_any_generation_setting_differs(
+    name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    first, second = _SETTING_VARIANTS[name]
+    answer = _openai_reply('{"ok": true}')
+    clients = []
+    for value in (first, second):
+        cfg = _cfg(provider="openai", **{name: value})
+        sdk, _ = _openai_sdk(answer, [])
+        inner = OpenAIClient(cfg, sdk=sdk)
+        clients.append(CachedClient(inner, tmp_path, "v1", settings=_settings_of(cfg)))
+    a, b = clients
+    assert a._key("k", "s", "u", Out) != b._key("k", "s", "u", Out)
+    a.complete_json("k", "s", "u", Out)
+    b.complete_json("k", "s", "u", Out)
+    assert (a.calls, b.calls, b.hits) == (1, 1, 0)  # B did not reuse A's reply
+
+
+def _settings_of(cfg: GenConfig) -> dict[str, object]:
+    return {
+        "effort": cfg.effort,
+        "temperature": cfg.temperature,
+        "max_output_tokens": cfg.max_output_tokens,
+        "base_url": cfg.base_url,
+        "token_param": cfg.token_param,
+    }
+
+
+def test_make_client_cache_separates_generation_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    one = make_client(_cfg(provider="openai", temperature=0.2), tmp_path)
+    two = make_client(_cfg(provider="openai", temperature=1.0), tmp_path)
+    same = make_client(_cfg(provider="openai", temperature=0.2), tmp_path)
+    assert isinstance(one, CachedClient) and isinstance(two, CachedClient)
+    assert isinstance(same, CachedClient)
+    assert one._key("k", "s", "u", Out) != two._key("k", "s", "u", Out)
+    assert one._key("k", "s", "u", Out) == same._key("k", "s", "u", Out)
+
+
+def test_cached_client_without_settings_still_works(tmp_path: Path) -> None:
+    inner = FakeClient(responses={"k": [{"ok": True}]})
+    client = CachedClient(inner, tmp_path, "v1")
+    assert client.complete_json("k", "s", "u", Out) == Out(ok=True)
+    assert client.complete_json("k", "s", "u", Out) == Out(ok=True)
+    assert (client.calls, client.hits) == (1, 1)
+    # No settings is the same key as an empty mapping, so existing cache files stay valid.
+    other = CachedClient(inner, tmp_path, "v1", settings={})
+    assert other._key("k", "s", "u", Out) == client._key("k", "s", "u", Out)
+
+
+def test_sdk_clients_get_timeout_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    made: list[dict[str, Any]] = []
+    sdk, _ = _anthropic_sdk(_anthropic_reply("{}"), made)
+    AnthropicClient(_cfg(timeout_s=45.5, max_retries=0), sdk=sdk)
+    osdk, _ = _openai_sdk(_openai_reply("{}"), made)
+    OpenAIClient(_cfg(provider="openai", timeout_s=45.5, max_retries=0), sdk=osdk)
+    assert [(m["timeout"], m["max_retries"]) for m in made] == [(45.5, 0), (45.5, 0)]
+
+
+@pytest.mark.parametrize(
+    ("token_param", "expected"),
+    [
+        ("max_completion_tokens", {"max_completion_tokens": 77}),
+        ("max_tokens", {"max_tokens": 77}),
+        ("none", {}),
+    ],
+)
+def test_openai_sends_configured_token_param(
+    token_param: str, expected: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    sdk, rec = _openai_sdk(_openai_reply('{"ok": true}'), [])
+    cfg = _cfg(provider="openai", token_param=token_param, max_output_tokens=77)
+    OpenAIClient(cfg, sdk=sdk).complete_json("k", "s", "u", Out)
+    (call,) = rec.calls
+    sent = {k: v for k, v in call.items() if k in ("max_tokens", "max_completion_tokens")}
+    assert sent == expected
+
+
+def test_anthropic_reads_api_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MY_CLAUDE_KEY", "claude-secret")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    made: list[dict[str, Any]] = []
+    sdk, _ = _anthropic_sdk(_anthropic_reply('{"ok": true}'), made)
+    AnthropicClient(_cfg(api_key_env="MY_CLAUDE_KEY", base_url="http://gw"), sdk=sdk)
+    assert made == [
+        {"base_url": "http://gw", "api_key": "claude-secret", "timeout": 300, "max_retries": 2}
+    ]
+
+
+def test_anthropic_missing_api_key_env_is_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MY_CLAUDE_KEY", raising=False)
+    sdk, rec = _anthropic_sdk(_anthropic_reply('{"ok": true}'))
+    with pytest.raises(LLMError, match="MY_CLAUDE_KEY is not set") as exc:
+        AnthropicClient(_cfg(api_key_env="MY_CLAUDE_KEY"), sdk=sdk)
+    assert exc.value.fatal is True
+    assert rec.calls == []
