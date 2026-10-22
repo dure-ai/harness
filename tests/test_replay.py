@@ -215,3 +215,79 @@ def test_search_dicts_validated_into_results():
 def test_malformed_search_return_marks_error(items):
     run = run_scenario(Returns(items), _same_time(), run_id="r", cfg=CFG)
     assert run.error is not None and run.probes == []
+
+
+class Cites(BaseEngine):
+    """Stores nothing and cites fixed event ids, recorded or not."""
+
+    def __init__(self, sources):
+        self.sources = list(sources)
+
+    def info(self):
+        return EngineInfo(name="cites", version="0")
+
+    def reset(self, namespace):
+        pass
+
+    def record(self, event):
+        pass
+
+    def search(self, query):
+        return [Result(text="whatever", sources=self.sources)]
+
+
+def _future_sources():
+    # Reproduces review finding C1: e2 and e3 are recorded only after both probes.
+    return scenario(
+        facts={"f_a": fact(markers=["m"]), "f_bad": fact(markers=["x"], valid=False)},
+        events=[
+            ev("e1", T("10-01 10:00"), fact="f_a"),
+            ev("e2", T("10-20 10:00"), fact="f_a"),
+            ev("e3", T("10-20 10:00"), fact="f_bad", user="u3"),
+        ],
+        probes=[
+            probe("pb", "block", T("10-05 10:00"), ["f_a", "f_bad"]),
+            probe("pp", "promote", T("10-06 10:00"), ["f_a"]),
+        ],
+    )
+
+
+def test_unrecorded_source_id_is_not_evidence():
+    s = _future_sources()
+    run = run_scenario(Cites(["e2", "e3"]), s, run_id="r", cfg=CFG)
+    assert run.error is None
+    by_id = {r.probe_id: r for r in run.probes}
+    assert by_id["pb"].outcome == "BLOCKED"
+    assert by_id["pp"].outcome == "FN"
+    assert all(r.bases == [frozenset()] for r in run.probes)
+    assert not any(r.contaminated or r.reached for r in run.probes)
+    # e3 is another team's event, but it was not recorded yet: nothing could have leaked.
+    assert all(r.leaks == [] for r in run.probes)
+
+    recorded = run_scenario(Cites(["e1"]), s, run_id="r", cfg=CFG)
+    assert {r.probe_id: r.outcome for r in recorded.probes} == {"pb": "BLOCKED", "pp": "TP"}
+
+
+def test_generated_event_is_evidence_only_after_it_is_recorded():
+    from harness.replay import generated_event_id
+    from harness.scenario.model import Feedback, FeedbackTemplate
+
+    s = scenario(
+        family="echo",
+        mode="feedback",
+        facts={"f_a": fact(), "f_gave_up": fact()},
+        events=[ev("e1", T("10-01 10:00"), fact="f_a")],
+        probes=[
+            probe("p1", "block", T("10-10 10:00"), ["f_a"],
+                  feedback=Feedback(abstain=FeedbackTemplate(text="gave up", fact="f_gave_up"))),
+            probe("p_early", "promote", T("10-10 10:01"), ["f_gave_up"]),  # action at 10:05
+            probe("p_late", "promote", T("10-10 10:06"), ["f_gave_up"]),
+        ],
+    )
+    gid = generated_event_id(s, s.probes[0], "action", {"e1"})
+    run = run_scenario(Cites([gid]), s, run_id="r", cfg=CFG)
+    assert run.error is None
+    assert run.generated_ids[("p1", "action")] == gid
+    by_id = {r.probe_id: r for r in run.probes}
+    assert by_id["p_early"].outcome == "FN"
+    assert by_id["p_late"].outcome == "TP"

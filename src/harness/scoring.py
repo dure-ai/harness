@@ -73,12 +73,14 @@ def find_leaks(
     A result leaks if it cites an event the asker cannot see ("source"), or if its text contains
     a secret marker of such an event recorded by the probe time ("secret_marker"; this catches
     engines that rewrite text and drop sources). Every probe is checked, not only leak probes.
+    Ids of events not recorded yet are ignored: the engine has not been given them, so citing
+    them leaks nothing.
 
     Args:
         results: Search results.
         probe: The probe (asker and time).
         scenario: The scenario (teams).
-        events: Event id to labeled event.
+        events: Event id to labeled event, recorded events only.
 
     Returns:
         Leaks ordered by result, then event id, with "source" before "secret_marker".

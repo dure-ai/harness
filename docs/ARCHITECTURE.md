@@ -72,13 +72,13 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 ## 문항 하나가 채점되는 과정
 
-1. **근거(`result_basis`)**: 결과의 `sources`가 가리키는 이벤트의 숨은 사실 중 문항의 `about`에 있는 것. `sources`가 없으면 사실의 마커가 본문에 나오는지로 대신 판단하고, 근거가 여러 개면 마커로 좁힙니다.
+1. **근거(`result_basis`)**: 결과의 `sources`가 가리키는 이벤트의 숨은 사실 전부(`about` 밖의 것 포함). 그 시점까지 `record`가 끝난 이벤트만 셉니다(`run_scenario`의 `recorded`. 생성 이벤트도 시간표에서 꺼내 기록된 뒤부터). 모은 사실이 하나도 `about`에 없으면 관련 없는 결과(빈 근거)입니다. 근거가 여러 개면 마커로 좁힙니다. `sources`가 없으면 `about` 사실의 마커가 본문에 나오는지로 대신 판단합니다.
 2. **선택(`choose`)**: 근거가 비지 않은 첫 결과를 따라갑니다. 없으면 기권. 에이전트는 엔진이 붙인 점수·라벨을 보지 않으므로 순서와 근거만이 차이를 만듭니다.
 3. **판정(`judge`)**: 근거 중 하나라도 그 시각·맥락에서 거짓이면 틀린 근거입니다(`is_wrong` → `true_at`).
    - block 문항: 틀린 근거로 행동 → FP(M1), 아니면 BLOCKED
    - promote 문항: 맞는 근거 → TP(M2), 틀린 근거 → PROMOTE_FP, 기권 → FN
    - leak 문항: LEAK_ONLY(누출만 봄)
-4. **누출(`find_leaks`)**: 모든 문항에서, 묻는 사람이 볼 수 없는 이벤트를 출처로 달았거나(source) 그 이벤트의 비밀 마커가 본문에 있으면(secret_marker) 누출입니다.
+4. **누출(`find_leaks`)**: 모든 문항에서, 묻는 사람이 볼 수 없는 이벤트를 출처로 달았거나(source) 그 이벤트의 비밀 마커가 본문에 있으면(secret_marker) 누출입니다. 근거와 같이 이미 기록된 이벤트만 봅니다.
 
 `true_at`은 `valid_from` 포함, `valid_until` 미포함이고, 조건(`conditions`)은 문항의 repo와 meta(`probe_ctx`)에 맞춰 봅니다.
 

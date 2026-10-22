@@ -42,18 +42,23 @@ def result_basis(
     scenario: Scenario,
     events: Mapping[str, LabeledEvent],
 ) -> frozenset[str]:
-    """Return the probe-relevant facts the agent would act on when following `result`.
+    """Return the facts the agent would act on when following `result` (design 7.2).
 
-    1. With sources: the hidden facts of known source events that are in `probe.about`
-       (unknown ids and duplicates are ignored).
-    2. Without sources: the `about` facts whose markers appear in the text.
-    3. If step 1 yields several facts, keep those whose markers appear in the text, when any do.
+    1. With sources: the hidden facts of the known source events, those outside
+       `probe.about` included (unknown ids, events without a fact and duplicates are ignored).
+       If none of them is in `probe.about`, the result is not relevant: empty basis.
+    2. If step 1 yields several facts, keep those whose markers appear in the text, when any do.
+    3. Without sources: the `about` facts whose markers appear in the text.
+
+    A result that is relevant through one `about` fact is judged on every fact it states, so a
+    false fact outside `about` still makes the basis wrong.
 
     Args:
         result: One search result.
         probe: The probe being answered (its hidden `about`).
         scenario: The scenario (fact markers).
-        events: Event id to labeled event, generated events included.
+        events: Event id to labeled event; only events already recorded to the engine, generated
+            events included once they are recorded.
 
     Returns:
         Fact ids; empty means the result is not relevant to this probe.
@@ -64,8 +69,10 @@ def result_basis(
     basis = {
         fact
         for s in set(result.sources)
-        if s in events and (fact := events[s].fact) is not None and fact in about
+        if s in events and (fact := events[s].fact) is not None
     }
+    if not basis & about:
+        return frozenset()
     if len(basis) >= 2:
         narrowed = _marker_hits(result, scenario, basis)
         if narrowed:
@@ -85,7 +92,7 @@ def choose(
         results: Search results, best first.
         probe: The probe being answered.
         scenario: The scenario.
-        events: Event id to labeled event.
+        events: Event id to labeled event, recorded events only.
 
     Returns:
         The agent's choice.

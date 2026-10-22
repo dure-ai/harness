@@ -107,3 +107,14 @@ def test_leaks_ordered_by_result_then_event_id():
         Leak(0, "ep", "secret_marker"),
         Leak(1, "eb", "source"),
     ]
+
+
+def test_find_leaks_ignores_unrecorded_ids():
+    s, p, events = _leak_world()
+    recorded = {eid: le for eid, le in events.items() if eid != "eb"}
+    results = [Result(text="TOPSECRET", sources=["eb"])]
+    assert find_leaks(results, p, s, recorded) == []
+    assert find_leaks(results, p, s, events) == [
+        Leak(0, "eb", "source"),
+        Leak(0, "eb", "secret_marker"),
+    ]

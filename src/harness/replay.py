@@ -108,11 +108,12 @@ def _score_probe(
     probe: Probe,
     results: list[Result],
     scenario: Scenario,
-    events: dict[str, LabeledEvent],
+    recorded: dict[str, LabeledEvent],
     search_ms: float,
 ) -> ProbeRecord:
-    choice = choose(results, probe, scenario, events)
-    bases = [result_basis(r, probe, scenario, events) for r in results]
+    # Only events already passed to `record` count as evidence (design 7.2).
+    choice = choose(results, probe, scenario, recorded)
+    bases = [result_basis(r, probe, scenario, recorded) for r in results]
     wrong = [bool(b) and is_wrong(b, probe, scenario) for b in bases]
     return ProbeRecord(
         probe_id=probe.id,
@@ -120,7 +121,7 @@ def _score_probe(
         results=results,
         choice=choice,
         outcome=judge(probe, choice, scenario),
-        leaks=find_leaks(results, probe, scenario, events),
+        leaks=find_leaks(results, probe, scenario, recorded),
         bases=bases,
         contaminated=any(wrong),
         reached=any(bool(b) and not w for b, w in zip(bases, wrong)),
@@ -255,7 +256,9 @@ def run_scenario(
     Events and probes are merged on one timeline (events first at equal times). Each event is
     passed to `record`; each probe calls `flush` then `search`, and the agent's choice is scored.
     In feedback mode the agent's records are scheduled back onto the timeline. `tick` is called
-    before each step when the engine asks for a virtual clock.
+    before each step when the engine asks for a virtual clock. A result's sources count as
+    evidence, and in the leak check, only for events whose `record` call has returned by the
+    probe; generated events included once they come off the timeline.
 
     Errors raised by the engine end this scenario only and are kept in `ScenarioRun.error`;
     errors in harness code are not caught.
@@ -271,7 +274,9 @@ def run_scenario(
     """
     run = ScenarioRun(scenario.id, scenario.family, scenario.mode)
     labeled = scenario.labeled_events()
-    events: dict[str, LabeledEvent] = {le.event.id: le for le in labeled}
+    # Evidence: events whose `record` call returned. Ids in use: for generated-id clashes only.
+    recorded: dict[str, LabeledEvent] = {}
+    taken: set[str] = {le.event.id for le in labeled}
     timeline = Timeline()
     for le in labeled:
         push_event(timeline, le)
@@ -297,6 +302,7 @@ def run_scenario(
             except Exception as e:
                 run.error = f"{type(e).__name__}: {e}"
                 return run
+            recorded[item.event.id] = item
             continue
         query = scenario.query_for(
             item, cfg.k
@@ -315,15 +321,15 @@ def run_scenario(
             run.error = f"{type(e).__name__}: {e}"
             return run
         results = raw[: item.k or cfg.k]
-        record = _score_probe(item, results, scenario, events, search_ms)
+        record = _score_probe(item, results, scenario, recorded, search_ms)
         run.probes.append(record)
         if scenario.mode == "feedback" and item.feedback is not None:
             index = record.choice.index
             judged = results[index].sources if index is not None else ()
             for slot, generated in feedback_events(
-                item, record.choice, scenario, cfg, events.keys(), judged
+                item, record.choice, scenario, cfg, taken, judged
             ):
-                events[generated.event.id] = generated
+                taken.add(generated.event.id)  # evidence only once it is recorded
                 run.generated.append(generated)
                 run.generated_ids[(item.id, slot)] = generated.event.id
                 push_event(timeline, generated)

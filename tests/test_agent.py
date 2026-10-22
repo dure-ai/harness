@@ -84,3 +84,44 @@ def test_single_source_not_narrowed_by_markers():
     s, p, events = _world()
     r = Result(text="new-flag", sources=["e1"])
     assert result_basis(r, p, s, events) == frozenset({"f_old"})
+
+
+def _true_and_false_outside_about():
+    # Reproduces review finding C2: the false fact is not in `about`, but the result states it.
+    s = scenario(
+        facts={
+            "f_true": fact(markers=["good"]),
+            "f_false_outside": fact(markers=["bad"], valid=False),
+        },
+        events=[
+            ev("e1", T("10-01 10:00"), fact="f_true", text="good"),
+            ev("e2", T("10-02 10:00"), fact="f_false_outside", text="bad"),
+        ],
+        probes=[
+            probe("pp", "promote", T("10-06 10:00"), ["f_true"]),
+            probe("pb", "block", T("10-06 11:00"), ["f_true"]),
+        ],
+    )
+    return s, {le.event.id: le for le in s.labeled_events()}
+
+
+def test_source_fact_outside_about_still_counts_in_basis():
+    from harness.scoring import judge
+
+    s, events = _true_and_false_outside_about()
+    promote, block = s.probes
+    # Both markers, or neither: design 7.2 step 2 narrows by markers, so only one marker would
+    # narrow the outside fact away.
+    for text in ("good and bad", "no marker here"):
+        r = Result(text=text, sources=["e1", "e2"])
+        for p, expected in ((promote, "PROMOTE_FP"), (block, "FP")):
+            assert result_basis(r, p, s, events) == frozenset({"f_true", "f_false_outside"})
+            assert judge(p, choose([r], p, s, events), s) == expected
+
+
+def test_result_with_no_source_fact_in_about_is_not_relevant():
+    s, events = _true_and_false_outside_about()
+    promote = s.probes[0]
+    r = Result(text="good and bad", sources=["e2"])
+    assert result_basis(r, promote, s, events) == frozenset()
+    assert choose([r], promote, s, events) == Choice(None, frozenset())
