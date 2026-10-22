@@ -14,18 +14,23 @@ from tests.test_selfcheck import poison, truth_change
 runner = CliRunner()
 
 
-def write(dir_: Path, s: Scenario, status: str = "approved", name: str | None = None) -> Path:
+def write(dir_: Path, s: Scenario, status: str = "approved", name: str | None = None, hashed: bool = True) -> Path:
+    """Save `s` with `status`; an approval records its content hash unless `hashed` is False."""
+    from harness.scenario.labels import content_hash
+
     s = s.model_copy(update={"review": Review(status=status)})
+    if status == "approved" and hashed:
+        s.review.approved_hash = content_hash(s.model_dump(mode="json"))
     path = dir_ / (name or f"{s.id}.yaml")
     path.write_text(yaml.safe_dump(s.model_dump(mode="json"), allow_unicode=True), encoding="utf-8")
     return path
 
 
-def good_dir(tmp_path: Path, status: str = "approved") -> Path:
+def good_dir(tmp_path: Path, status: str = "approved", hashed: bool = True) -> Path:
     d = tmp_path / "scenarios"
     d.mkdir()
-    write(d, truth_change(), status)
-    write(d, poison(), status)
+    write(d, truth_change(), status, hashed=hashed)
+    write(d, poison(), status, hashed=hashed)
     return d
 
 
@@ -1005,3 +1010,93 @@ def test_cli_review_edit_of_approved_says_reapproval_needed(tmp_path, monkeypatc
     result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
     assert result.exit_code == 0, result.output
     assert "draft" in result.output and "re-approval" in result.output
+
+
+# ---- approval integrity ---------------------------------------------------------------------------
+
+
+def approved_dir(tmp_path: Path) -> Path:
+    """Two approved scenarios: one approved through `review set`, one with its hash recorded directly."""
+    from harness.generate.pipeline import mark_generated, save_draft
+
+    d = tmp_path / "scenarios"
+    s = truth_change()
+    mark_generated(s)
+    save_draft(s, d / f"{s.id}.yaml")
+    assert runner.invoke(app, ["review", "set", s.id, "approved", "--reviewer", "kim", "--root", str(d)]).exit_code == 0
+    write(d, poison())  # its bodies fail check_draft, so `review set` would not approve it
+    return d
+
+
+def _tamper(path: Path) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["events"][0]["text"] += " and also the secret-repo-name"
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def test_run_with_verified_approvals_prints_no_warning(tmp_path):
+    result, _ = run_cli(tmp_path, approved_dir(tmp_path))
+    assert result.exit_code == 0, result.output
+    assert "approval_unverified" not in result.output and "warning" not in result.output
+
+
+def test_run_refuses_an_approved_file_edited_after_approval(tmp_path):
+    d = approved_dir(tmp_path)
+    _tamper(d / "tc.yaml")
+    result, out = run_cli(tmp_path, d)
+    assert result.exit_code == 1
+    assert f"{d / 'tc.yaml'}: error approved_content_changed" in result.output
+    assert not out.exists()
+    sealed, _ = run_cli(tmp_path, d, "--sealed")
+    assert sealed.exit_code == 1 and "approved_content_changed" in sealed.output
+    assert "tc.yaml" not in sealed.output and "secret" not in sealed.output
+
+
+def test_unverified_approvals_are_warned_with_paths(tmp_path):
+    d = good_dir(tmp_path, hashed=False)  # approved by hand, no approved_hash
+    result, _ = run_cli(tmp_path, d)
+    assert result.exit_code == 0, result.output
+    assert result.output.count("approval_unverified") == 2 and str(d / "tc.yaml") in result.output
+    sc = runner.invoke(app, ["selfcheck", "--scenarios", str(d)])
+    assert sc.exit_code == 0 and sc.output.count("approval_unverified") == 2
+
+
+def test_sealed_mode_prints_only_the_number_of_approval_warnings(tmp_path):
+    d = good_dir(tmp_path, hashed=False)
+    result, _ = run_cli(tmp_path, d, "--sealed")
+    assert result.exit_code == 0, result.output
+    assert "warning: 2 " in result.output
+    body = "\n".join(result.output.strip().splitlines()[:-1])  # the last line is the report path
+    for leak in ("tc.yaml", "sp.yaml", str(d), "approval_unverified"):
+        assert leak not in body, leak
+    sc = runner.invoke(app, ["selfcheck", "--scenarios", str(d), "--sealed"])
+    assert sc.exit_code == 0 and "warning: 2 " in sc.output and ".yaml" not in sc.output
+
+
+def test_check_reports_approval_state(tmp_path):
+    d = approved_dir(tmp_path)
+    assert runner.invoke(app, ["scenario", "check", str(d)]).exit_code == 0
+    _tamper(d / "tc.yaml")
+    result = runner.invoke(app, ["scenario", "check", str(d)])
+    assert result.exit_code == 1
+    assert f"{d / 'tc.yaml'}: error approved_content_changed" in result.output
+    unverified = write(tmp_path, truth_change(), name="old.yaml", hashed=False)
+    result = runner.invoke(app, ["scenario", "check", str(unverified)])
+    assert result.exit_code == 0, result.output
+    assert f"{unverified}: warning approval_unverified" in result.output
+
+
+def test_scenario_new_records_the_generation_hashes(tmp_path):
+    from harness.scenario.labels import content_hash, label_fingerprint
+    from harness.scenario.load import load_scenario
+    from harness.yamlio import load_yaml
+
+    runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "3", "--out", str(tmp_path / "a")])
+    (path,) = list((tmp_path / "a").rglob("*.yaml"))
+    s = load_scenario(path)
+    assert s.provenance.label_fingerprint == label_fingerprint(s)
+    assert s.provenance.generated_hash == content_hash(load_yaml(path.read_text(encoding="utf-8")))
+    # Leak skeletons get their secret strings by hand (a label), so no fingerprint is recorded for them.
+    runner.invoke(app, ["scenario", "new", "--family", "leak_personal", "--seed", "3", "--out", str(tmp_path / "b")])
+    (leak,) = list((tmp_path / "b").rglob("*.yaml"))
+    assert load_scenario(leak).provenance.label_fingerprint is None

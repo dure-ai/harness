@@ -176,6 +176,78 @@ def test_generate_overwrites_an_older_draft(tmp_path: Path) -> None:
     assert "# stale" not in path.read_text(encoding="utf-8")
 
 
+def test_generate_records_the_label_fingerprint_and_generated_hash(tmp_path: Path) -> None:
+    from harness.scenario.labels import content_hash, label_fingerprint
+    from harness.yamlio import load_yaml
+
+    first = run(tmp_path, fake_client(tmp_path), ["truth_change"], 1)
+    path = tmp_path / "out" / "truth_change" / f"{first.written[0]}.yaml"
+    raw = load_yaml(path.read_text(encoding="utf-8"))
+    s = load_scenario(path)
+    assert s.provenance.label_fingerprint == label_fingerprint(s)
+    assert s.provenance.generated_hash == content_hash(raw) and s.provenance.generated_hash.startswith("v1:")
+
+
+def _hand_edit(path: Path, change: Any) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    change(data)
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def _edit_fact_text(data: dict[str, Any]) -> None:
+    fid = next(iter(data["facts"]))
+    data["facts"][fid]["text"] = "HAND EDITED BY A REVIEWER IN AN EDITOR"
+
+
+def test_regenerate_does_not_overwrite_a_hand_edited_draft(tmp_path: Path) -> None:
+    """Reproduces d4 (c): an edit made in an editor (no `review edit`, so no reviewer_edited) survives
+    a rerun with the same seed."""
+    client = fake_client(tmp_path)
+    first = run(tmp_path, client, ["truth_change"], 1)
+    path = tmp_path / "out" / "truth_change" / f"{first.written[0]}.yaml"
+    _hand_edit(path, _edit_fact_text)
+    before = path.read_bytes()
+    again = run(tmp_path, client, ["truth_change"], 1)
+    assert again.skipped_existing == [first.written[0]] and again.written == []
+    assert path.read_bytes() == before
+
+
+def test_untouched_draft_is_still_overwritten(tmp_path: Path) -> None:
+    client = fake_client(tmp_path)
+    first = run(tmp_path, client, ["truth_change"], 1)
+    path = tmp_path / "out" / "truth_change" / f"{first.written[0]}.yaml"
+    # Re-serialised with sorted keys and a comment: the parsed content is the same.
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    path.write_text("# reformatted\n" + yaml.safe_dump(data, sort_keys=True), encoding="utf-8")
+    again = run(tmp_path, client, ["truth_change"], 1)
+    assert again.written == first.written and again.skipped_existing == []
+    assert "# reformatted" not in path.read_text(encoding="utf-8")
+
+
+def test_draft_without_generated_hash_follows_the_old_rule(tmp_path: Path) -> None:
+    client = fake_client(tmp_path)
+    first = run(tmp_path, client, ["truth_change"], 1)
+    path = tmp_path / "out" / "truth_change" / f"{first.written[0]}.yaml"
+
+    def old_and_edited(data: dict[str, Any]) -> None:
+        del data["provenance"]["generated_hash"]
+        _edit_fact_text(data)
+
+    _hand_edit(path, old_and_edited)
+    again = run(tmp_path, client, ["truth_change"], 1)  # an untouched-looking old draft: replaced
+    assert again.written == first.written
+    assert "HAND EDITED" not in path.read_text(encoding="utf-8")
+
+    def old_and_reviewer_edited(data: dict[str, Any]) -> None:
+        del data["provenance"]["generated_hash"]
+        data["provenance"]["reviewer_edited"] = True
+
+    _hand_edit(path, old_and_reviewer_edited)
+    before = path.read_bytes()
+    again = run(tmp_path, client, ["truth_change"], 1)
+    assert again.skipped_existing == first.written and path.read_bytes() == before
+
+
 def test_generate_does_not_touch_an_unreadable_file(tmp_path: Path) -> None:
     client = fake_client(tmp_path)
     first = run(tmp_path, client, ["truth_change"], 1)

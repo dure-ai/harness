@@ -445,7 +445,7 @@ def test_set_approved_of_an_old_file_without_secret_events_warns_but_approves(tm
     del data["provenance"]["secret_events"]
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     issues = set_status(path, "approved", "me", None, CFG, GEN)
-    assert [i.code for i in issues] == ["secret_events_not_recorded"]
+    assert [i.code for i in issues] == ["secret_events_not_recorded", "label_fingerprint_not_recorded"]
     assert load_scenario(path).review.status == "approved"
 
 
@@ -494,3 +494,136 @@ def test_show_lists_the_secret_findings(tmp_path):
     out = io.StringIO()
     Console(file=out, width=200, force_terminal=False).print(render_show(s, CFG, GEN))
     assert "secret_missing" in out.getvalue()
+
+
+# ---- approval integrity ---------------------------------------------------------------------------
+
+
+def generated(tmp_path: Path, s: Scenario | None = None, name: str = "g.yaml") -> Path:
+    """A draft saved the way `generate` saves it: label fingerprint and generated hash recorded."""
+    from harness.generate.pipeline import mark_generated
+
+    s = s or truth_change()
+    mark_generated(s)
+    path = tmp_path / name
+    save_draft(s, path)
+    return path
+
+
+def _edit_yaml(path: Path, change) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    change(data)
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def test_direct_valid_until_edit_blocks_approval(tmp_path):
+    """Reproduces d4 (a): a label changed in an editor, outside `review edit`, cannot be approved."""
+    from typer.testing import CliRunner
+
+    from harness.cli import app
+
+    path = generated(tmp_path, truth_change("tc-x"))
+
+    def move(data):
+        data["facts"]["f_old"]["valid_until"] = "2026-10-09T08:00:00+09:00"
+
+    _edit_yaml(path, move)
+    before = path.read_bytes()
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in blocking(issues)] == ["labels_changed_outside_review"]
+    assert path.read_bytes() == before and load_scenario(path).review.status == "draft"
+
+    result = CliRunner().invoke(app, ["review", "set", "tc-x", "approved", "--reviewer", "kim", "--root", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "labels_changed_outside_review" in result.output and "outside the review tool" in result.output
+    assert path.read_bytes() == before
+    # rejecting it still works
+    assert set_status(path, "rejected", "kim", "labels moved", CFG, GEN) == []
+
+
+def test_text_edit_outside_review_edit_can_still_be_approved(tmp_path):
+    path = generated(tmp_path)
+
+    def reword(data):
+        next(e for e in data["events"] if e["id"] == "tc_n")["text"] = "vendor v2 is the requirement"
+
+    _edit_yaml(path, reword)
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert not blocking(issues) and not [i for i in issues if i.code.startswith("label")]
+    assert load_scenario(path).review.status == "approved"
+
+
+def test_set_approved_records_the_content_hash(tmp_path):
+    from harness.scenario.labels import content_hash
+    from harness.scenario.load import load_set
+    from harness.yamlio import load_yaml
+
+    path = generated(tmp_path)
+    set_status(path, "approved", "kim", None, CFG, GEN)
+    raw = load_yaml(path.read_text(encoding="utf-8"))
+    assert raw["review"]["approved_hash"] == content_hash(raw)
+    assert load_set([tmp_path], include_drafts=False).warnings == []
+    set_status(path, "rejected", "kim", None, CFG, GEN)
+    assert load_scenario(path).review.approved_hash is None
+
+
+def test_set_approved_without_a_recorded_fingerprint_warns_but_approves(tmp_path):
+    path = draft(tmp_path)  # saved without the generation hashes, like an older file
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["label_fingerprint_not_recorded"] and not blocking(issues)
+    assert load_scenario(path).review.status == "approved"
+
+
+def test_review_edit_keeps_the_harness_written_hashes(tmp_path):
+    path = generated(tmp_path)
+    s = load_scenario(path)
+    body = (
+        "text = text.replace('vendor v2 is required now', 'vendor v2 is the requirement')\n"
+        f"text = text.replace({s.provenance.generated_hash!r}, 'v1:forged')\n"
+        f"text = text.replace({s.provenance.label_fingerprint!r}, 'forged')\n"
+        "path.write_text(text)"
+    )
+    assert edit_draft(path, editor(tmp_path, body), CFG, GEN).status == "saved"
+    after = load_scenario(path)
+    assert after.provenance.generated_hash == s.provenance.generated_hash
+    assert after.provenance.label_fingerprint == s.provenance.label_fingerprint
+
+
+def test_review_edit_of_approved_then_reapproval_verifies(tmp_path):
+    from harness.scenario.load import load_set
+
+    path = generated(tmp_path)
+    set_status(path, "approved", "kim", None, CFG, GEN)
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))")
+    assert edit_draft(path, cmd, CFG, GEN).reset_to_draft is True
+    assert load_scenario(path).review.approved_hash is None
+    assert not blocking(set_status(path, "approved", "kim", None, CFG, GEN))
+    assert load_set([tmp_path], include_drafts=False).warnings == []
+
+
+def test_keep_edit_stays_inside_cache_for_odd_ids(tmp_path, monkeypatch):
+    """Reproduces d11: an id with path separators or `..` cannot place the kept copy elsewhere."""
+    from harness.review import _keep_edit
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    folder = (tmp_path / "cache" / "review").resolve()
+    for odd in ("../../escaped-by-id", "a/b/c", "/abs/path", "..", "x\\..\\y", "id with spaces"):
+        kept = _keep_edit(odd, b"text")
+        assert kept.resolve().parent == folder, odd
+        assert kept.read_bytes() == b"text"
+    assert not list(tmp_path.glob("escaped-by-id*"))
+    names = sorted(p.name for p in folder.iterdir())
+    assert all("/" not in n and "\\" not in n and " " not in n for n in names)
+    assert any(n.startswith(".._.._escaped-by-id-") for n in names)
+
+
+def test_list_flags_an_approval_that_does_not_verify(tmp_path):
+    path = generated(tmp_path)
+    set_status(path, "approved", "kim", None, CFG, GEN)
+    assert "approved_content_changed" not in list_drafts(tmp_path)[0].warnings
+
+    def reword(data):
+        data["events"][0]["text"] += " edited after approval"
+
+    _edit_yaml(path, reword)
+    assert list_drafts(tmp_path)[0].warnings[0] == "approved_content_changed"

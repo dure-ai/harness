@@ -25,7 +25,8 @@ from harness.generate.families import TEMPLATES, why_not
 from harness.generate.families.base import repo_name
 from harness.generate.llm import LLMClient, LLMError
 from harness.generate.traces import Trace, bundles, read_parquet, usable
-from harness.scenario.load import ScenarioLoadError, load_scenario
+from harness.scenario.labels import content_hash, label_fingerprint
+from harness.scenario.load import ScenarioLoadError, read_scenario
 from harness.scenario.model import Scenario
 
 T = TypeVar("T", bound=BaseModel)
@@ -53,8 +54,8 @@ class GenerateReport(BaseModel):
         requested: Drafts wanted, summed over the families.
         written: Ids of the drafts saved (an earlier draft with the same id is replaced).
         skipped_existing: Ids whose file a person already worked on (status not draft, edited by
-            a reviewer, or not written by the LLM) or that cannot be read; left untouched. They
-            count toward the target.
+            a reviewer or by hand since generation, or not written by the LLM) or that cannot be
+            read; left untouched. They count toward the target.
         trace_cap_hit: True when extraction stopped at `max_traces` while a family still needed
             drafts.
         rejected: Number of rejections logged: bad quotes, near-duplicate candidates, failed
@@ -165,6 +166,23 @@ def save_draft(s: Scenario, path: Path) -> None:
     tmp = path.with_suffix(".yaml.tmp")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
+
+
+def mark_generated(s: Scenario, fingerprint: bool = True) -> None:
+    """Record, in `s`, the hashes a new draft carries: its labels and its content as generated.
+
+    `provenance.label_fingerprint` lets `review set approved` refuse labels changed outside
+    `review edit`; `provenance.generated_hash` lets a regeneration recognise a hand-edited draft.
+    `save_draft` writes the model dump, whose parsed YAML is the same data, so the hash taken
+    here is the hash of the saved file.
+
+    Args:
+        s: The scenario, changed in place; call it just before the first `save_draft`.
+        fingerprint: False to leave `label_fingerprint` unset, for a skeleton whose labels a
+            person still fills in by hand (the secret strings of a `scenario new` leak family).
+    """
+    s.provenance.label_fingerprint = label_fingerprint(s) if fingerprint else None
+    s.provenance.generated_hash = content_hash(s.model_dump(mode="json"))
 
 
 def matches_repos(trace: Trace, repos: set[str]) -> bool:
@@ -313,19 +331,23 @@ def _is_reviewed(path: Path) -> bool:
     """Whether the file at `path` belongs to a person and must not be replaced by a new draft.
 
     That is the case when its review status is not draft, a reviewer edited it
-    (`provenance.reviewer_edited`), a person wrote it (`provenance.author` is not `llm`), or it
+    (`provenance.reviewer_edited`), a person wrote it (`provenance.author` is not `llm`), its
+    content no longer matches `provenance.generated_hash` (edited by hand outside `review edit`;
+    a draft without that hash, from an older version, is judged by the other rules only), or it
     cannot be loaded. An absent file, or an untouched LLM draft, may be replaced.
     """
     if not path.exists():
         return False
     try:
-        s = load_scenario(path)
+        raw, s = read_scenario(path)
     except (ScenarioLoadError, UnicodeDecodeError, OSError, ValueError):
         return True
+    generated = s.provenance.generated_hash
     return (
         s.review.status != "draft"
         or s.provenance.reviewer_edited
         or s.provenance.author != "llm"
+        or (generated is not None and generated != content_hash(raw))
     )
 
 
@@ -380,6 +402,7 @@ def _one(
             "checks", stop[0].code, "; ".join(f"{i.code}: {i.message}" for i in stop)
         )
         return None
+    mark_generated(s)
     save_draft(s, path)
     return "written", sid
 
@@ -405,9 +428,11 @@ def generate(
     shuffled with `random.Random(seed)`. Each family walks that order. The candidates of a trace
     are extracted at most once and shared by all families; a family uses each of them once. A
     draft is saved to `out_dir/<family>/<id>.yaml` only if `check_draft` finds no error and no
-    `too_easy` warning; otherwise a `Rejection` goes to `run_dir/rejected.jsonl`. A file with the
-    same id is replaced only when it is an untouched LLM draft (status draft, author `llm`, not
-    reviewer-edited); any other file is never touched.
+    `too_easy` warning; otherwise a `Rejection` goes to `run_dir/rejected.jsonl`. A saved draft
+    records its label fingerprint and content hash (`mark_generated`). A file with the same id is
+    replaced only when it is an untouched LLM draft (status draft, author `llm`, not
+    reviewer-edited, content still matching its `generated_hash`); any other file is never
+    touched.
 
     Args:
         families: Families to make, each a key of `TEMPLATES`.

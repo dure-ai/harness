@@ -129,11 +129,21 @@ class World(_Strict):
 
 
 class Review(_Strict):
-    """Human review state; only approved scenarios are evaluated by default."""
+    """Human review state; only approved scenarios are evaluated by default.
+
+    Attributes:
+        status: Review status.
+        reviewer: Who set the status.
+        notes: Free text, such as the reason for a rejection.
+        approved_hash: `scenario.labels.content_hash` of the file when `review set` approved it;
+            loading an approved file whose content no longer matches is an error. None for a draft,
+            a rejection, or an approval made before the hash existed (loaded with a warning).
+    """
 
     status: Literal["draft", "approved", "rejected"] = "draft"
     reviewer: str | None = None
     notes: str = ""
+    approved_hash: str | None = None
 
 
 class SourceRepo(_Strict):
@@ -177,6 +187,11 @@ class Provenance(_Strict):
             does not turn it into a recorded empty list. See `generate.checks.secret_events`.
         reviewer_edited: Whether a human changed the scenario during review.
         generated_at: When the scenario was generated.
+        label_fingerprint: `scenario.labels.label_fingerprint` at generation (`generate`,
+            `scenario new`); `review set approved` refuses a file whose labels no longer match it.
+            None in older files.
+        generated_hash: `scenario.labels.content_hash` of the file as generated; a regeneration
+            does not replace a file whose content moved from it (a hand edit). None in older files.
     """
 
     author: Literal["human", "llm", "generator"]
@@ -190,6 +205,8 @@ class Provenance(_Strict):
     secret_events: list[str] | None = None
     reviewer_edited: bool = False
     generated_at: AwareDatetime | None = None
+    label_fingerprint: str | None = None
+    generated_hash: str | None = None
 
 
 @dataclass(frozen=True)

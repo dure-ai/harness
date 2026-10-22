@@ -340,3 +340,98 @@ def test_core_cli_imports_without_gen_deps():
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+# ---- approval integrity ---------------------------------------------------------------------------
+
+
+def approved_with_hash(dir: Path, id: str = "a", name: str = "a.yaml") -> Path:
+    """An approved file whose `review.approved_hash` matches its content, as `review set` writes it."""
+    from harness.scenario.labels import content_hash
+    from harness.yamlio import load_yaml
+
+    raw = load_yaml(with_status("approved", id))
+    raw["review"]["approved_hash"] = content_hash(raw)
+    return write(dir, yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), name)
+
+
+def test_approved_file_with_a_matching_hash_loads_without_warnings(tmp_path):
+    approved_with_hash(tmp_path)
+    ss = load_set([tmp_path], include_drafts=False)
+    assert [s.id for s in ss.scenarios] == ["a"] and ss.warnings == []
+
+
+def test_body_edit_after_approval_is_an_error_at_load(tmp_path):
+    p = approved_with_hash(tmp_path)
+    p.write_text(p.read_text(encoding="utf-8").replace("Merged the vendor module PR directly", "Merged it; vendor rumor"), encoding="utf-8")
+    for drafts in (False, True):
+        with pytest.raises(ScenarioLoadError) as e:
+            load_set([tmp_path], include_drafts=drafts)
+        assert e.value.code == "approved_content_changed"
+        assert e.value.path == p and "approve" in e.value.message
+    load_scenario(p)  # the file itself still reads; only the approved set refuses it
+
+
+def test_label_edit_after_approval_is_an_error_at_load(tmp_path):
+    p = approved_with_hash(tmp_path)
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    data["facts"]["f_old"]["valid_until"] = "2026-10-10T00:00+09:00"
+    p.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    with pytest.raises(ScenarioLoadError) as e:
+        load_set([tmp_path], include_drafts=False)
+    assert e.value.code == "approved_content_changed"
+
+
+def test_editing_only_the_review_block_or_comments_keeps_the_approval(tmp_path):
+    p = approved_with_hash(tmp_path)
+    p.write_text("# a comment\n" + p.read_text(encoding="utf-8").replace('notes: ""', 'notes: "looks fine"').replace("notes: ''", "notes: looks fine"), encoding="utf-8")
+    assert load_set([tmp_path], include_drafts=False).warnings == []
+
+
+def test_adding_a_defaulted_schema_field_does_not_invalidate_approvals(tmp_path):
+    """The hash is of the parsed file, not of the model: fields the file omits (or that a later
+    schema adds with a default) do not move it."""
+    from harness.scenario.labels import content_hash
+
+    p = approved_with_hash(tmp_path)
+    s = load_scenario(p)
+    # The model fills in defaults the file never wrote (event meta/refs/team, fact conditions, ...),
+    # so a hash of the model dump would differ from the stored one; the stored one still verifies.
+    assert content_hash(s.model_dump(mode="json")) != s.review.approved_hash
+    ss = load_set([tmp_path], include_drafts=False)
+    assert ss.warnings == [] and [x.id for x in ss.scenarios] == ["a"]
+
+
+def test_old_approved_file_without_hash_loads_with_warning(tmp_path):
+    p = write(tmp_path, with_status("approved", "a"), "a.yaml")
+    ss = load_set([tmp_path], include_drafts=False)
+    assert [s.id for s in ss.scenarios] == ["a"]
+    assert len(ss.warnings) == 1 and "approval_unverified" in ss.warnings[0] and str(p) in ss.warnings[0]
+
+
+def test_unknown_hash_version_is_unverified_not_an_error(tmp_path):
+    text = with_status("approved", "a").replace('notes: ""', 'notes: ""\n  approved_hash: "v9:0123"')
+    write(tmp_path, text, "a.yaml")
+    ss = load_set([tmp_path], include_drafts=False)
+    assert len(ss.scenarios) == 1 and len(ss.warnings) == 1 and "approval_unverified" in ss.warnings[0]
+
+
+def test_scenario_set_carries_approval_warnings(tmp_path):
+    approved_with_hash(tmp_path, "ok", "ok.yaml")
+    write(tmp_path, with_status("approved", "old"), "old.yaml")
+    write(tmp_path, with_status("draft", "d"), "d.yaml")
+    write(tmp_path, with_status("rejected", "r"), "r.yaml")
+    ss = load_set([tmp_path], include_drafts=True)
+    assert [s.id for s in ss.scenarios] == ["d", "ok", "old"]
+    assert len(ss.warnings) == 1 and "old.yaml" in ss.warnings[0]  # drafts and rejected are not approvals
+
+
+def test_files_without_any_new_field_load_without_error(tmp_path):
+    """Files written before the hash fields existed: drafts load silently, approved ones warn only."""
+    write(tmp_path, with_status("draft", "d"), "d.yaml")
+    write(tmp_path, with_status("approved", "a"), "a.yaml")
+    s = load_scenario(tmp_path / "a.yaml")
+    assert s.review.approved_hash is None
+    assert s.provenance.label_fingerprint is None and s.provenance.generated_hash is None
+    ss = load_set([tmp_path], include_drafts=True)
+    assert len(ss.scenarios) == 2 and len(ss.warnings) == 1

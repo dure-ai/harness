@@ -24,8 +24,10 @@ from harness.report import RunMeta, harness_version, jsonable, machine_info, wri
 from harness.scenario.load import (
     ScenarioLoadError,
     ScenarioSet,
+    approval_issue,
     load_scenario,
     load_set,
+    read_scenario,
 )
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue, validate_scenario
@@ -89,7 +91,11 @@ def scenario_check(
     ] = False,
     config: ConfigOpt = Path("config/eval-v0.1.yaml"),
 ) -> None:
-    """Validate scenarios (drafts included) and check that each one discriminates between baselines."""
+    """Validate scenarios (drafts included) and check that each one discriminates between baselines.
+
+    An approved file is also checked against the hash recorded at approval: edited since is an
+    error (`approved_content_changed`), no usable hash a warning (`approval_unverified`).
+    """
     cfg = _config(config)
     failed = False
     for root in paths:
@@ -99,14 +105,16 @@ def scenario_check(
             continue
         for path in _yaml_files(root):
             try:
-                scenario = load_scenario(path)
+                raw, scenario = read_scenario(path)
             except ScenarioLoadError as e:
                 typer.echo(f"{path}: error load {e.message}")
                 failed = True
                 continue
             if scenario.review.status == "rejected":
                 typer.echo(f"{path}: rejected (review status; checked anyway)")
-            issues = validate_scenario(scenario)
+            approval = approval_issue(raw, scenario)
+            issues = [approval] if approval is not None else []
+            issues += validate_scenario(scenario)
             if not any(
                 i.level == "error" for i in issues
             ):  # engines may not cope with a broken scenario
@@ -136,11 +144,26 @@ def _load(
             raise _fail(f"error: scenario path does not exist: {root}", 2)
     cfg = _config(config)
     try:
-        return cfg, load_set(scenarios, include_drafts)
+        loaded = load_set(scenarios, include_drafts)
     except ScenarioLoadError as e:
         if sealed:  # the path and the parser message can reveal scenario content
-            raise _fail("error load: a scenario file failed to load (details hidden by --sealed)", 1) from e
-        raise _fail(f"{e.path}: error load {e.message}", 1) from e
+            what = (
+                "an approved scenario file was edited after its approval"
+                if e.code != "load"
+                else "a scenario file failed to load"
+            )
+            raise _fail(f"error {e.code}: {what} (details hidden by --sealed)", 1) from e
+        raise _fail(f"{e.path}: error {e.code} {e.message}", 1) from e
+    if sealed and loaded.warnings:  # the lines name files
+        typer.echo(
+            f"warning: {len(loaded.warnings)} scenario file warning(s), such as approvals that "
+            "cannot be verified (details hidden by --sealed)",
+            err=True,
+        )
+    elif loaded.warnings:
+        for line in loaded.warnings:
+            typer.echo(line, err=True)
+    return cfg, loaded
 
 
 def _validate_all(scenarios: list[Scenario], sealed: bool) -> None:
@@ -555,7 +578,7 @@ def scenario_new(
     """Write an empty skeleton of a family (labels set, all text empty) to fill in with `review edit`."""
     from harness.generate.candidates import FactCandidate
     from harness.generate.families import TEMPLATES
-    from harness.generate.pipeline import save_draft
+    from harness.generate.pipeline import mark_generated, save_draft
 
     if family not in TEMPLATES:
         raise _fail(f"error: unknown family {family!r}; choose one of {', '.join(TEMPLATES)}", 2)
@@ -569,6 +592,8 @@ def scenario_new(
     path = out / family / f"{s.id}.yaml"
     if path.exists():
         raise _fail(f"error: {path} already exists; not overwriting it", 1)
+    # A leak skeleton's secret strings (a label) are filled in by hand, so no label fingerprint.
+    mark_generated(s, fingerprint=not s.provenance.secret_events)
     save_draft(s, path)
     typer.echo(str(path))
     typer.echo("글을 채우려면: harness review edit " + s.id)

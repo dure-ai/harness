@@ -139,7 +139,7 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
 | 코드 | 뜻 |
 |---|---|
 | 0 | 성공 |
-| 1 | 시나리오 오류(로드 실패, 검증 오류, id 중복) 또는 자가 검증 실패 |
+| 1 | 시나리오 오류(로드 실패, 검증 오류, id 중복, 승인 뒤 고친 파일 `approved_content_changed`) 또는 자가 검증 실패 |
 | 2 | 사용법 문제: 경로 없음, 평가할(승인된) 시나리오 없음, 설정 파일 오류, 엔진을 만들 수 없음 |
 
 ## 시나리오 세트
@@ -174,7 +174,7 @@ uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하�
 
 - `--family all`은 10개 계열 전부이고, 짝 문항이 없는 `normal_repeat`는 `n // 2`개(최소 1)만 만듭니다.
 - 자동 검증(`check_draft`)은 먼저 `validate_scenario`를 돌립니다. 이 검증기는 비밀 문자열 배타성(`secret_marker_not_exclusive`), 다른 사실의 판정 문자열 섞임(`marker_bleed`), 모르는 팀(`unknown_team`)도 잡고, 오류가 있으면 거기서 멈추므로 검증기 코드가 먼저 나옵니다. 생성기의 `other_fact_marker`·`secret_in_public_event` 등은 검증기가 보지 않는 곳(문항이 묻지 않는 사실의 마커, 아무도 볼 수 없는 기록 속 비밀 문자열)을 맡습니다. 되먹임 틀의 본문(행동·기권·결과)도 이벤트 본문과 같은 검사(마커 포함, 다른 사실 마커 금지, 금지어)를 받고, 비밀 문자열은 사실 문장(`secret_in_fact_text`)과 되먹임 본문(`secret_in_feedback`)에도 없어야 합니다. 비밀 기록이 어느 이벤트인지는 생성 때 `provenance.secret_events`에 적어 두며, 이 목록이 없는 파일(`secret_events: null`이거나 키 없음. 하네스가 다시 저장해도 null로 남습니다)은 `secret_markers`에서 유도하고 경고 `secret_events_not_recorded`만 붙습니다. 누출 계열인데 비밀 기록이 하나도 없으면(목록이 비었거나 유도할 `secret_markers`가 없으면) 오류 `no_secret_events`입니다.
-- 자동 검증(`check_draft`)에서 오류가 나거나 `too_easy` 경고가 뜬 초안은 저장하지 않고 거절 로그에 남깁니다. 같은 id의 파일은 손대지 않은 LLM 초안일 때만 새로 씁니다. 상태가 draft가 아니거나, 검토자가 고쳤거나(`provenance.reviewer_edited: true`), 사람이 쓴(`provenance.author`가 `llm`이 아닌) 파일, 읽을 수 없는 파일은 덮어쓰지 않고 요약에 "건너뜀"으로 보여 줍니다.
+- 자동 검증(`check_draft`)에서 오류가 나거나 `too_easy` 경고가 뜬 초안은 저장하지 않고 거절 로그에 남깁니다. 같은 id의 파일은 손대지 않은 LLM 초안일 때만 새로 씁니다. 상태가 draft가 아니거나, 검토자가 고쳤거나(`provenance.reviewer_edited: true`), 사람이 쓴(`provenance.author`가 `llm`이 아닌) 파일, 읽을 수 없는 파일, 생성 뒤 편집기로 직접 고친 파일(지금 내용의 해시가 생성 때 적은 `provenance.generated_hash`와 다름)은 덮어쓰지 않고 요약에 "건너뜀"으로 보여 줍니다. `generated_hash`가 없는 이전 초안은 앞의 규칙만 적용합니다.
 - 후보 뽑기에 보내는 궤적은 한 번 실행에 최대 `--max-traces`(기본 100)개입니다. 한도에 닿으면 요약에 표시됩니다.
 - 본문 쓰기 시도는 계열마다 최대 `--max-attempts`(기본: 그 계열 목표 개수 × 3)번입니다. 한도에 닿으면 그 계열을 멈추고 부족 사유에 "stopped at --max-attempts N"이 나옵니다.
 - 같은 입력·시드면 같은 id가 나오고, LLM 응답은 캐시되어 다시 돌려도 호출하지 않습니다. 캐시 키에는 `effort`·`temperature`·`max_output_tokens`·`base_url`·`token_param`이 들어가므로 이 설정을 바꾸면 새로 호출합니다.
@@ -188,7 +188,7 @@ uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하�
 | `traces/<config>/<split>/` | 받은 parquet 조각 |
 | `llm/` | LLM 응답 캐시 |
 | `runs/<run_id>/` | `candidates.jsonl`(사실 후보), `rejected.jsonl`(거절 사유) |
-| `review/` | `review edit`에서 되돌린 편집본(`<id>-<YYYYmmdd-HHMMSS>.yaml`) |
+| `review/` | `review edit`에서 되돌린 편집본(`<id>-<YYYYmmdd-HHMMSS>.yaml`; id의 영문자·숫자·`.`·`_`·`-` 밖의 글자는 `_`로 바꾸고, 경로가 이 폴더 안인지 확인함) |
 
 **출처 표기**: 궤적은 [nvidia/Open-SWE-Traces](https://huggingface.co/datasets/nvidia/Open-SWE-Traces)(CC BY 4.0)에서 가져오며, 초안의 `provenance`에 원본 궤적 id, 저장소, 라이선스를 남깁니다. 원본 저장소 라이선스가 허용 목록에 있는 python 궤적만 씁니다.
 
@@ -210,9 +210,12 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 - 이미 승인·거절된 파일을 고쳐 저장하면 `review`가 `draft`로 돌아가고(`reviewer`는 비워지고 `notes`는 남음) 다시 승인받아야 합니다.
 - 저장되면 `provenance.reviewer_edited: true`가 되고 자동 검증 결과가 나옵니다. 오류가 있어도 저장은 되지만 승인은 막힙니다. 편집기가 0이 아닌 코드로 끝나거나 YAML이 깨져도 원래대로 돌아갑니다(바뀐 내용이 있으면 마찬가지로 `review/`에 남깁니다).
 - `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
+- 생성할 때 정답 지문을 `provenance.label_fingerprint`에 적어 둡니다. `review edit`를 거치지 않고 편집기로 정답(기간·라벨 등)을 바꾼 파일은 지문이 달라 승인되지 않습니다(`labels_changed_outside_review`, 종료 코드 1). 바꾼 것을 되돌리거나 거절하세요. 지문이 없는 이전 파일은 경고 `label_fingerprint_not_recorded`와 함께 승인됩니다.
+- 승인하면 그 내용의 해시를 `review.approved_hash`에 적습니다. 승인한 파일을 나중에 고치면 `run`·`selfcheck`·`scenario check`가 오류 `approved_content_changed`로 멈추므로 다시 검토해 승인하세요(`review list`에도 표시됩니다). `review` 블록(메모 등)과 주석·서식만 바꾼 것은 괜찮습니다. 해시가 없는 승인 파일(이전 파일, 손으로 `approved`로 바꾼 파일)은 오류가 아니라 경고 `approval_unverified`로 읽히며, `--sealed`에서는 경고 개수만 보여 줍니다.
+- 이 해시들은 파일 안에 있으므로 실수로 고친 것을 잡는 장치입니다. 해시까지 일부러 다시 쓰는 것은 막지 못하며, 무엇이 바뀌었는지의 근거는 git 이력입니다.
 - id가 없거나 같은 id의 파일이 여럿이면 종료 코드 1입니다. 다른 위치는 `--root`로 지정합니다.
 
-처음부터 손으로 쓰려면 빈 틀을 만듭니다. 라벨은 계열 틀이 정하고 글은 모두 비어 있으며(`provenance.author: human`, `draft`), 이어서 `review edit`로 채웁니다. 이미 있는 파일은 덮어쓰지 않습니다. 누출 계열(`leak_personal`, `leak_cross_team`)은 비밀 문자열(`secret_markers`)이 `review edit`로 고칠 수 없는 필드라서, 그 값만은 `review edit`를 돌리기 **전에** 파일을 편집기로 직접 열어 비밀 기록의 `secret_markers`와 본문에 씁니다(`review set approved`의 자동 검증이 확인합니다). `review edit`는 `secret_markers`가 바뀐 편집을 되돌립니다.
+처음부터 손으로 쓰려면 빈 틀을 만듭니다. 라벨은 계열 틀이 정하고 글은 모두 비어 있으며(`provenance.author: human`, `draft`), 이어서 `review edit`로 채웁니다. 이미 있는 파일은 덮어쓰지 않습니다. 누출 계열(`leak_personal`, `leak_cross_team`)은 비밀 문자열(`secret_markers`)이 `review edit`로 고칠 수 없는 필드라서, 그 값만은 `review edit`를 돌리기 **전에** 파일을 편집기로 직접 열어 비밀 기록의 `secret_markers`와 본문에 씁니다(`review set approved`의 자동 검증이 확인합니다). `review edit`는 `secret_markers`가 바뀐 편집을 되돌립니다. 그래서 누출 계열 빈 틀에는 정답 지문을 적지 않으며, 승인할 때 `label_fingerprint_not_recorded` 경고가 붙습니다.
 
 ```bash
 uv run harness scenario new --family truth_change --seed 1 [--out scenarios/dev]
@@ -254,10 +257,10 @@ uv run harness generate --family all --n 1 --max-traces 10 --seed 20261020
 | `거절 N건: <경로>` | 자동 검증에서 버려진 후보와 초안. 한 줄에 `stage`, `code`, `message`, `trace_id`, `family`. 예: `jq -r '[.family, .code] \| @tsv' <경로> \| sort \| uniq -c` |
 | `부족 <계열>: ...` | 목표를 못 채운 계열과 이유(궤적이 맞지 않음, 초안 거절, `--max-attempts` 한도) |
 | `--max-traces ...에서 멈췄습니다` | 후보를 뽑을 궤적 수 한도에 닿음. 첫 묶음에서는 정상이고, 더 만들 때 값을 올립니다 |
-| `이미 검토된 파일이라 건너뜀` | 승인·거절했거나 검토자가 고친 파일은 다시 생성해도 덮어쓰지 않습니다 |
+| `이미 검토된 파일이라 건너뜀` | 승인·거절했거나 검토자가 고친(편집기로 직접 고친 것 포함) 파일은 다시 생성해도 덮어쓰지 않습니다 |
 | `first LLM error:` | 처음 난 LLM 오류. 인증·모델 이름·연결 오류면 실행이 바로 멈춥니다(종료 코드 2) |
 
-같은 시드와 같은 캐시로 다시 돌리면 같은 id와 같은 초안이 나옵니다(파일마다 다른 것은 `generated_at` 한 줄). LLM 응답은 캐시(`~/.cache/t5-harness/llm/`)에서 다시 쓰므로 비용이 다시 들지 않습니다. 새 초안이 필요하면 `--seed`를 바꿉니다.
+같은 시드와 같은 캐시로 다시 돌리면 같은 id와 같은 초안이 나옵니다(파일마다 다른 것은 `generated_at`과 그에 따라 바뀌는 `generated_hash`). LLM 응답은 캐시(`~/.cache/t5-harness/llm/`)에서 다시 쓰므로 비용이 다시 들지 않습니다. 새 초안이 필요하면 `--seed`를 바꿉니다.
 
 ### 2. 검토하기
 

@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from harness.scenario.labels import changed_label_fields, label_fingerprint
+from harness.scenario.labels import changed_label_fields, content_hash, label_fingerprint
 from harness.scenario.model import Feedback, FeedbackTemplate, Scenario
 from tests.factories import T, ev, fact, probe, scenario
 
@@ -144,3 +144,50 @@ def test_recorded_secret_events_are_part_of_the_fingerprint() -> None:
     b.provenance.secret_events = []
     assert label_fingerprint(a) != label_fingerprint(b)
     assert changed_label_fields(a, b) == ["provenance.secret_events"]
+
+
+def test_hash_fields_are_not_labels() -> None:
+    """The three harness-written hash fields are outside the fingerprint, so it never refers to itself."""
+    a = _scenario()
+    b = a.model_copy(deep=True)
+    b.provenance.label_fingerprint = label_fingerprint(a)
+    b.provenance.generated_hash = "v1:abc"
+    b.review.approved_hash = "v1:def"
+    assert label_fingerprint(a) == label_fingerprint(b)
+    assert changed_label_fields(a, b) == []
+
+
+def _raw() -> dict:
+    return _scenario().model_dump(mode="json")
+
+
+def test_content_hash_is_versioned_and_skips_review_and_hash_fields() -> None:
+    raw = _raw()
+    h = content_hash(raw)
+    assert h.startswith("v1:") and len(h) == 3 + 64
+    raw["review"] = {"status": "approved", "reviewer": "kim", "notes": "x", "approved_hash": h}
+    raw["provenance"]["generated_hash"] = "v1:zzz"
+    raw["provenance"]["label_fingerprint"] = "abc"
+    assert content_hash(raw) == h
+    del raw["review"]
+    assert content_hash(raw) == h
+
+
+def test_content_hash_sees_every_other_change() -> None:
+    raw = _raw()
+    h = content_hash(raw)
+    raw["events"][0]["text"] += " edited"
+    assert content_hash(raw) != h
+    raw = _raw()
+    raw["provenance"]["reviewer_edited"] = True
+    assert content_hash(raw) != h
+
+
+def test_content_hash_does_not_depend_on_key_order_or_yaml_timestamps() -> None:
+    from datetime import datetime
+
+    raw = _raw()
+    flipped = dict(reversed(list(raw.items())))
+    assert content_hash(flipped) == content_hash(raw)
+    raw["facts"]["f_old"]["valid_until"] = datetime.fromisoformat(raw["facts"]["f_old"]["valid_until"])
+    assert content_hash(raw).startswith("v1:")  # an unquoted YAML timestamp parses as datetime

@@ -80,6 +80,7 @@ flowchart LR
 - **LLM 응답 캐시**: `~/.cache/t5-harness/llm/<sha256>.json`. 키는 (공급자, 모델, 프롬프트 버전, 요청 본문)의 해시다. 같은 입력이면 다시 부르지 않는다. [설계]
 - **중간 산출물**: `~/.cache/t5-harness/runs/<run_id>/`에 사실 후보(`candidates.jsonl`)와 거절 로그(`rejected.jsonl`)를 둔다. 검토 때 왜 버려졌는지 볼 수 있다. [판단]
 - **초안**: `scenarios/dev/<계열>/<id>.yaml`. `review.status: draft`, `provenance.author: llm`. 승인되면 같은 파일의 상태만 바뀐다. 평가에는 `approved`만 들어간다. [설계] git으로 커밋해 모은다. [결정]
+- **다시 생성할 때**: 같은 id의 파일은 손대지 않은 LLM 초안일 때만 새로 쓴다. 상태가 draft가 아니거나, `reviewer_edited`이거나, 작성자가 `llm`이 아니거나, 읽을 수 없거나, 지금 내용의 해시(`content_hash`)가 생성 때 적은 `provenance.generated_hash`와 다르면(편집기로 직접 고친 초안) 건드리지 않는다. `generated_hash`가 없는 이전 초안은 앞의 규칙만 쓴다. [결정]
 - **시나리오 id**: `<계열>-<저장소 짧은 이름>-<해시 6자리>`. 같은 입력과 시드면 같은 id다. [판단]
 
 ## 5. 단계별 설계
@@ -187,6 +188,14 @@ flowchart LR
 | `secret_events` | list[str] \| None | 비밀 문자열을 담는 이벤트 id(누출 계열의 비밀 자리). 생성 시점에 계열 틀이 적고, 다른 계열은 빈 목록이다. `null`(없는 파일)은 "기록 안 됨"이고 `secret_markers`에서 유도하며 경고를 낸다. `provenance` 안이라 정답 지문에 들어가 검토에서 고칠 수 없다 |
 | `reviewer_edited` | bool | 검토자가 내용을 고쳤는지 |
 | `generated_at` | datetime \| None | 생성 시각 |
+| `label_fingerprint` | str \| None | 생성 때(`generate`, `scenario new`)의 정답 지문(7.2). `review set approved`가 지금 지문과 비교한다(7.3). 비밀 문자열을 손으로 채우는 `scenario new` 누출 계열 빈 틀과 이전 파일은 `null` |
+| `generated_hash` | str \| None | 생성 직후 파일 내용의 `content_hash`. 다시 생성할 때 손으로 고친 초안을 알아본다(4장) |
+
+`Review`에는 `approved_hash: str | None`을 더한다. `review set approved`가 승인한 내용의 `content_hash`를 적는다. 세 필드 모두 기본값이 `null`이라 이 필드가 없는 파일도 그대로 읽힌다.
+
+**`content_hash`**: 파싱한 YAML 원본(모델 덤프가 아니다)을 키 정렬·`ensure_ascii=False`인 JSON으로 만들어 SHA-256을 내고 `"v1:<hex>"`로 적는다. `review` 블록 전체와 `provenance.generated_hash`·`provenance.label_fingerprint`는 뺀다(승인과 기록 자체가 해시를 바꾸지 않게). 원본을 해시하므로 나중에 기본값이 있는 스키마 필드가 추가돼도 그 필드를 적지 않은 기존 파일의 해시는 그대로이고, 주석·서식·키 순서도 해시에 들어가지 않는다. 앞의 `v1`은 해시 방식의 버전이며, 모르는 버전은 "검증할 수 없음"으로 다룬다. [결정]
+
+**한계**: 해시와 지문은 같은 파일 안에 있으므로 실수로 고친 것을 잡는 장치다. 내용을 고치면서 해시까지 일부러 다시 쓰는 것은 막지 못한다. 무엇을 누가 고쳤는지의 근거는 git 이력이다. [결정]
 
 ## 7. 검토 CLI
 
@@ -204,7 +213,7 @@ flowchart LR
 
 - `$EDITOR`(없으면 `vi`)로 시나리오 YAML을 연다.
 - 저장 뒤 **정답 지문**을 비교한다. 정답 지문은 고칠 수 없는 필드의 해시다.
-  - 고칠 수 없는 필드: `provenance` 전체(단 `reviewer_edited`는 하네스가 씀. `secret_events` 포함), 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`·`secret_markers`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열, 모드, 세계.
+  - 고칠 수 없는 필드: `provenance` 전체(단 하네스가 쓰는 `reviewer_edited`·`label_fingerprint`·`generated_hash`는 지문에서 빼고, 편집기에서 바꿔도 원래 값으로 저장한다. 지문이 자기 자신을 담을 수 없기 때문이다. `secret_events` 포함), 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`·`secret_markers`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열, 모드, 세계.
   - 고칠 수 있는 필드: 사실의 `text`·`markers`, 이벤트 `text`, 문항 `query`, 되먹임 틀 `text`, `review.notes`.
 - 지문이 바뀌었으면 어느 필드가 바뀌었는지 보여 주고 **파일을 원래대로 되돌린다**. 정답이 틀렸으면 거절하라고 안내한다.
 - `secret_markers`는 무엇이 누출인지를 정하는 라벨이라 고칠 수 없다. 비우면 누출 검사가 꺼지고, 엉뚱한 문자열로 바꾸면 누출을 못 잡기 때문이다. 비밀 문자열이 본문과 맞지 않으면 고치지 말고 거절한 뒤 다시 생성한다. 편집본은 다른 정답 편집처럼 캐시에 남는다. (`harness scenario new`로 만든 누출 계열 빈 틀은 비밀 문자열이 비어 있으므로 `review edit`가 아니라 파일을 직접 열어 채운다. `review edit`를 돌리기 전에 채우고, 이어서 `review set`의 자동 검증이 목록·본문을 확인한다.)
@@ -212,7 +221,10 @@ flowchart LR
 
 ### 7.3 `review set`
 
+- `approved`는 먼저 지금 정답 지문을 생성 때 적은 `provenance.label_fingerprint`와 비교한다. 다르면 정답이 검토 도구 밖에서(편집기로 직접) 바뀐 것이므로 승인을 거절한다(`labels_changed_outside_review`, 종료 코드 1). 그 변경을 되돌리거나 거절한다. 적힌 지문이 없는 파일(이전 파일, 누출 계열 빈 틀)은 경고 `label_fingerprint_not_recorded`를 붙이고 승인한다. [결정]
 - `approved`는 5.6 검증을 모두 통과해야 한다. 실패하면 이유를 보여 주고 상태를 바꾸지 않는다.
+- 승인하면 `review.approved_hash`에 저장한 내용의 `content_hash`를 적는다. 거절하거나 `review edit`로 고쳐 draft로 돌아가면 지운다. [결정]
+- **승인 검증**: `load_set`(`harness run`, `selfcheck`)과 `scenario check`, `review list`는 `approved` 파일의 지금 `content_hash`를 `approved_hash`와 비교한다. 다르면 승인 뒤 고친 것이므로 오류 `approved_content_changed`(다시 승인해야 함)다. `approved_hash`가 없거나 버전을 모르면 오류가 아니라 경고 `approval_unverified`이며, `ScenarioSet.warnings`로 전해져 CLI가 보여 준다(`--sealed`에서는 경로 없이 개수만). [결정]
 - `rejected`는 언제나 된다. `--note`로 이유를 남기기를 권한다(거절률 분석용).
 - `review.reviewer`에 이름을 남긴다.
 

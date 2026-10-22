@@ -4,6 +4,7 @@ Everything here works from the scenario YAML alone, so a teammate can review on 
 machine with only the repository checked out (generation design 7). It needs no `gen` extra.
 """
 
+import re
 import shlex
 import subprocess
 import tempfile
@@ -25,8 +26,8 @@ from harness.generate.checks import blocking, check_draft
 from harness.generate.config import GenConfig, cache_root
 from harness.generate.pipeline import save_draft
 from harness.replay import ScenarioRun, run_scenario
-from harness.scenario.labels import changed_label_fields
-from harness.scenario.load import ScenarioLoadError, load_scenario
+from harness.scenario.labels import changed_label_fields, content_hash, label_fingerprint
+from harness.scenario.load import ScenarioLoadError, approval_issue, load_scenario, read_scenario
 from harness.scenario.model import Review, Scenario
 from harness.scenario.validate import Issue, validate_scenario
 from harness.selfcheck import check_discrimination
@@ -45,6 +46,8 @@ __all__ = [
 
 _RUN_ID = "review"
 UNREADABLE = "unreadable"
+LABELS_CHANGED = "labels_changed_outside_review"
+FINGERPRINT_NOT_RECORDED = "label_fingerprint_not_recorded"
 
 
 @dataclass(frozen=True)
@@ -57,8 +60,9 @@ class DraftRow:
         path: The file.
         status: Review status, or "unreadable".
         generated_at: When the draft was generated, if recorded.
-        warnings: Codes of the structural findings (`validate_scenario`); `load_error` for an
-            unreadable file.
+        warnings: Codes of the structural findings (`validate_scenario`), preceded by
+            `approved_content_changed` or `approval_unverified` for an approved file whose
+            approval does not verify (`approval_issue`); `load_error` for an unreadable file.
     """
 
     id: str
@@ -111,13 +115,14 @@ def list_drafts(root: Path) -> list[DraftRow]:
     rows = []
     for path in _yaml_files(root):
         try:
-            s = load_scenario(path)
+            raw, s = read_scenario(path)
         except (ScenarioLoadError, UnicodeDecodeError, OSError):
             rows.append(
                 DraftRow(path.stem, "?", path, UNREADABLE, None, ["load_error"])
             )
             continue
-        warnings = [i.code for i in validate_scenario(s)]
+        approval = approval_issue(raw, s)
+        warnings = ([approval.code] if approval else []) + [i.code for i in validate_scenario(s)]
         rows.append(
             DraftRow(
                 s.id,
@@ -161,8 +166,10 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     reviewer only change through `set_status`). A thrown-away edit that changed the file is
     copied to `cache_root()/review/` first, so the reviewer's text is not lost. Otherwise the draft is saved with
     `provenance.reviewer_edited` set and checked again. A saved edit of an approved or rejected
-    file puts it back to draft (reviewer cleared, notes kept): the approval was for the old
-    content.
+    file puts it back to draft (reviewer cleared, notes kept, `approved_hash` dropped): the
+    approval was for the old content. The hashes the harness writes
+    (`provenance.label_fingerprint`, `provenance.generated_hash`) keep their original values
+    whatever the editor did to them.
 
     Args:
         path: The scenario file; it must load.
@@ -209,14 +216,18 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
             edited = load_scenario(copy)
         except ScenarioLoadError as e:
             return revert(f"the file no longer loads: {e.message}", after)
+    edited.provenance.label_fingerprint = original.provenance.label_fingerprint
+    edited.provenance.generated_hash = original.provenance.generated_hash
     if edited.model_dump(mode="json") == original.model_dump(mode="json"):
         return EditResult("unchanged")
-    if (edited.review.status, edited.review.reviewer) != (
+    if (edited.review.status, edited.review.reviewer, edited.review.approved_hash) != (
         original.review.status,
         original.review.reviewer,
+        original.review.approved_hash,
     ):
         return revert(
-            "review status and reviewer change only with `harness review set`", after
+            "review status, reviewer and approved_hash change only with `harness review set`",
+            after,
         )
     if changed := changed_label_fields(original, edited):
         return revert(
@@ -237,14 +248,25 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
 
 
 def _keep_edit(scenario_id: str, text: bytes) -> Path:
-    """Save a reverted edit to `cache_root()/review/<id>-<YYYYmmdd-HHMMSS>.yaml` and return the path."""
+    """Save a reverted edit to `cache_root()/review/<id>-<YYYYmmdd-HHMMSS>.yaml` and return the path.
+
+    The id goes into the file name with every character other than letters, digits, `.`, `_`
+    and `-` replaced by `_`, so it cannot name another directory; the core id pattern already
+    rules such ids out, and the final path is checked to be inside the folder as well.
+
+    Raises:
+        ValueError: If the path would still fall outside `cache_root()/review`.
+    """
     folder = cache_root() / "review"
     folder.mkdir(parents=True, exist_ok=True)
-    stem = f"{scenario_id}-{datetime.now().astimezone().strftime('%Y%m%d-%H%M%S')}"
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", scenario_id)
+    stem = f"{safe}-{datetime.now().astimezone().strftime('%Y%m%d-%H%M%S')}"
     target, n = folder / f"{stem}.yaml", 1
     while target.exists():  # a second revert within the same second
         n += 1
         target = folder / f"{stem}-{n}.yaml"
+    if target.resolve().parent != folder.resolve():
+        raise ValueError(f"refusing to keep the edit outside {folder}: {target}")
     target.write_bytes(text)
     return target
 
@@ -259,8 +281,13 @@ def set_status(
 ) -> list[Issue]:
     """Approve or reject a draft.
 
-    Approval needs `check_draft` to find no error and no `too_easy` warning; otherwise the file
-    is left as it is. Rejection always works.
+    Approval first compares the labels with `provenance.label_fingerprint`, recorded at
+    generation: a mismatch means they were edited outside `review edit`, and the approval is
+    refused (`labels_changed_outside_review`). A file without a recorded fingerprint (older, or
+    a hand-filled leak skeleton) is approved with the warning `label_fingerprint_not_recorded`.
+    Approval then needs `check_draft` to find no error and no `too_easy` warning; otherwise the
+    file is left as it is. An approval records `review.approved_hash` (`content_hash` of the
+    saved file), which `load_set` checks. Rejection always works.
 
     Args:
         path: The scenario file.
@@ -280,12 +307,35 @@ def set_status(
     s = load_scenario(path)
     issues: list[Issue] = []
     if status == "approved":
+        recorded = s.provenance.label_fingerprint
+        if recorded is not None and recorded != label_fingerprint(s):
+            return [
+                Issue(
+                    "error",
+                    LABELS_CHANGED,
+                    "the labels were changed outside the review tool (the label fingerprint "
+                    "differs from the one recorded at generation); undo that change, or reject "
+                    "the draft",
+                )
+            ]
         issues = check_draft(s, cfg, gen)
         if blocking(issues):
             return issues
+        if recorded is None:
+            issues.append(
+                Issue(
+                    "warning",
+                    FINGERPRINT_NOT_RECORDED,
+                    "no label fingerprint was recorded at generation, so label edits made "
+                    "outside review edit cannot be detected; check the labels yourself",
+                )
+            )
     s.review = Review(
         status=status, reviewer=reviewer, notes=s.review.notes if note is None else note
     )
+    if status == "approved":
+        # `save_draft` writes this dump, so its hash is the hash of the saved file.
+        s.review.approved_hash = content_hash(s.model_dump(mode="json"))
     save_draft(s, path)
     return issues
 
