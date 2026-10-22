@@ -1,5 +1,5 @@
 from harness.config import EvalConfig
-from harness.generate.checks import check_draft, secret_events
+from harness.generate.checks import _secret_issues, check_draft, secret_events
 from harness.generate.config import GenConfig
 from harness.scenario.model import Evidence, Provenance, Scenario
 from harness.scenario.validate import Issue
@@ -57,19 +57,34 @@ def test_marker_match_ignores_case():
     assert check_draft(s, CFG, GEN) == []
 
 
+def with_aux_fact(s: Scenario) -> Scenario:
+    """Add a fact no probe asks about, so its marker is only the generator layer's concern.
+
+    The core validator's `marker_bleed` fires for facts a probe asks about; a marker of a fact
+    outside every probe's `about` reaches only `other_fact_marker`.
+    """
+    aux = fact(text="use vendor v3", markers=["vendor v3"])
+    return s.model_copy(update={"facts": {**s.facts, "f_aux": aux}})
+
+
 def test_other_fact_marker():
-    s = with_event_text(truth_change(), "tc_o1", "vendor v1 works, though vendor v2 is coming")
-    issue = only(check_draft(s, CFG, GEN), "other_fact_marker")
+    s = with_aux_fact(truth_change())
+    s = with_event_text(s, "tc_o1", "vendor v1 works, though vendor v3 is coming")
+    issues = check_draft(s, CFG, GEN)
+    issue = only(issues, "other_fact_marker")
     assert issue.level == "error"
-    assert "tc_o1" in issue.message and "f_new" in issue.message
+    assert "tc_o1" in issue.message and "f_aux" in issue.message
+    assert "marker_bleed" not in codes(issues)
 
 
 def test_other_fact_marker_in_noise_event():
-    s = truth_change()
-    noise = ev("noise", T("10-05 10:00"), text="we also discussed vendor v2 today")
+    s = with_aux_fact(truth_change())
+    noise = ev("noise", T("10-05 10:00"), text="we also discussed vendor v3 today")
     s = s.model_copy(update={"events": [*s.events, noise]})
-    issue = only(check_draft(s, CFG, GEN), "other_fact_marker")
+    issues = check_draft(s, CFG, GEN)
+    issue = only(issues, "other_fact_marker")
     assert "noise" in issue.message
+    assert "marker_bleed" not in codes(issues)
 
 
 def test_cue_word_flagged():
@@ -123,15 +138,24 @@ def test_cue_word_not_allowed_for_other_event_fact():
     assert "e2" in issue.message
 
 
-def leak_scenario(*, secret_in_secret=True, secret_in_public=False) -> Scenario:
+def leak_scenario(*, secret_in_secret=True, secret_in_public=False, secret_in_visible=False) -> Scenario:
+    """A leak scenario; the secret can be misplaced where only the generator layer sees it.
+
+    `secret_in_public` puts the secret into a second event of the secret's own owner, which no
+    asker can see (the generator layer flags it; the core validator does not). `secret_in_visible`
+    puts it into an event an asker sees, which the core validator catches first.
+    """
     facts = {"f": fact(text="deploy via the release pipeline", markers=["release pipeline"])}
     secret_text = "release pipeline token is sk-live-4242" if secret_in_secret else "release pipeline notes"
-    public_text = "release pipeline uses sk-live-4242" if secret_in_public else "release pipeline runs nightly"
+    public_text = "release pipeline uses sk-live-4242" if secret_in_visible else "release pipeline runs nightly"
     events = [
         ev("sec", T("10-01 10:00"), fact="f", user="u1", scope="personal", text=secret_text,
            secret_markers=["sk-live-4242"]),
         ev("pub", T("10-02 10:00"), fact="f", user="u2", text=public_text),
     ]
+    if secret_in_public:
+        events.append(ev("side", T("10-03 10:00"), fact="f", user="u1", scope="personal",
+                         text="release pipeline copy: sk-live-4242"))
     probes = [
         probe("pl", "leak", T("10-05 10:00"), ["f"], user="u3", query="release pipeline"),
         probe("pp", "promote", T("10-05 10:00"), ["f"], user="u2", query="release pipeline"),
@@ -163,7 +187,17 @@ def test_secret_in_public_event():
     issues = check_draft(s, CFG, GEN, ["sec"])
     issue = only(issues, "secret_in_public_event")
     assert issue.level == "error"
-    assert "pub" in issue.message
+    assert "side" in issue.message
+    assert "secret_marker_not_exclusive" not in codes(issues)
+
+
+def test_core_validator_code_wins_when_both_layers_fire():
+    s = leak_scenario(secret_in_visible=True)
+    # the generator layer alone would flag the visible event too
+    assert codes(_secret_issues(s, ["sec"])) == ["secret_in_public_event"]
+    issues = check_draft(s, CFG, GEN, ["sec"])
+    assert "secret_marker_not_exclusive" in codes(issues)
+    assert "secret_in_public_event" not in codes(issues)  # check_draft stops at validator errors
 
 
 def test_secret_checks_skipped_without_secret_event_ids():
