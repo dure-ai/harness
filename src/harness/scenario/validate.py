@@ -1,6 +1,7 @@
 """Structural validation of a scenario: errors block evaluation, warnings only flag weak spots."""
 
 from collections import Counter
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
@@ -10,6 +11,8 @@ from harness.scenario.model import (
     FEEDBACK_FAMILIES,
     Feedback,
     FeedbackTemplate,
+    LabeledEvent,
+    Probe,
     QueryKey,
     Scenario,
     probe_key,
@@ -32,6 +35,9 @@ class Issue:
     message: str
 
 
+LEAK_FAMILIES = ("leak_personal", "leak_cross_team")
+
+
 def _templates(feedback: Feedback) -> list[FeedbackTemplate]:
     singles = [feedback.abstain, feedback.on_false, feedback.on_true]
     return [*feedback.action.values(), *(t for t in singles if t is not None)]
@@ -50,6 +56,44 @@ def _unknown_users(s: Scenario) -> tuple[set[str], list[str]]:
             bad.add(user)
             messages.append(f"{where}: user {user!r} is not in any team")
     return bad, messages
+
+
+def _first_marker_in(markers: Iterable[str], text: str) -> str | None:
+    """First non-blank marker found in already-casefolded `text`, ignoring case."""
+    for m in markers:
+        if m.strip() and m.casefold() in text:
+            return m
+    return None
+
+
+def _check_secret_exclusive(
+    p: Probe,
+    team: str,
+    labeled: list[LabeledEvent],
+    error: Callable[[str, str], None],
+) -> None:
+    """Report secret markers of events hidden from the asker that the asker's side also shows."""
+    recorded = [le for le in labeled if le.event.t <= p.t]
+    visible = [le for le in recorded if can_see(le.event, p.user, team)]
+    query = p.query.casefold()
+    for le in recorded:
+        if can_see(le.event, p.user, team):
+            continue
+        hit = _first_marker_in(le.secret_markers, query)
+        if hit is not None:
+            error(
+                "secret_marker_not_exclusive",
+                f"probe {p.id}: query contains secret marker {hit!r} of event {le.event.id}, "
+                "which the asker cannot see",
+            )
+        for other in visible:
+            hit = _first_marker_in(le.secret_markers, other.event.text.casefold())
+            if hit is not None:
+                error(
+                    "secret_marker_not_exclusive",
+                    f"probe {p.id}: visible event {other.event.id} contains secret marker "
+                    f"{hit!r} of event {le.event.id}, which the asker cannot see",
+                )
 
 
 def validate_scenario(s: Scenario) -> list[Issue]:
@@ -164,10 +208,15 @@ def validate_scenario(s: Scenario) -> list[Issue]:
 
     if s.family != "normal_repeat":
         kinds = {p.kind for p in s.probes}
-        if not kinds & {"block", "leak"}:
-            error("pairing_missing", "no block or leak probe")
+        needed = "leak" if s.family in LEAK_FAMILIES else "block"
+        if needed not in kinds:
+            error("pairing_missing", f"no {needed} probe (family {s.family!r})")
         if "promote" not in kinds:
             error("pairing_missing", "no promote probe")
+
+    for e in s.events:
+        if e.team is not None and e.team not in s.world.teams:
+            error("unknown_team", f"event {e.id}: team {e.team!r} is not in world.teams")
 
     # Checks below need the probe's user and the event users resolvable to a team.
     known_events = s.model_copy(
@@ -180,6 +229,7 @@ def validate_scenario(s: Scenario) -> list[Issue]:
             continue
         ctx = probe_ctx(p)
         team = s.team_of(p.user)
+        _check_secret_exclusive(p, team, labeled, error)
         about = {fid: s.facts[fid] for fid in p.about}
         recorded = [le for le in labeled if le.fact in about and le.event.t <= p.t]
 
@@ -210,6 +260,23 @@ def validate_scenario(s: Scenario) -> list[Issue]:
                 "leak_without_hidden",
                 f"probe {p.id}: no recorded about fact is hidden from the asker",
             )
+
+    bled: set[tuple[str, str]] = set()
+    for p in s.probes:
+        about_ids = [fid for fid in p.about if fid in s.facts]
+        for le in labeled:
+            body = le.event.text.casefold()
+            for fid in about_ids:
+                if fid == le.fact or (le.event.id, fid) in bled:
+                    continue
+                hit = _first_marker_in(s.facts[fid].markers, body)
+                if hit is not None:
+                    bled.add((le.event.id, fid))
+                    error(
+                        "marker_bleed",
+                        f"event {le.event.id}: body contains marker {hit!r} of fact {fid!r}, "
+                        f"which is not the event's fact (probe {p.id} asks about both)",
+                    )
 
     used = dict.fromkeys(fid for p in s.probes for fid in p.about if fid in s.facts)
     for fid in used:
