@@ -433,12 +433,51 @@ def old_leak_file(tmp_path: Path, *, secret_in_public: bool = False) -> Path:
 
 def test_old_file_without_secret_events_still_loads_with_warning(tmp_path):
     s = load_scenario(old_leak_file(tmp_path))
-    assert s.provenance.secret_events == []
+    assert s.provenance.secret_events is None  # not recorded, which is not the same as "no secrets"
     issues = check_draft(s, CFG, GEN)
     warning = only(issues, "secret_events_not_recorded")
     assert warning.level == "warning"
     assert not [i for i in issues if i.level == "error"]
     assert "secret_events_not_recorded" not in [i.code for i in blocking(issues)]
+
+
+def test_old_file_survives_a_harness_write(tmp_path):
+    """`save_draft` must not turn "not recorded" into a recorded empty list (which a leak family rejects)."""
+    from harness.generate.pipeline import save_draft
+
+    path = old_leak_file(tmp_path)
+    save_draft(load_scenario(path), path)
+    again = load_scenario(path)
+    assert again.provenance.secret_events is None
+    issues = check_draft(again, CFG, GEN)
+    assert codes([i for i in issues if i.level == "error"]) == []
+    assert "secret_events_not_recorded" in codes(issues)
+
+
+def test_old_leak_file_with_nothing_secret_is_an_error(tmp_path):
+    import yaml
+
+    from harness.generate.pipeline import save_draft
+
+    path = old_leak_file(tmp_path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for e in data["events"]:
+        e["secret_markers"] = []
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    s = load_scenario(path)
+    assert s.provenance.secret_events is None
+    issue = only(check_draft(s, CFG, GEN), "no_secret_events")
+    assert issue.level == "error"
+    assert "secret_events_not_recorded" not in codes(check_draft(s, CFG, GEN))  # nothing was derived
+    save_draft(s, path)  # and a rewrite does not hide it
+    assert "no_secret_events" in codes(check_draft(load_scenario(path), CFG, GEN))
+
+
+def test_leak_scenario_with_key_present_and_nothing_secret_is_an_error():
+    s = leak_scenario()
+    s.provenance.secret_events = []
+    s.events[0].secret_markers = []
+    assert "no_secret_events" in codes(check_draft(s, CFG, GEN))
 
 
 def test_old_file_falls_back_to_the_markers_in_the_file(tmp_path):

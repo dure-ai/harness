@@ -128,6 +128,15 @@ def test_secret_markers_are_a_label_field() -> None:
         assert changed_label_fields(a, b) == ["events.e1.secret_markers"]
 
 
+def test_unrecorded_secret_events_are_unchanged_and_recording_them_is_a_change() -> None:
+    a = _scenario()
+    assert a.provenance.secret_events is None
+    assert label_fingerprint(a) == label_fingerprint(a.model_copy(deep=True))
+    b = a.model_copy(deep=True)
+    b.provenance.secret_events = []
+    assert changed_label_fields(a, b) == ["provenance.secret_events"]
+
+
 def test_recorded_secret_events_are_part_of_the_fingerprint() -> None:
     a = _scenario()
     a.provenance.secret_events = ["e1"]

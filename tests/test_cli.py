@@ -964,7 +964,7 @@ def test_scenario_new_leak_family_says_the_secret_is_filled_in_by_hand(tmp_path)
     from harness.scenario.load import load_scenario
 
     out = runner.invoke(app, ["scenario", "new", "--family", "leak_personal", "--seed", "3", "--out", str(tmp_path)])
-    assert out.exit_code == 0 and "secret_markers" in out.output
+    assert out.exit_code == 0 and "secret_markers" in out.output and "review edit 전에" in out.output
     (path,) = list(tmp_path.rglob("*.yaml"))
     s = load_scenario(path)
     assert s.provenance.secret_events and all(e.secret_markers == [] for e in s.events)

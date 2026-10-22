@@ -167,7 +167,7 @@ flowchart LR
    - 백틱(`` ` ``) 안의 코드 조각. `` `enabled: false` `` 같은 설정 줄이 막히지 않게 한다.
    - 그 이벤트(또는 되먹임 틀)가 말하는 사실 자신의 `markers`가 본문에 나온 자리. 사실 자체가 그 단어를 담아야 하는 경우(예: 마커 "`--legacy flag is deprecated`")는 마커 안에서만 허용되고, 같은 단어가 본문의 다른 곳에 있으면 걸린다(예전에는 마커에 금지어가 있으면 본문 어디서나 허용됐다).
    - 질문(`query`)에는 마커 예외가 없고 코드 조각만 지운다.
-5. **비밀 문자열**: 비밀 기록이 어느 이벤트인지는 파일에서 다시 계산하지 않고 생성 시점에 `provenance.secret_events`에 적어 둔 목록을 쓴다(계열 틀의 비밀 자리). 목록의 이벤트는 `secret_markers`가 비어 있지 않아야 하고(`secret_missing`) 그 본문에 하나 이상 들어 있어야 한다(`secret_not_in_secret_event`). 누출 계열인데 목록이 비어 있으면 오류(`no_secret_events`). 비밀 문자열은 다른 이벤트 본문(`secret_in_public_event`), 사실의 `text`·`markers`(`secret_in_fact_text`), 되먹임 틀 본문(`secret_in_feedback`)에 없어야 한다. 질문자가 볼 수 있는 기록과 질문에 새면 검증기(`secret_marker_not_exclusive`)가 먼저 잡고, 이 검사는 아무 질문자도 볼 수 없는 기록과 사실·되먹임 본문까지 맡는다. 이 목록이 없는 파일(이전 버전이나 손으로 쓴 초안)은 `secret_markers`가 있는 이벤트에서 유도하고 경고 `secret_events_not_recorded`를 붙인다(저장·승인은 막지 않는다).
+5. **비밀 문자열**: 비밀 기록이 어느 이벤트인지는 파일에서 다시 계산하지 않고 생성 시점에 `provenance.secret_events`에 적어 둔 목록을 쓴다(계열 틀의 비밀 자리). 목록의 이벤트는 `secret_markers`가 비어 있지 않아야 하고(`secret_missing`) 그 본문에 하나 이상 들어 있어야 한다(`secret_not_in_secret_event`). 누출 계열인데 비밀 기록이 하나도 없으면(목록이 비었거나, 목록이 없는 파일에서 유도할 `secret_markers`가 없으면) 오류(`no_secret_events`). 비밀 문자열은 다른 이벤트 본문(`secret_in_public_event`), 사실의 `text`·`markers`(`secret_in_fact_text`), 되먹임 틀 본문(`secret_in_feedback`)에 없어야 한다. 질문자가 볼 수 있는 기록과 질문에 새면 검증기(`secret_marker_not_exclusive`)가 먼저 잡고, 이 검사는 아무 질문자도 볼 수 없는 기록과 사실·되먹임 본문까지 맡는다. 이 목록이 없는 파일(이전 버전이나 손으로 쓴 초안. 값은 `null`이고 하네스가 다시 저장해도 `null`로 남는다)은 `secret_markers`가 있는 이벤트에서 유도하고 경고 `secret_events_not_recorded`를 붙인다(저장·승인은 막지 않는다).
 6. **인용 근거**: `origin: quoted`인 근거는 그 이벤트가 원래 후보의 참인 사실을 말할 때만 허용하고(`quoted_unsupported`), 인용문이 본문에 들어 있어야 한다(`quoted_evidence_mismatch`).
 7. 경고(저장은 함): `markers_missing` 등 기존 경고.
 
@@ -184,7 +184,7 @@ flowchart LR
 | `source_repos` | list[{repo, license}] | 원본 저장소와 라이선스(CC BY 4.0 출처 표시용) |
 | `fabricated_facts` | list[str] | 계열 틀이 만들고 LLM이 문장을 지어낸 사실 id |
 | `evidence` | list[{event_id, trace_id, message_index, quote, origin}] | 이벤트 본문의 근거. `origin`은 `quoted`(궤적 인용에서 옴) 또는 `written`(LLM이 같은 사실로 새로 씀). 검토자가 각자 노트북에서 YAML만으로 인용을 확인할 수 있게 시나리오 파일에 같이 둔다 |
-| `secret_events` | list[str] | 비밀 문자열을 담는 이벤트 id(누출 계열의 비밀 자리). 생성 시점에 계열 틀이 적고, 다른 계열은 빈 목록이다. 없는 파일은 `secret_markers`에서 유도하고 경고를 낸다. `provenance` 안이라 정답 지문에 들어가 검토에서 고칠 수 없다 |
+| `secret_events` | list[str] \| None | 비밀 문자열을 담는 이벤트 id(누출 계열의 비밀 자리). 생성 시점에 계열 틀이 적고, 다른 계열은 빈 목록이다. `null`(없는 파일)은 "기록 안 됨"이고 `secret_markers`에서 유도하며 경고를 낸다. `provenance` 안이라 정답 지문에 들어가 검토에서 고칠 수 없다 |
 | `reviewer_edited` | bool | 검토자가 내용을 고쳤는지 |
 | `generated_at` | datetime \| None | 생성 시각 |
 
@@ -207,7 +207,7 @@ flowchart LR
   - 고칠 수 없는 필드: `provenance` 전체(단 `reviewer_edited`는 하네스가 씀. `secret_events` 포함), 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·신호·종류·결과·연결 사실·`refs`·`secret_markers`, 문항의 id·종류·시각·사용자·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`, 계열, 모드, 세계.
   - 고칠 수 있는 필드: 사실의 `text`·`markers`, 이벤트 `text`, 문항 `query`, 되먹임 틀 `text`, `review.notes`.
 - 지문이 바뀌었으면 어느 필드가 바뀌었는지 보여 주고 **파일을 원래대로 되돌린다**. 정답이 틀렸으면 거절하라고 안내한다.
-- `secret_markers`는 무엇이 누출인지를 정하는 라벨이라 고칠 수 없다. 비우면 누출 검사가 꺼지고, 엉뚱한 문자열로 바꾸면 누출을 못 잡기 때문이다. 비밀 문자열이 본문과 맞지 않으면 고치지 말고 거절한 뒤 다시 생성한다. 편집본은 다른 정답 편집처럼 캐시에 남는다. (`harness scenario new`로 만든 누출 계열 빈 틀은 비밀 문자열이 비어 있으므로 `review edit`가 아니라 파일을 직접 열어 채운다. 이어서 `review set`의 자동 검증이 목록·본문을 확인한다.)
+- `secret_markers`는 무엇이 누출인지를 정하는 라벨이라 고칠 수 없다. 비우면 누출 검사가 꺼지고, 엉뚱한 문자열로 바꾸면 누출을 못 잡기 때문이다. 비밀 문자열이 본문과 맞지 않으면 고치지 말고 거절한 뒤 다시 생성한다. 편집본은 다른 정답 편집처럼 캐시에 남는다. (`harness scenario new`로 만든 누출 계열 빈 틀은 비밀 문자열이 비어 있으므로 `review edit`가 아니라 파일을 직접 열어 채운다. `review edit`를 돌리기 전에 채우고, 이어서 `review set`의 자동 검증이 목록·본문을 확인한다.)
 - 내용이 바뀌었으면 5.6의 검증을 다시 돌려 결과를 보여 주고, `provenance.reviewer_edited: true`로 둔다.
 
 ### 7.3 `review set`

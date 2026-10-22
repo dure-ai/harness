@@ -449,6 +449,36 @@ def test_set_approved_of_an_old_file_without_secret_events_warns_but_approves(tm
     assert load_scenario(path).review.status == "approved"
 
 
+def old_file(tmp_path):
+    import yaml
+
+    path = draft(tmp_path, leak_scenario(recorded=False))
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert data["provenance"]["secret_events"] is None  # saved as null, not as a recorded []
+    return path
+
+
+def test_old_file_stays_unrecorded_after_review_set_and_edit(tmp_path):
+    """The first harness write must not change an old file's meaning (no `no_secret_events` afterwards)."""
+    from harness.generate.checks import check_draft
+
+    path = old_file(tmp_path)
+    set_status(path, "approved", "me", None, CFG, GEN)
+    after = load_scenario(path)
+    assert after.review.status == "approved" and after.provenance.secret_events is None
+    findings = check_draft(after, CFG, GEN)
+    assert [i.code for i in findings if i.level == "error"] == []
+    assert "secret_events_not_recorded" in [i.code for i in findings]
+
+    body = "path.write_text(text.replace('release pipeline runs nightly', 'release pipeline runs hourly'))"
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "saved" and result.changed_fields == []  # None -> None is not a label change
+    assert [i.code for i in result.issues if i.level == "error"] == []
+    saved = load_scenario(path)
+    assert saved.provenance.secret_events is None and saved.provenance.reviewer_edited
+    assert set_status(path, "approved", "me", None, CFG, GEN)[0].code == "secret_events_not_recorded"
+
+
 def test_set_approved_of_a_secret_event_without_markers_is_blocked(tmp_path):
     s = leak_scenario()
     s.events[0].secret_markers = []

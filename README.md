@@ -173,7 +173,7 @@ uv run harness generate --family echo --dry-run   # 첫 LLM 요청만 출력하�
 ```
 
 - `--family all`은 10개 계열 전부이고, 짝 문항이 없는 `normal_repeat`는 `n // 2`개(최소 1)만 만듭니다.
-- 자동 검증(`check_draft`)은 먼저 `validate_scenario`를 돌립니다. 이 검증기는 비밀 문자열 배타성(`secret_marker_not_exclusive`), 다른 사실의 판정 문자열 섞임(`marker_bleed`), 모르는 팀(`unknown_team`)도 잡고, 오류가 있으면 거기서 멈추므로 검증기 코드가 먼저 나옵니다. 생성기의 `other_fact_marker`·`secret_in_public_event` 등은 검증기가 보지 않는 곳(문항이 묻지 않는 사실의 마커, 아무도 볼 수 없는 기록 속 비밀 문자열)을 맡습니다. 되먹임 틀의 본문(행동·기권·결과)도 이벤트 본문과 같은 검사(마커 포함, 다른 사실 마커 금지, 금지어)를 받고, 비밀 문자열은 사실 문장(`secret_in_fact_text`)과 되먹임 본문(`secret_in_feedback`)에도 없어야 합니다. 비밀 기록이 어느 이벤트인지는 생성 때 `provenance.secret_events`에 적어 두며, 이 목록이 없는 파일은 `secret_markers`에서 유도하고 경고 `secret_events_not_recorded`만 붙습니다.
+- 자동 검증(`check_draft`)은 먼저 `validate_scenario`를 돌립니다. 이 검증기는 비밀 문자열 배타성(`secret_marker_not_exclusive`), 다른 사실의 판정 문자열 섞임(`marker_bleed`), 모르는 팀(`unknown_team`)도 잡고, 오류가 있으면 거기서 멈추므로 검증기 코드가 먼저 나옵니다. 생성기의 `other_fact_marker`·`secret_in_public_event` 등은 검증기가 보지 않는 곳(문항이 묻지 않는 사실의 마커, 아무도 볼 수 없는 기록 속 비밀 문자열)을 맡습니다. 되먹임 틀의 본문(행동·기권·결과)도 이벤트 본문과 같은 검사(마커 포함, 다른 사실 마커 금지, 금지어)를 받고, 비밀 문자열은 사실 문장(`secret_in_fact_text`)과 되먹임 본문(`secret_in_feedback`)에도 없어야 합니다. 비밀 기록이 어느 이벤트인지는 생성 때 `provenance.secret_events`에 적어 두며, 이 목록이 없는 파일(`secret_events: null`이거나 키 없음. 하네스가 다시 저장해도 null로 남습니다)은 `secret_markers`에서 유도하고 경고 `secret_events_not_recorded`만 붙습니다. 누출 계열인데 비밀 기록이 하나도 없으면(목록이 비었거나 유도할 `secret_markers`가 없으면) 오류 `no_secret_events`입니다.
 - 자동 검증(`check_draft`)에서 오류가 나거나 `too_easy` 경고가 뜬 초안은 저장하지 않고 거절 로그에 남깁니다. 같은 id의 파일은 손대지 않은 LLM 초안일 때만 새로 씁니다. 상태가 draft가 아니거나, 검토자가 고쳤거나(`provenance.reviewer_edited: true`), 사람이 쓴(`provenance.author`가 `llm`이 아닌) 파일, 읽을 수 없는 파일은 덮어쓰지 않고 요약에 "건너뜀"으로 보여 줍니다.
 - 후보 뽑기에 보내는 궤적은 한 번 실행에 최대 `--max-traces`(기본 100)개입니다. 한도에 닿으면 요약에 표시됩니다.
 - 본문 쓰기 시도는 계열마다 최대 `--max-attempts`(기본: 그 계열 목표 개수 × 3)번입니다. 한도에 닿으면 그 계열을 멈추고 부족 사유에 "stopped at --max-attempts N"이 나옵니다.
@@ -212,7 +212,7 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 - `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
 - id가 없거나 같은 id의 파일이 여럿이면 종료 코드 1입니다. 다른 위치는 `--root`로 지정합니다.
 
-처음부터 손으로 쓰려면 빈 틀을 만듭니다. 라벨은 계열 틀이 정하고 글은 모두 비어 있으며(`provenance.author: human`, `draft`), 이어서 `review edit`로 채웁니다. 이미 있는 파일은 덮어쓰지 않습니다. 누출 계열(`leak_personal`, `leak_cross_team`)은 비밀 문자열(`secret_markers`)이 `review edit`로 고칠 수 없는 필드라서, 그 값만은 파일을 편집기로 직접 열어 비밀 기록의 `secret_markers`와 본문에 씁니다(`review set approved`의 자동 검증이 확인합니다).
+처음부터 손으로 쓰려면 빈 틀을 만듭니다. 라벨은 계열 틀이 정하고 글은 모두 비어 있으며(`provenance.author: human`, `draft`), 이어서 `review edit`로 채웁니다. 이미 있는 파일은 덮어쓰지 않습니다. 누출 계열(`leak_personal`, `leak_cross_team`)은 비밀 문자열(`secret_markers`)이 `review edit`로 고칠 수 없는 필드라서, 그 값만은 `review edit`를 돌리기 **전에** 파일을 편집기로 직접 열어 비밀 기록의 `secret_markers`와 본문에 씁니다(`review set approved`의 자동 검증이 확인합니다). `review edit`는 `secret_markers`가 바뀐 편집을 되돌립니다.
 
 ```bash
 uv run harness scenario new --family truth_change --seed 1 [--out scenarios/dev]

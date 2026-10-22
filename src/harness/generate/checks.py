@@ -11,18 +11,18 @@ from harness.selfcheck import check_discrimination
 
 
 def secrets_recorded(s: Scenario) -> bool:
-    """Whether the scenario file says which events hold the secrets (`provenance.secret_events`).
+    """Whether the scenario says which events hold the secrets (`provenance.secret_events`).
 
-    A file written by the generator always has the key, empty when there are no secrets; an
-    older or hand-written file may not.
+    The generator always writes a list, empty when there are no secrets; an older or
+    hand-written file has none (None), and stays None when the harness saves it again.
 
     Args:
         s: The scenario.
 
     Returns:
-        True when the key is present.
+        True when `provenance.secret_events` is a list.
     """
-    return "secret_events" in s.provenance.model_fields_set
+    return s.provenance.secret_events is not None
 
 
 def secret_events(s: Scenario) -> list[str]:
@@ -35,7 +35,7 @@ def secret_events(s: Scenario) -> list[str]:
         `provenance.secret_events` when the file records it. Otherwise (an older or hand-written
         file) the ids of events whose `secret_markers` list is non-empty, in file order.
     """
-    if secrets_recorded(s):
+    if s.provenance.secret_events is not None:
         return list(s.provenance.secret_events)
     return [e.id for e in s.events if e.secret_markers]
 
@@ -164,15 +164,15 @@ def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
 def _secret_issues(s: Scenario) -> list[Issue]:
     """Where the secret strings are, and are not.
 
-    The secret events come from `secret_events`. A listed event must exist, carry secret
-    markers and contain one of them. No other event body, no fact text or marker and no
+    The secret events come from `secret_events`. A leak family needs at least one, recorded or
+    not. A listed event must exist, carry secret markers and contain one of them. No other event body, no fact text or marker and no
     feedback template body may contain any of them. (A probe query or a visible event holding a
     secret is the core validator's `secret_marker_not_exclusive`, which runs first.)
     """
     issues: list[Issue] = []
     recorded = secrets_recorded(s)
     ids = secret_events(s)
-    if not recorded and (ids or s.family in LEAK_FAMILIES):
+    if not recorded and ids:
         issues.append(
             Issue(
                 "warning",
@@ -181,12 +181,13 @@ def _secret_issues(s: Scenario) -> list[Issue]:
                 "events that have secret_markers",
             )
         )
-    if recorded and s.family in LEAK_FAMILIES and not ids:
+    if s.family in LEAK_FAMILIES and not ids:
+        where = "provenance.secret_events is empty" if recorded else "no event has secret_markers"
         issues.append(
             Issue(
                 "error",
                 "no_secret_events",
-                f"family {s.family!r} needs a secret event but provenance.secret_events is empty",
+                f"family {s.family!r} needs a secret event but {where}",
             )
         )
     by_id = {e.id: e for e in s.events}
