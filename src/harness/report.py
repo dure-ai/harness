@@ -123,20 +123,48 @@ def _metrics_json(m: Metrics, sealed: bool) -> dict[str, Any]:
     return d
 
 
-def _scrubber(ids: Mapping[str, str]) -> Callable[[str], str]:
-    """Replace each candidate's full name and its class-name part (after ":") with its blind id."""
+MIN_ALIAS = 4  # shorter module paths and declared names are too likely to be common words
+
+
+def _scrubber(
+    ids: Mapping[str, str], infos: Mapping[str, EngineInfo] | None = None
+) -> Callable[[str], str]:
+    """Return a function that replaces candidate identifiers with their blind ids.
+
+    Per candidate it hides the full name (`pkg.module:Class`), the class name, the whole module
+    path (`pkg.module`; one without a dot only from 4 characters) and the name the engine
+    declares in `info().name` (from 4 characters). It never hides single components of a module
+    path. An alias shared by two candidates is ambiguous and is left alone, as is one found
+    inside a baseline name (replacing it would garble the baselines' rows). Strings the engine
+    chooses itself (version, config, error text) are only covered where they contain these.
+
+    Args:
+        ids: Engine name to blind id; baselines map to themselves.
+        infos: Engine name to its `info()`, for the declared names.
+
+    Returns:
+        The scrub function; longer identifiers are replaced first.
+    """
     pairs: dict[str, str] = {}
-    classes: dict[str, list[str]] = {}
+    aliases: dict[str, set[str]] = {}
     for name, blind in ids.items():
         if blind == name:
             continue
         pairs[name] = blind
-        _, sep, cls = name.partition(":")
+        module, sep, cls = name.partition(":")
+        found: list[str] = []
         if sep and cls:
-            classes.setdefault(cls, []).append(blind)
-    for cls, blinds in classes.items():
-        if len(blinds) == 1 and cls not in pairs:  # a class name shared by two candidates is ambiguous
-            pairs[cls] = blinds[0]
+            found.append(cls)
+        if sep and module and ("." in module or len(module) >= MIN_ALIAS):
+            found.append(module)
+        info = (infos or {}).get(name)
+        if info is not None and len(info.name) >= MIN_ALIAS:
+            found.append(info.name)
+        for alias in found:
+            aliases.setdefault(alias, set()).add(blind)
+    for alias, blinds in aliases.items():
+        if len(blinds) == 1 and alias not in pairs and not any(alias in b for b in BASELINES):
+            pairs[alias] = next(iter(blinds))
     ordered = sorted(pairs, key=len, reverse=True)
 
     def scrub(text: str) -> str:
@@ -537,7 +565,9 @@ def write_report(
         ranking: Ranked candidates, see `selection.rank`.
         runs: Engine name to its scenario runs (first repeat), for results.jsonl.
         selfcheck: Self-check results.
-        blind_seed: Seed of the blind-id shuffle; a fresh random seed by default.
+        blind_seed: The run's blind seed: it shuffles the blind ids, and `harness run` also
+            derives its namespace key from it (`replay.blind_key`). A fresh random seed by
+            default.
         repeat_runs: Engine name to its runs of every repeat, for the error section (the verdict
             counts errors of all repeats). Defaults to `runs` as a single repeat.
     """
@@ -553,7 +583,7 @@ def write_report(
     if repeat_runs is None:
         repeat_runs = {name: [r] for name, r in runs.items()}
     ids = blind_ids(sorted(names), blind_seed)
-    scrub = _scrubber(ids)
+    scrub = _scrubber(ids, meta.engine_infos)
     key = _order_key(ids)
     ordered = sorted(scores, key=lambda s: key(s.engine_id))
 

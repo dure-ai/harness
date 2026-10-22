@@ -303,6 +303,54 @@ def test_shared_class_name_not_mapped():
     assert scrub("none") == "none"
 
 
+def test_scrubber_hides_dotted_module_path_and_declared_name():
+    # Reproduces review finding C10c: module path and the engine's own name stayed in the report.
+    a, b = "acme.secretsauce:Engine", "zeta.mem:Other"
+    ids = blind_ids([a, b, "none", "all_store"], 5)
+    infos = {
+        a: EngineInfo(name="SecretSauce", version="1"),
+        b: EngineInfo(name="mem", version="1"),  # under 4 characters: too common to replace
+        "all_store": EngineInfo(name="all_store", version="0"),
+    }
+    scrub = _scrubber(ids, infos)
+    ea, eb = ids[a], ids[b]
+    assert scrub(f"{a} failed") == f"{ea} failed"
+    assert scrub("TimeoutError at acme.secretsauce.client") == f"TimeoutError at {ea}.client"
+    assert scrub("zeta.mem broke") == f"{eb} broke"
+    assert scrub("[SecretSauce] hello") == f"[{ea}] hello"
+    assert scrub("mem leak in acme and zeta") == "mem leak in acme and zeta"  # single components stay
+    assert scrub("all_store m1=0.5, none") == "all_store m1=0.5, none"
+
+
+def test_scrubber_skips_ambiguous_and_baseline_like_names():
+    a, b = "x.one:A", "y.two:B"
+    ids = blind_ids([a, b, "all_store", "none"], 1)
+    infos = {
+        a: EngineInfo(name="shared", version="1"),
+        b: EngineInfo(name="shared", version="1"),  # two candidates claim it: ambiguous
+    }
+    assert _scrubber(ids, infos)("shared thing") == "shared thing"
+    infos = {a: EngineInfo(name="store", version="1"), b: EngineInfo(name="oracle", version="1")}
+    scrub = _scrubber(ids, infos)
+    assert scrub("all_store beats oracle") == "all_store beats oracle"  # would garble baseline names
+    assert _scrubber(ids)("x.one failed") == f"{ids[a]} failed"  # infos are optional
+
+
+def test_report_hides_module_path_and_declared_name(tmp_path):
+    m, scores, ranking, runs, selfcheck = fixture(errors=True)
+    m.engine_infos = {
+        SECRET: EngineInfo(name="SecretEngine", version="acme.mem 1.2", config={"impl": "acme.mem"}),
+        OTHER: EngineInfo(name="Othello", version="2", config={"label": "Othello v2"}),
+    }
+    runs[OTHER] = [run("sc_broken", error="RuntimeError: zeta.mem.client: Othello timed out")]
+    out = tmp_path / "o"
+    write_report(out, m, scores, ranking, runs, selfcheck, blind_seed=2)
+    for name in ("summary.json", "report.md"):
+        text = (out / name).read_text("utf-8")
+        for hidden in ("acme.mem", "zeta.mem", "SecretEngine", "Othello"):
+            assert hidden not in text, (name, hidden)
+
+
 def engine_ids(out):
     return json.loads((out / "engine_ids.json").read_text("utf-8"))
 

@@ -117,7 +117,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | `results.jsonl` | 문항 단위 기록 |
 | `engine_ids.json` | 가린 id ↔ 실제 엔진 이름과 블라인드 seed(섞기와 이름공간 키를 함께 정함, `--blind-seed`로 고정 가능). 이 파일에만 있음 |
 
-기준선 외 엔진 이름은 E1, E2…로 가립니다. `--sealed`면 시나리오·문항 id와 검사 세부 값을 리포트와 터미널에서 뺍니다. `--include-drafts`로 돌린 리포트에는 "초안 포함 — 발표 수치로 쓰지 않음" 경고가 붙습니다.
+기준선 외 엔진 이름은 E1, E2…로 가립니다(`_scrubber`: 전체 이름, 클래스 이름, 모듈 점 경로 전체, `info().name`으로 밝힌 4자 이상 이름. 엔진이 정한 다른 문자열과 `results.jsonl`의 결과 본문은 가리지 않음). `--sealed`면 시나리오·문항 id와 검사 세부 값을 리포트와 터미널에서 뺍니다. `--include-drafts`로 돌린 리포트에는 "초안 포함 — 발표 수치로 쓰지 않음" 경고가 붙습니다.
 
 ## 확장하는 법
 

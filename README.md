@@ -61,6 +61,8 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 
 `--sealed`로 돌리면 `results.jsonl`을 만들지 않고 리포트에서 시나리오·문항 id를 뺍니다.
 
+블라인드(E1, E2…)는 `report.md`·`summary.json`에서 후보의 전체 이름, 클래스 이름, 모듈 점 경로, `info().name`으로 밝힌 이름을 가립니다. 엔진이 정한 다른 문자열(버전, 설정, 오류 문구)은 그대로이고, `results.jsonl`에는 엔진이 돌려준 결과 본문이 그대로 남아 블라인드가 아닙니다.
+
 ### report.md 읽는 법
 
 | 절 | 볼 것 |
