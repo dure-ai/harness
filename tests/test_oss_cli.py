@@ -95,7 +95,7 @@ def leaked_labels(scenarios: list[Scenario], requests: list[Recorded]) -> list[s
     ).lower()
     hits = []
     for s in scenarios:
-        for label in (s.id, s.family):
+        for label in (s.id, s.family, *(p.id for p in s.probes), *(p.kind for p in s.probes)):
             if label.lower() in structured:
                 hits.append(f"{s.id}: {label!r} in a structured field")
         observed = " ".join([*(e.text for e in s.events), *(p.query for p in s.probes)]).lower()
@@ -191,3 +191,19 @@ def test_label_check_flags_planted_markers_and_keeps_exemption():
     ]
     exempt = [post("exempt-secret and EXEMPT-FACT, as in the event text")]
     assert leaked_labels([s], exempt) == []
+
+
+def test_same_blind_seed_gives_identical_engine_ids_and_results_with_both_engines(
+    tmp_path, fakes_env, hindsight_fake, mem0_fake
+):
+    runs = []
+    for name in ("one", "two"):
+        result, out = run_both(tmp_path / name, "--blind-seed", "12345")
+        assert result.exit_code == 0, result.output
+        runs.append(next(out.iterdir()))
+    for file in ("engine_ids.json", "results.jsonl"):
+        assert (runs[0] / file).read_bytes() == (runs[1] / file).read_bytes(), file
+    ids = json.loads((runs[0] / "engine_ids.json").read_text(encoding="utf-8"))
+    assert ids == {"seed": 12345, "ids": {"E1": "hindsight", "E2": "mem0"}}
+    # Both runs reached the servers; the namespaces they used differ only by the run id.
+    assert len(hindsight_fake.requests) > 0 and len(mem0_fake.requests) > 0
