@@ -1,11 +1,13 @@
-import hashlib
+import re
 from datetime import timedelta
+from pathlib import Path
 
 from harness.baselines.simple import AllStoreEngine, NoneEngine
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineInfo, Result
 from harness.agent import Choice
 from harness.replay import feedback_events, run_scenario
+from harness.scenario.load import load_scenario
 from harness.scenario.model import Feedback, FeedbackTemplate
 from tests.factories import T, ev, fact, probe, scenario
 
@@ -280,19 +282,123 @@ def test_generated_ids_reveal_neither_harness_nor_probe():
     for eid in recorded:
         assert "#" not in eid
         assert not any(p.id in eid for p in s.probes)
-    expected = "e" + hashlib.sha256(b"sc:p1:action").hexdigest()[:12]
-    assert run.generated_ids[("p1", "action")] == expected
+    # one scenario event (e_old), so numbering starts at e2, in the order the records are made
+    assert run.generated_ids == {("p1", "action"): "e2", ("p1", "outcome"): "e3"}
 
 
-def test_generated_id_collision_gets_suffix():
-    taken = "e" + hashlib.sha256(b"sc:p1:action").hexdigest()[:12]
+def test_generated_id_skips_ids_in_use():
     s = _scenario()
-    s.events.append(ev(taken, T("10-01 11:00"), text="unrelated"))
-    s.events.append(ev(f"{taken}-2", T("10-01 12:00"), text="unrelated too"))
+    s.events.append(ev("e3", T("10-01 11:00"), text="unrelated"))
+    s.events.append(ev("e4", T("10-01 12:00"), text="unrelated too"))
     run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=CFG)
-    assert run.generated_ids[("p1", "action")] == f"{taken}-3"
+    # 3 scenario events -> starts at e4, which is taken; the outcome then starts at e5 (taken now)
+    assert run.generated_ids == {("p1", "action"): "e5", ("p1", "outcome"): "e6"}
     ids = [le.event.id for le in run.generated]
     assert len(ids) == len(set(ids))
+
+
+SHAPE_CLASSIFIERS = [
+    r"^e\d{1,3}$",
+    r"^e[0-9a-f]{12}(-\d+)?$",  # the old hashed ids (review finding D13)
+    r"^e\d+$",
+    r"-\d+$",
+    r"^e\d{2,}$",
+    r"^[a-z]+\d+$",
+]
+
+
+def _separable(pattern: str, generated: set[str], authored: set[str]) -> bool:
+    """Does matching `pattern` split generated ids from authored ones (either way round)?"""
+    def hit(i):
+        return re.search(pattern, i) is not None
+    return (all(map(hit, generated)) and not any(map(hit, authored))) or (
+        not any(map(hit, generated)) and all(map(hit, authored))
+    )
+
+
+class _SeenIds(AllStoreEngine):
+    def __init__(self):
+        super().__init__()
+        self.seen: list[str] = []
+
+    def record(self, event):
+        self.seen.append(event.id)
+        super().record(event)
+
+
+def test_generated_ids_look_like_scenario_ids_and_never_collide():
+    s = load_scenario(Path("scenarios/examples/echo_stale_owner.yaml"))
+    eng = _SeenIds()
+    run = run_scenario(eng, s, run_id="r", cfg=CFG)
+    generated = set(run.generated_ids.values())
+    authored = {e.id for e in s.events}
+    assert generated and not generated & authored
+    assert set(eng.seen) == generated | authored
+    shape = {re.sub(r"\d+", "#", i) for i in generated}
+    assert shape <= {re.sub(r"\d+", "#", i) for i in authored}
+    for pattern in SHAPE_CLASSIFIERS:
+        assert not _separable(pattern, generated, authored), pattern
+
+    # Authors may use any id, including ones the numbering would reach.
+    odd = _scenario(extra_probes=[
+        probe("p2", "block", T("10-10 12:00"), ["f_old", "f_new"], query="alpha host", feedback=_feedback()),
+    ])
+    odd.events += [ev("tc_o1", T("10-01 11:00"), text="x"), ev("e_new", T("10-01 12:00"), text="y"),
+                   ev("e5", T("10-01 13:00"), text="z")]
+    run = run_scenario(AllStoreEngine(), odd, run_id="r", cfg=CFG)
+    ids = list(run.generated_ids.values())
+    assert len(ids) == len(set(ids)) == 4
+    assert not set(ids) & {e.id for e in odd.events}
+    assert all(re.fullmatch(r"e\d+", i) for i in ids)
+    assert ids == ["e6", "e7", "e8", "e9"]  # 4 events: start at e5 (taken), then count on
+
+
+def test_generated_ids_are_independent_of_probe_ids():
+    p2 = probe("p2", "block", T("10-10 12:00"), ["f_old", "f_new"], query="alpha host",
+               feedback=_feedback())
+    first = run_scenario(AllStoreEngine(), _scenario(extra_probes=[p2]), run_id="r", cfg=CFG)
+    s = _scenario(extra_probes=[p2.model_copy(update={"id": "p_promote_zz"})])
+    s.probes[0] = s.probes[0].model_copy(update={"id": "p_block_q9"})
+    s = s.model_copy(update={"id": "another-scenario"})
+    second = run_scenario(AllStoreEngine(), s, run_id="other", cfg=CFG)
+    assert len(first.generated) == 4
+    assert [le.event.id for le in first.generated] == [le.event.id for le in second.generated]
+    assert second.generated_ids[("p_block_q9", "action")] == first.generated_ids[("p1", "action")]
+
+
+class _Latest(BaseEngine):
+    """Returns the latest recorded event the asker may see, citing it."""
+
+    def info(self):
+        return EngineInfo(name="latest", version="0")
+
+    def reset(self, namespace):
+        self.events = []
+
+    def record(self, event):
+        self.events.append(event)
+
+    def search(self, query):
+        seen = [e for e in self.events if e.t <= query.t]
+        return [Result(text=e.text, sources=[e.id]) for e in seen[-1:]]
+
+
+def test_generated_event_refs_and_scoring_survive_the_id_change():
+    p2 = probe("p2", "promote", T("10-12 10:00"), ["f_fail"], query="did the deploy fail")
+    s = _scenario(extra_probes=[p2])
+    s.facts["f_fail"] = fact()
+    s.facts["f_act_old"] = fact()
+    run = run_scenario(_Latest(), s, run_id="r", cfg=CFG)
+    assert run.error is None
+    assert run.generated_ids == {("p1", "action"): "e2", ("p1", "outcome"): "e3"}
+    outcome = gen(run, "p1", "outcome")
+    assert outcome.event.id == "e3" and outcome.fact == "f_fail"
+    by_id = {r.probe_id: r for r in run.probes}
+    assert outcome.event.refs == tuple(by_id["p1"].results[by_id["p1"].choice.index].sources) == ("e_old",)
+    # the later probe follows the generated outcome record; scoring maps it to its hidden fact
+    assert by_id["p2"].results[0].sources == ["e3"]
+    assert by_id["p2"].bases == [frozenset({"f_fail"})]
+    assert by_id["p2"].outcome == "TP"
 
 
 def test_outcome_record_refs_the_followed_result_sources():

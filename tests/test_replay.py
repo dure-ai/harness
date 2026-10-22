@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import re
 from datetime import datetime
 
 import pytest
@@ -6,7 +9,7 @@ from harness.baselines.oracle import OracleEngine
 from harness.baselines.simple import AllStoreEngine
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
-from harness.replay import run_scenario
+from harness.replay import DEFAULT_BLIND_KEY, blind_key, run_scenario
 from tests.factories import T, ev, fact, probe, scenario
 
 CFG = EvalConfig()
@@ -100,10 +103,68 @@ def test_events_before_probe_same_time():
     assert kinds == ["reset", "record", "flush", "search"]
 
 
+def _keyed(key: bytes, scenario_id: str) -> str:
+    return hmac.new(key, f"ns:{scenario_id}".encode(), hashlib.sha256).hexdigest()[:16]
+
+
 def test_reset_called_with_namespace():
     eng = Recorder()
     run_scenario(eng, _same_time(), run_id="run1", cfg=CFG)
-    assert eng.calls[0] == ("reset", "run1:sc")
+    assert eng.calls[0] == ("reset", f"run1:{_keyed(DEFAULT_BLIND_KEY, 'sc')}")
+
+
+def test_blind_key_is_derived_from_the_seed():
+    assert blind_key(7) == hashlib.sha256(b"t5-blind:7").digest()
+    assert blind_key(7) != blind_key(8)
+    eng = Recorder()
+    run_scenario(eng, _same_time(), run_id="run1", cfg=CFG, blind_key=blind_key(7))
+    assert eng.calls[0] == ("reset", f"run1:{_keyed(blind_key(7), 'sc')}")
+
+
+def _named(sid: str):
+    return scenario(
+        id=sid,
+        family="echo",
+        facts={"f": fact()},
+        events=[ev("e1", T("10-01 10:00"), fact="f")],
+        probes=[probe("p_block_1", "promote", T("10-01 10:00"), ["f"])],
+    )
+
+
+def test_namespace_does_not_contain_scenario_id():
+    sid = "echo-shop-api-4f2a1c"
+    eng = Recorder()
+    run_scenario(eng, _named(sid), run_id="run1", cfg=CFG, blind_key=blind_key(3))
+    namespace = eng.calls[0][1]
+    assert re.fullmatch(r"run1:[0-9a-f]{16}", namespace)
+    rest = namespace.removeprefix("run1:")
+    for hidden in (sid, "echo", "shop", "4f2a1c", "p_block_1", "block"):
+        assert hidden not in rest
+
+
+def _hash_guesses(candidate: str, run_id: str) -> set[str]:
+    """Unkeyed transforms an engine could try on a guessed scenario id."""
+    out = {candidate}
+    for text in (candidate, f"ns:{candidate}", f"{run_id}:{candidate}", f"t5-blind:{candidate}"):
+        for algo in ("sha256", "sha1", "md5", "blake2b", "sha512"):
+            out.add(hashlib.new(algo, text.encode()).hexdigest()[:16])
+        for key in (b"", DEFAULT_BLIND_KEY, blind_key(0)):  # keys an engine can know or guess
+            out.add(hmac.new(key, f"ns:{text}".encode(), hashlib.sha256).hexdigest()[:16])
+    return out
+
+
+def test_namespace_cannot_be_recovered_by_hashing_scenario_ids():
+    # Reproduces review finding D1: an unkeyed hash of a guessable id is a dictionary lookup.
+    sid = "echo-shop-api-00002a"
+    candidates = [f"{fam}-shop-api-{i:06x}" for fam in ("echo", "truth_change") for i in range(64)]
+    assert sid in candidates
+    eng = Recorder()
+    run_scenario(eng, _named(sid), run_id="run1", cfg=CFG, blind_key=blind_key(918273645))
+    rest = eng.calls[0][1].removeprefix("run1:")
+    assert not any(rest in _hash_guesses(c, "run1") for c in candidates)
+    other = Recorder()
+    run_scenario(other, _named(sid), run_id="run1", cfg=CFG, blind_key=blind_key(918273646))
+    assert other.calls[0][1] != eng.calls[0][1]  # the run's key, not the id alone, decides it
 
 
 def test_tick_only_when_virtual_clock():
@@ -284,7 +345,8 @@ def test_generated_event_is_evidence_only_after_it_is_recorded():
             probe("p_late", "promote", T("10-10 10:06"), ["f_gave_up"]),
         ],
     )
-    gid = generated_event_id(s, s.probes[0], "action", {"e1"})
+    gid = generated_event_id({"e1"})
+    assert gid == "e2"
     run = run_scenario(Cites([gid]), s, run_id="r", cfg=CFG)
     assert run.error is None
     assert run.generated_ids[("p1", "action")] == gid

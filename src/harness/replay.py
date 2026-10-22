@@ -2,6 +2,7 @@
 
 import hashlib
 import heapq
+import hmac
 import time
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
@@ -15,6 +16,42 @@ from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, Scenar
 from harness.scoring import Leak, ProbeOutcome, find_leaks, is_wrong, judge
 
 EVENT, PROBE = 0, 1  # tie-break order: events at the same time come before probes
+
+
+def blind_key(seed: int) -> bytes:
+    """Return the run's secret key for namespaces, derived from its blind seed.
+
+    The same seed also shuffles candidate ids (`report.blind_ids`), so one recorded seed
+    (`engine_ids.json`) reproduces both.
+
+    Args:
+        seed: The run's blind seed.
+
+    Returns:
+        SHA-256 digest of "t5-blind:{seed}".
+    """
+    return hashlib.sha256(f"t5-blind:{seed}".encode()).digest()
+
+
+DEFAULT_BLIND_KEY = hashlib.sha256(b"t5-blind:default").digest()
+"""Fixed key for tests and internal checks; `harness run` passes a key from its blind seed."""
+
+
+def namespace(run_id: str, scenario_id: str, key: bytes) -> str:
+    """Return the namespace passed to `reset`: the run id and a keyed hash of the scenario id.
+
+    Without the key, a guessed scenario id cannot be checked against the namespace.
+
+    Args:
+        run_id: Run identifier.
+        scenario_id: The scenario.
+        key: The run's blind key, see `blind_key`.
+
+    Returns:
+        "{run_id}:{first 16 hex digits of HMAC-SHA256(key, 'ns:' + scenario_id)}".
+    """
+    digest = hmac.new(key, f"ns:{scenario_id}".encode(), hashlib.sha256).hexdigest()
+    return f"{run_id}:{digest[:16]}"
 
 
 @dataclass
@@ -130,32 +167,27 @@ def _score_probe(
     )
 
 
-def generated_event_id(
-    scenario: Scenario, probe: Probe, slot: str, taken: Collection[str]
-) -> str:
-    """Return an opaque id for a generated event.
+def generated_event_id(taken: Collection[str]) -> str:
+    """Return the id of the next generated event: "e{n}", like the usual scenario event ids.
 
-    The id names neither the probe nor the harness, so an engine cannot tell generated events
-    apart from scenario events.
+    Numbering starts after the ids in use (the scenario's events plus the events generated so
+    far) and skips any id already taken, so author ids such as "e5" or "tc_o1" never clash. The
+    id is not computed from the scenario, probe or slot, and its format matches scenario ids
+    such as "e1", so an engine cannot tell generated events apart by their id. The mapping to
+    probes lives only in `ScenarioRun.generated_ids`. An engine that abstained earlier gets fewer
+    generated records, so the same probe's record can get a different id per engine; scoring
+    goes through `generated_ids` and is not affected.
 
     Args:
-        scenario: The scenario being replayed.
-        probe: The probe the event follows.
-        slot: "action" or "outcome".
-        taken: Ids already in use; a clash gets "-2", "-3", ... appended.
+        taken: Every id in use: the scenario's events and the events generated so far.
 
     Returns:
-        "e" followed by 12 hex digits, plus a suffix if needed.
+        "e{n}" for the smallest n > len(taken) whose id is not in `taken`.
     """
-    base = (
-        "e"
-        + hashlib.sha256(f"{scenario.id}:{probe.id}:{slot}".encode()).hexdigest()[:12]
-    )
-    event_id, n = base, 1
-    while event_id in taken:
+    n = len(taken) + 1
+    while f"e{n}" in taken:
         n += 1
-        event_id = f"{base}-{n}"
-    return event_id
+    return f"e{n}"
 
 
 def _generated(
@@ -208,7 +240,8 @@ def feedback_events(
         choice: What the agent followed.
         scenario: The scenario being replayed.
         cfg: Evaluation config (default delays).
-        taken: Ids already in use; generated ids avoid them.
+        taken: Ids already in use (scenario events and earlier generated events); generated ids
+            are numbered after them, see `generated_event_id`.
         judged: Sources of the followed result; the outcome record refs them.
 
     Returns:
@@ -225,7 +258,7 @@ def feedback_events(
         refs: Sequence[str] = (),
         not_before: datetime | None = None,
     ) -> tuple[str, LabeledEvent]:
-        event_id = generated_event_id(scenario, probe, slot, used)
+        event_id = generated_event_id(used)
         used.add(event_id)
         return slot, _generated(probe, tmpl, event_id, delay, scenario, refs, not_before)
 
@@ -266,7 +299,12 @@ def _as_result(item: object) -> Result:
 
 
 def run_scenario(
-    engine: BaseEngine, scenario: Scenario, *, run_id: str, cfg: EvalConfig
+    engine: BaseEngine,
+    scenario: Scenario,
+    *,
+    run_id: str,
+    cfg: EvalConfig,
+    blind_key: bytes = DEFAULT_BLIND_KEY,
 ) -> ScenarioRun:
     """Replay one scenario against a fresh engine in virtual-time order.
 
@@ -281,17 +319,20 @@ def run_scenario(
     errors in harness code are not caught.
 
     Args:
-        engine: A new engine instance; `reset` is called with "{run_id}:{scenario id}".
+        engine: A new engine instance; `reset` is called with `namespace(run_id, scenario.id,
+            blind_key)`, which does not reveal the scenario id.
         scenario: The scenario to replay.
         run_id: Run identifier used in the namespace.
         cfg: Evaluation config.
+        blind_key: The run's secret key, see `blind_key`; `harness run` derives it from the
+            run's blind seed. The fixed default is for tests and internal checks.
 
     Returns:
         The scenario run, partial if the engine failed.
     """
     run = ScenarioRun(scenario.id, scenario.family, scenario.mode)
     labeled = scenario.labeled_events()
-    # Evidence: events whose `record` call returned. Ids in use: for generated-id clashes only.
+    # Evidence: events whose `record` call returned. Ids in use: generated ids are numbered after them.
     recorded: dict[str, LabeledEvent] = {}
     taken: set[str] = {le.event.id for le in labeled}
     timeline = Timeline()
@@ -302,7 +343,7 @@ def run_scenario(
 
     try:
         virtual_clock = engine.info().virtual_clock
-        engine.reset(f"{run_id}:{scenario.id}")
+        engine.reset(namespace(run_id, scenario.id, blind_key))
     except Exception as e:
         run.error = f"{type(e).__name__}: {e}"
         return run

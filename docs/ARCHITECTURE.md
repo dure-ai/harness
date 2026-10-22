@@ -68,7 +68,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | `facts`(참 구간, 조건, 마커, fix) | 시나리오 | 가지 않음 |
 | `Probe.kind`, `about`, `feedback` | 문항 | `query_for()` → `Query`만 |
 
-엔진 생명주기는 `reset(namespace)` 한 번 → 시간 순서대로 `record(event)` → 문항마다 `flush()` 후 `search(query)`입니다. `EngineInfo.virtual_clock`이 참이면 각 단계 전에 `tick(t)`이 불립니다. 엔진이 던진 예외는 그 시나리오만 오류로 끝내고(`ScenarioRun.error`), 하네스 코드의 예외는 잡지 않아 버그가 드러나게 합니다.
+엔진 생명주기는 `reset(namespace)` 한 번(이름공간은 `"{run_id}:{HMAC(실행 키, "ns:"+시나리오 id)의 앞 16자리}"`라 시나리오 id를 드러내지 않고, 키는 블라인드 시드에서 유도: `replay.blind_key`) → 시간 순서대로 `record(event)` → 문항마다 `flush()` 후 `search(query)`입니다. `EngineInfo.virtual_clock`이 참이면 각 단계 전에 `tick(t)`이 불립니다. 엔진이 던진 예외는 그 시나리오만 오류로 끝내고(`ScenarioRun.error`), 하네스 코드의 예외는 잡지 않아 버그가 드러나게 합니다.
 
 ## 문항 하나가 채점되는 과정
 
@@ -84,7 +84,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 ## 피드백 모드
 
-`mode: feedback` 시나리오에서는 에이전트가 행동한 뒤 남기는 기록(행동 기록, 결과 기록)을 하네스가 만들어 시간표에 다시 넣습니다(`feedback_events`). 결과 기록 시각은 `max(질문 + 지연, 행동 기록 시각)`이라 행동 기록보다 앞서지 않고, 같은 시각이면 행동 기록이 먼저 재생됩니다. 생성 이벤트 id는 `"e" + sha256(시나리오:문항:슬롯)[:12]`로 문항이나 하네스를 드러내지 않습니다. 엔진은 생성 이벤트와 시나리오 이벤트를 구별할 수 없어야 합니다. 피드백 시나리오 점수는 헤드라인 M1·M2와 섞지 않고 `feedback_by_family`에 따로 둡니다.
+`mode: feedback` 시나리오에서는 에이전트가 행동한 뒤 남기는 기록(행동 기록, 결과 기록)을 하네스가 만들어 시간표에 다시 넣습니다(`feedback_events`). 결과 기록 시각은 `max(질문 + 지연, 행동 기록 시각)`이라 행동 기록보다 앞서지 않고, 같은 시각이면 행동 기록이 먼저 재생됩니다. 생성 이벤트 id는 시나리오 이벤트와 같은 형식의 순번 `e{n}`입니다(`generated_event_id`: 쓰는 id 수 + 1부터, 이미 쓰는 id는 건너뜀). 시나리오·문항 id를 쓰지 않으므로 id 형식으로는 생성 이벤트와 시나리오 이벤트를 구별할 수 없고, 문항과의 대응은 하네스 쪽 `ScenarioRun.generated_ids`에만 있습니다. 앞 문항의 기권 여부로 생성 기록 수가 달라져 같은 문항의 생성 id가 엔진마다 다를 수 있지만, 채점은 `generated_ids`로 이어 보므로 영향이 없습니다. 피드백 시나리오 점수는 헤드라인 M1·M2와 섞지 않고 `feedback_by_family`에 따로 둡니다.
 
 ## 판정과 순위
 
@@ -115,7 +115,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | `report.md` | 사람이 읽는 요약(판정, 순위, 계열별 표, 자가 검증) |
 | `summary.json` | 같은 내용의 기계용 형태 |
 | `results.jsonl` | 문항 단위 기록 |
-| `engine_ids.json` | 가린 id ↔ 실제 엔진 이름과 섞기 seed. 이 파일에만 있음 |
+| `engine_ids.json` | 가린 id ↔ 실제 엔진 이름과 블라인드 seed(섞기와 이름공간 키를 함께 정함, `--blind-seed`로 고정 가능). 이 파일에만 있음 |
 
 기준선 외 엔진 이름은 E1, E2…로 가립니다. `--sealed`면 시나리오·문항 id와 검사 세부 값을 리포트와 터미널에서 뺍니다. `--include-drafts`로 돌린 리포트에는 "초안 포함 — 발표 수치로 쓰지 않음" 경고가 붙습니다.
 

@@ -64,18 +64,34 @@ class LatestWins(BaseEngine):
 
 
 class FailOnTc(LatestWins):
-    """Like LatestWins, but errors on scenario "tc" from its second search on."""
+    """Like LatestWins, but errors on scenario "tc" from its second search on.
+
+    It tells "tc" by its event ids ("tc_o1", ...): the namespace does not name the scenario.
+    """
 
     def reset(self, namespace: str) -> None:
         super().reset(namespace)
-        self.fail = namespace.endswith(":tc")
         self.searches = 0
 
     def search(self, query: Query) -> list[Result]:
         self.searches += 1
-        if self.fail and self.searches > 1:
+        if any(e.id.startswith("tc_") for e in self.events) and self.searches > 1:
             raise RuntimeError("search fails")
         return super().search(query)
+
+
+class NamespaceLog(LatestWins):
+    """LatestWins that keeps every namespace it is reset with, in `seen` (cleared by the test)."""
+
+    seen: list[str] = []
+
+    def reset(self, namespace: str) -> None:
+        type(self).seen.append(namespace)
+        super().reset(namespace)
+
+
+class NamespaceLogTwin(NamespaceLog):
+    """A second candidate sharing the namespace log, so that the E1/E2 shuffle matters."""
 
 
 class ReturnsDicts(LatestWins):

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from harness.config import EvalConfig
 from harness.engines import BASELINES, make_engine
 from harness.metrics import FamilyRow, Metrics, compute_metrics
-from harness.replay import ScenarioRun, run_scenario
+from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, run_scenario
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue
 from harness.stats import Rate
@@ -38,9 +38,12 @@ def _is(r: Rate, expected: float) -> bool:
     return r.value is None or r.value == expected
 
 
-def _run_all(engine_name: str, scenarios: list[Scenario], cfg: EvalConfig) -> list[ScenarioRun]:
+def _run_all(
+    engine_name: str, scenarios: list[Scenario], cfg: EvalConfig, blind_key: bytes
+) -> list[ScenarioRun]:
     return [
-        run_scenario(make_engine(engine_name, s, cfg), s, run_id=RUN_ID, cfg=cfg) for s in scenarios
+        run_scenario(make_engine(engine_name, s, cfg), s, run_id=RUN_ID, cfg=cfg, blind_key=blind_key)
+        for s in scenarios
     ]
 
 
@@ -89,7 +92,7 @@ def _repeat_n_beats_oracle(
 
 
 def run_selfcheck(
-    scenarios: list[Scenario], cfg: EvalConfig
+    scenarios: list[Scenario], cfg: EvalConfig, blind_key: bytes = DEFAULT_BLIND_KEY
 ) -> tuple[list[CheckResult], dict[str, list[ScenarioRun]]]:
     """Run the four baselines and check that they order as designed.
 
@@ -99,11 +102,13 @@ def run_selfcheck(
     Args:
         scenarios: The scenario set.
         cfg: Evaluation config.
+        blind_key: Namespace key, see `replay.blind_key`; `harness run` passes its run's key
+            because these runs go into its report.
 
     Returns:
         The checks, and each baseline's runs (reused for the report).
     """
-    runs = {name: _run_all(name, scenarios, cfg) for name in BASELINES}
+    runs = {name: _run_all(name, scenarios, cfg, blind_key) for name in BASELINES}
     by_id = {s.id: s for s in scenarios}
     metrics = {name: compute_metrics(rs, by_id) for name, rs in runs.items()}
     families = {s.family for s in scenarios}

@@ -57,7 +57,7 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 | `report.md` | 사람이 읽는 리포트 |
 | `summary.json` | 같은 내용을 기계가 읽는 형식으로: `meta`(실행 정보와 해시), `engines.<id>`(`metrics`, `verdict`, `repeats`, `flip`), `ranking`, `selfcheck` |
 | `results.jsonl` | 엔진 × 문항마다 한 줄: 어떤 결과를 받았고(`results`), 무엇을 골랐고(`choice`), 어떻게 채점됐는지(`outcome`), 누출(`leaks`) |
-| `engine_ids.json` | 블라인드 id(E1, E2, ...)와 실제 엔진 이름의 대응표, 섞을 때 쓴 난수 |
+| `engine_ids.json` | 블라인드 id(E1, E2, ...)와 실제 엔진 이름의 대응표, 블라인드 시드(섞기와 엔진에 넘기는 이름공간 키를 함께 정함) |
 
 `--sealed`로 돌리면 `results.jsonl`을 만들지 않고 리포트에서 시나리오·문항 id를 뺍니다.
 
@@ -106,15 +106,17 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 
 ### 같은 입력이면 같은 출력인지 확인
 
-채점·에이전트·기준선은 결정적입니다. 같은 시나리오 세트와 설정으로 두 번 돌리면 `results.jsonl`은 바이트까지 같고, `summary.json`·`report.md`는 아래 값만 다릅니다.
+채점·에이전트·기준선은 결정적입니다. 같은 시나리오 세트와 설정으로 두 번 돌리면(후보 엔진이 둘 이상이면 같은 `--blind-seed`로) `results.jsonl`은 바이트까지 같고, `summary.json`·`report.md`는 아래 값만 다릅니다.
 
 - 실행 id와 실행 일시
 - 응답 시간(성능 표)
-- 블라인드 id를 섞는 난수(`engine_ids.json`에 기록. 후보가 하나면 항상 E1)
+- 블라인드 시드(`engine_ids.json`에 기록). 주지 않으면 실행마다 무작위이고, 후보가 둘 이상이면 E1·E2 배정과 `results.jsonl`의 `engine_id`도 따라 달라집니다(후보가 하나면 항상 E1).
+
+`--blind-seed N`으로 시드를 고정하면 후보 id 배정과 엔진에 넘기는 이름공간이 같아져, 후보가 여럿이어도 `engine_ids.json`과 `results.jsonl`이 같습니다.
 
 ```bash
-uv run harness run --scenarios scenarios/examples --include-drafts --out /tmp/r1
-uv run harness run --scenarios scenarios/examples --include-drafts --out /tmp/r2
+uv run harness run --scenarios scenarios/examples --include-drafts --blind-seed 7 --out /tmp/r1
+uv run harness run --scenarios scenarios/examples --include-drafts --blind-seed 7 --out /tmp/r2
 cmp /tmp/r1/*/results.jsonl /tmp/r2/*/results.jsonl && echo same
 ```
 

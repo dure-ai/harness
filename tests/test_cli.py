@@ -462,3 +462,84 @@ def test_all_store_noacl_is_not_a_candidate(tmp_path):
     assert result.exit_code == 2
     assert "all_store_noacl" in result.output
     assert not out.exists()
+
+
+# ---- blinding: --blind-seed, namespaces, engine_ids.json --------------------------------------
+
+
+def _blind_run(tmp_path: Path, name: str, *extra: str):
+    from tests.dummy_engine import NamespaceLog
+
+    NamespaceLog.seen.clear()
+    out = tmp_path / name
+    result = runner.invoke(app, ["run", "--scenarios", str(tmp_path / "scenarios"), "--out", str(out),
+                                 "--repeat", "1", "--engine", "tests.dummy_engine:NamespaceLog",
+                                 "--engine", "tests.dummy_engine:NamespaceLogTwin", *extra])
+    summary_of(result)
+    run_dir = next(out.iterdir())
+    namespaces = [ns.split(":", 1)[1] for ns in NamespaceLog.seen]  # drop the run id (a timestamp)
+    return run_dir, namespaces
+
+
+def test_same_blind_seed_gives_identical_engine_ids_and_results_jsonl(tmp_path):
+    good_dir(tmp_path)
+    one, ns_one = _blind_run(tmp_path, "one", "--blind-seed", "12345")
+    two, ns_two = _blind_run(tmp_path, "two", "--blind-seed", "12345")
+    for name in ("engine_ids.json", "results.jsonl"):
+        assert (one / name).read_bytes() == (two / name).read_bytes(), name
+    assert ns_one == ns_two and len(ns_one) == 4  # 2 candidates x 2 scenarios
+    assert json.loads((one / "engine_ids.json").read_text("utf-8"))["seed"] == 12345
+
+
+def _outcomes(run_dir: Path) -> list[tuple]:
+    lines = [json.loads(line) for line in (run_dir / "results.jsonl").read_text("utf-8").splitlines()]
+    return sorted((x["scenario_id"], x["probe_id"], x["outcome"], json.dumps(x["results"])) for x in lines)
+
+
+def test_different_blind_seed_changes_namespaces_not_outcomes(tmp_path):
+    good_dir(tmp_path)
+    one, ns_one = _blind_run(tmp_path, "one", "--blind-seed", "1")
+    two, ns_two = _blind_run(tmp_path, "two", "--blind-seed", "2")
+    assert not set(ns_one) & set(ns_two)
+    assert _outcomes(one) == _outcomes(two)
+    for ns in ns_one + ns_two:
+        assert re.fullmatch(r"[0-9a-f]{16}", ns)
+        assert "tc" not in ns and "sp" not in ns
+
+
+def test_engine_ids_json_records_seed(tmp_path):
+    import hashlib
+    import hmac
+
+    from harness.replay import blind_key
+
+    good_dir(tmp_path)
+    run_dir, namespaces = _blind_run(tmp_path, "random")  # no --blind-seed: drawn at random
+    seed = json.loads((run_dir / "engine_ids.json").read_text("utf-8"))["seed"]
+    assert isinstance(seed, int)
+    # the recorded seed alone reproduces the namespaces of the run
+    expected = {hmac.new(blind_key(seed), f"ns:{sid}".encode(), hashlib.sha256).hexdigest()[:16]
+                for sid in ("tc", "sp")}
+    assert set(namespaces) == expected
+    for name in ("summary.json", "report.md", "results.jsonl"):
+        assert str(seed) not in (run_dir / name).read_text("utf-8")
+
+
+def test_run_passes_the_blind_key_to_baselines_and_candidates(tmp_path, monkeypatch):
+    import harness.cli
+    import harness.selfcheck
+    from harness.replay import DEFAULT_BLIND_KEY, blind_key, run_scenario
+
+    keys = []
+
+    def spy(*args, **kwargs):
+        keys.append(kwargs.get("blind_key", DEFAULT_BLIND_KEY))
+        return run_scenario(*args, **kwargs)
+
+    monkeypatch.setattr(harness.cli, "run_scenario", spy)
+    monkeypatch.setattr(harness.selfcheck, "run_scenario", spy)
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy",
+                        "--repeat", "1", "--blind-seed", "77")
+    summary_of(result)
+    assert len(keys) == 4 * 2 + 2  # baselines and the candidate, two scenarios each
+    assert set(keys) == {blind_key(77)}

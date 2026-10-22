@@ -1,6 +1,7 @@
 """The `harness` command line: scenario check, selfcheck and run."""
 
 import json
+import secrets
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,7 @@ from harness.config import EvalConfig, config_hash, load_config
 from harness.contract import BaseEngine, EngineInfo
 from harness.engines import BASELINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
-from harness.replay import ScenarioRun, run_scenario
+from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, run_scenario
 from harness.report import RunMeta, harness_version, machine_info, write_report
 from harness.scenario.load import (
     ScenarioLoadError,
@@ -161,12 +162,12 @@ def _echo_checks(checks: list[CheckResult], sealed: bool) -> None:
 
 
 def _selfcheck(
-    scenarios: ScenarioSet, cfg: EvalConfig, sealed: bool
+    scenarios: ScenarioSet, cfg: EvalConfig, sealed: bool, key: bytes = DEFAULT_BLIND_KEY
 ) -> tuple[list[CheckResult], dict[str, list[ScenarioRun]]]:
     if not scenarios.scenarios:
         raise _fail(NO_SCENARIOS, 2)
     _validate_all(scenarios.scenarios, sealed)
-    return run_selfcheck(scenarios.scenarios, cfg)
+    return run_selfcheck(scenarios.scenarios, cfg, key)
 
 
 @app.command()
@@ -210,8 +211,9 @@ def _run_extra(
     cfg: EvalConfig,
     run_id: str,
     infos: dict[str, EngineInfo],
+    key: bytes,
 ) -> list[list[ScenarioRun]]:
-    """One list of scenario runs per repeat; every scenario gets a fresh engine."""
+    """One list of scenario runs per repeat; every scenario gets a fresh engine; `key` blinds namespaces."""
     all_runs: list[list[ScenarioRun]] = []
     for r in range(1, repeats + 1):
         runs = []
@@ -234,7 +236,7 @@ def _run_extra(
                     )
                 )
                 continue
-            runs.append(run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg))
+            runs.append(run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key))
         all_runs.append(runs)
     return all_runs
 
@@ -258,10 +260,19 @@ def run(
     repeat: Annotated[
         int | None, typer.Option("--repeat", min=1, help="Repeats per extra engine.")
     ] = None,
+    blind_seed: Annotated[
+        int | None,
+        typer.Option(
+            "--blind-seed",
+            help="Seed for the candidate ids (E1, E2, ...) and the namespace key (random by default; recorded in engine_ids.json).",
+        ),
+    ] = None,
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
-    checks, base_runs = _selfcheck(loaded, cfg, sealed)
+    seed = secrets.randbits(64) if blind_seed is None else blind_seed
+    key = blind_key(seed)  # one seed: candidate ids and namespaces, so engine_ids.json reproduces both
+    checks, base_runs = _selfcheck(loaded, cfg, sealed, key)
     if not all(c.ok for c in checks):
         _echo_checks(checks, sealed)
         raise typer.Exit(1)
@@ -296,7 +307,7 @@ def run(
     candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}
     for name in candidates:
         repeats = repeat if repeat is not None else cfg.llm_repeats
-        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos)
+        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key)
         metrics = [compute_metrics(runs, by_id) for runs in per_repeat]
         flip = flip_rate(per_repeat) if repeats > 1 else None
         candidate_scores.append(
@@ -329,6 +340,7 @@ def run(
         ranking,
         {**report_runs, **candidate_runs},
         checks,
+        blind_seed=seed,
         repeat_runs={
             **{name: [r] for name, r in report_runs.items()},
             **candidate_repeats,
