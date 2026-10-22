@@ -303,6 +303,17 @@ def test_secret_marker_recorded_after_the_probe_is_ignored():
     assert codes(leak_world(events=e)) == set()
 
 
+def test_hidden_event_recorded_at_the_probe_time_counts():
+    # Same-time events replay before the probe (design 6.1), so `t == probe.t` is recorded.
+    e = leak_world().events + [
+        ev("e3", T("10-10 10:00"), user="u3", scope="personal", secret_markers=["LATE99"], text="x"),
+        ev("e4", T("10-03 10:00"), user="u1", text="late99 appears in a visible event"),
+    ]
+    s = leak_world(events=e)
+    assert codes(s) == {"secret_marker_not_exclusive"}
+    assert any("e3" in i.message and "e4" in i.message for i in validate_scenario(s))
+
+
 def test_blank_secret_marker_is_skipped_by_exclusivity_check():
     e = [
         ev("e1", T("10-01 10:00"), user="u3", scope="personal", fact="f_secret",

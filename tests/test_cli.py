@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -150,6 +151,20 @@ def test_run_unknown_engine_exit2(tmp_path):
     result, out = run_cli(tmp_path, d, "--engine", "no.such.module:X")
     assert result.exit_code == 2
     assert "no.such.module:X" in result.output
+    assert not out.exists()
+
+
+def test_run_unknown_engine_exits_before_any_baseline_run(tmp_path, monkeypatch):
+    import harness.cli
+
+    def boom(*args, **kwargs):
+        raise AssertionError("baseline selfcheck must not run before the engine name check")
+
+    monkeypatch.setattr(harness.cli, "_selfcheck", boom)
+    monkeypatch.setattr(harness.cli, "run_scenario", boom)
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "typo")
+    assert result.exit_code == 2
+    assert "typo" in result.output
     assert not out.exists()
 
 
@@ -543,3 +558,16 @@ def test_run_passes_the_blind_key_to_baselines_and_candidates(tmp_path, monkeypa
     summary_of(result)
     assert len(keys) == 4 * 2 + 2  # baselines and the candidate, two scenarios each
     assert set(keys) == {blind_key(77)}
+
+
+@pytest.mark.parametrize(("seed", "warned"), [("7", True), (str(2**32 - 1), True), (str(2**32), False)])
+def test_run_warns_about_a_small_blind_seed(tmp_path, seed, warned):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--blind-seed", seed)
+    assert result.exit_code == 0, result.output
+    assert ("--blind-seed" in result.stderr and "small" in result.stderr) is warned
+
+
+def test_run_without_a_blind_seed_does_not_warn(tmp_path):
+    result, _ = run_cli(tmp_path, good_dir(tmp_path))
+    assert result.exit_code == 0, result.output
+    assert "warning" not in result.stderr

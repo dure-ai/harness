@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from harness.config import EvalConfig, config_hash, load_config
@@ -43,6 +44,16 @@ def test_config_rejects_unknown_keys(tmp_path):
         load_config(p)
     p.write_text("judgment:\n  bogus: 1\n")
     with pytest.raises(ValidationError):
+        load_config(p)
+
+
+def test_config_rejects_duplicate_keys(tmp_path):
+    p = tmp_path / "dup.yaml"
+    p.write_text("k: 3\nllm_repeats: 2\nk: 9\n")
+    with pytest.raises(yaml.YAMLError, match=r"duplicate key 'k' \(line 3\)"):
+        load_config(p)
+    p.write_text("judgment:\n  m1_ratio: 0.5\n  m1_ratio: 0.6\n")
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'm1_ratio'"):
         load_config(p)
 
 

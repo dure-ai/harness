@@ -161,7 +161,7 @@ class Scenario(_Strict):
     """One evaluation scenario: a world, its facts, the events engines see, and probes.
 
     `id` is a plain name (letters, digits, `.`, `_`, `-`; at most 120 characters, starting with a
-    letter or digit) because it ends up in engine namespaces and file names.
+    letter or digit) because it ends up in file names (engine namespaces only see a keyed hash of it).
     """
 
     id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

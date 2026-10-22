@@ -466,3 +466,20 @@ def test_report_header_says_which_numbers_use_the_first_repeat(tmp_path):
     out = write(tmp_path)
     head = (out / "report.md").read_text("utf-8").split("## 판정")[0]
     assert "M1·M2 구간과 순위 부트스트랩은 첫 회차 기준, 나머지 표는 회차 합산" in head
+
+
+def test_aggregation_header_only_when_some_engine_repeats(tmp_path):
+    m, scores, ranking, runs, selfcheck = fixture()
+    m.repeats = dict.fromkeys(m.repeats, 1)
+    out = tmp_path / "once"
+    write_report(out, m, scores, ranking, runs, selfcheck, blind_seed=7)
+    report = (out / "report.md").read_text("utf-8")
+    assert "- 집계:" not in report
+    assert "독립인 표본" not in report
+    assert "- 반복 실행:" in report
+
+
+def test_family_section_warns_that_pooled_intervals_are_optimistic(tmp_path):
+    report = (write(tmp_path) / "report.md").read_text("utf-8")
+    family = report.split("## 계열별")[1].split("## 되먹임")[0]
+    assert "독립인 표본" in family and "참고용" in family

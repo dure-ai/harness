@@ -190,6 +190,22 @@ def _percentile(values: list[float], p: int) -> float | None:
     return ordered[math.ceil(p / 100 * len(ordered)) - 1]
 
 
+def worst_family(by_family: Mapping[str, FamilyRow]) -> tuple[str, float] | None:
+    """Pick the family with the highest M1 (the worst leak-through), ties by family name.
+
+    Args:
+        by_family: Family name to its table row.
+
+    Returns:
+        (family, M1 value), or None when no family has a defined M1.
+    """
+    values = {f: v for f, t in by_family.items() if (v := t["m1"].value) is not None}
+    if not values:
+        return None
+    family = min(values, key=lambda f: (-values[f], f))
+    return family, values[family]
+
+
 def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) -> Metrics:
     """Aggregate one engine's scenario runs into `Metrics`.
 
@@ -205,11 +221,6 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
     read_only = [r for r in ok if r.mode == "read_only"]
     feedback = [r for r in ok if r.mode == "feedback"]
     by_family = _family_table(read_only)
-    m1_values = {f: v for f, t in by_family.items() if (v := t["m1"].value) is not None}
-    worst = None
-    if m1_values:
-        family = min(m1_values, key=lambda f: (-m1_values[f], f))
-        worst = (family, m1_values[family])
 
     ro_records = [rec for r in read_only for rec in r.probes]
     all_records = [rec for r in ok for rec in r.probes]
@@ -235,7 +246,7 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
         sourceless=rate(sum(not res.sources for res in all_results), len(all_results)),
         retraction=_delays(read_only, scenarios, retraction=True),
         reflection=_delays(read_only, scenarios, retraction=False),
-        worst_family=worst,
+        worst_family=worst_family(by_family),
         errors=errors,
         context_chars_mean=(
             sum(rec.context_chars for rec in all_records) / len(all_records)

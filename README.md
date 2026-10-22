@@ -114,11 +114,11 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 - 응답 시간(성능 표)
 - 블라인드 시드(`engine_ids.json`에 기록). 주지 않으면 실행마다 무작위이고, 후보가 둘 이상이면 E1·E2 배정과 `results.jsonl`의 `engine_id`도 따라 달라집니다(후보가 하나면 항상 E1).
 
-`--blind-seed N`으로 시드를 고정하면 후보 id 배정과 엔진에 넘기는 이름공간이 같아져, 후보가 여럿이어도 `engine_ids.json`과 `results.jsonl`이 같습니다.
+`--blind-seed N`으로 시드를 고정하면 후보 id 배정과 엔진에 넘기는 이름공간의 해시 부분(실행 id 뒤)이 같아져, 후보가 여럿이어도 `engine_ids.json`과 `results.jsonl`이 같습니다. 이 옵션은 기록된 실행을 재현하기 위한 것이므로 `N`은 추측하기 어려운 큰 값(예: 그 실행의 `engine_ids.json`에 적힌 시드)을 쓰세요. 작은 수는 경고가 나옵니다.
 
 ```bash
-uv run harness run --scenarios scenarios/examples --include-drafts --blind-seed 7 --out /tmp/r1
-uv run harness run --scenarios scenarios/examples --include-drafts --blind-seed 7 --out /tmp/r2
+uv run harness run --scenarios scenarios/examples --include-drafts --blind-seed 482910376145820931 --out /tmp/r1
+uv run harness run --scenarios scenarios/examples --include-drafts --blind-seed 482910376145820931 --out /tmp/r2
 cmp /tmp/r1/*/results.jsonl /tmp/r2/*/results.jsonl && echo same
 ```
 

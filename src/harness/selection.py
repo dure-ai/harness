@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from harness.config import EvalConfig
-from harness.metrics import FamilyRow, Metrics, per_scenario_counts
+from harness.metrics import FamilyRow, Metrics, per_scenario_counts, worst_family
 from harness.replay import ScenarioRun
 from harness.stats import Rate, bootstrap_diff, rate
 
@@ -158,14 +158,6 @@ def _pool_authors(tables: list[dict[str, dict[str, Rate]]]) -> dict[str, dict[st
     return out
 
 
-def _worst_family(by_family: dict[str, FamilyRow]) -> tuple[str, float] | None:
-    values = {f: v for f, t in by_family.items() if (v := t["m1"].value) is not None}
-    if not values:
-        return None
-    family = min(values, key=lambda f: (-values[f], f))
-    return family, values[family]
-
-
 def averaged(repeats: list[Metrics]) -> Metrics:
     """Combine repeats of one engine into one `Metrics` (design 8.3).
 
@@ -204,7 +196,7 @@ def averaged(repeats: list[Metrics]) -> Metrics:
         sourceless=_pool([r.sourceless for r in repeats]),
         retraction=[d for r in repeats for d in r.retraction],
         reflection=[d for r in repeats for d in r.reflection],
-        worst_family=_worst_family(by_family),
+        worst_family=worst_family(by_family),
         errors=sorted({e for r in repeats for e in r.errors}),  # so does an error in any repeat
         context_chars_mean=_mean_present([r.context_chars_mean for r in repeats]),
         record_ms_p50=_mean_present([r.record_ms_p50 for r in repeats]),

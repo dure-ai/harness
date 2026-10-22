@@ -264,13 +264,28 @@ def run(
         int | None,
         typer.Option(
             "--blind-seed",
-            help="Seed for the candidate ids (E1, E2, ...) and the namespace key (random by default; recorded in engine_ids.json).",
+            help="Reproduce a recorded run: the seed from its engine_ids.json. Sets the candidate ids (E1, E2, ...) and the namespace key; random by default, so use a high-entropy secret, not a small number.",
         ),
     ] = None,
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
+    # First, so a typo does not pay for loading the scenarios and the baseline self-check.
+    for name in engine or []:
+        if name not in BASELINES and ":" not in name:  # internal names such as all_store_noacl
+            raise _fail(
+                f"error: unknown engine {name!r}; use 'package.module:ClassName' "
+                f"(baselines {', '.join(BASELINES)} always run)",
+                2,
+            )
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     seed = secrets.randbits(64) if blind_seed is None else blind_seed
+    if blind_seed is not None and blind_seed < 2**32:
+        typer.echo(
+            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
+            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
+            "unless you are only reproducing a run",
+            err=True,
+        )
     key = blind_key(seed)  # one seed: candidate ids and namespaces, so engine_ids.json reproduces both
     checks, base_runs = _selfcheck(loaded, cfg, sealed, key)
     if not all(c.ok for c in checks):
@@ -294,13 +309,6 @@ def run(
     report_runs = dict(base_runs)
     repeat_counts: dict[str, int] = dict.fromkeys(BASELINES, 1)
 
-    for name in engine or []:
-        if name not in BASELINES and ":" not in name:  # internal names such as all_store_noacl
-            raise _fail(
-                f"error: unknown engine {name!r}; use 'package.module:ClassName' "
-                f"(baselines {', '.join(BASELINES)} always run)",
-                2,
-            )
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     candidate_scores: list[EngineScore] = []
     candidate_runs: dict[str, list[ScenarioRun]] = {}

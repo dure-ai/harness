@@ -125,3 +125,13 @@ def test_result_with_no_source_fact_in_about_is_not_relevant():
     r = Result(text="good and bad", sources=["e2"])
     assert result_basis(r, promote, s, events) == frozenset()
     assert choose([r], promote, s, events) == Choice(None, frozenset())
+
+
+def test_narrowing_may_leave_only_facts_outside_about():
+    # Design 7.2: narrowing by markers can drop every `about` fact; the basis is then judged as
+    # narrowed (non-empty, so the result still counts as relevant).
+    s, events = _true_and_false_outside_about()
+    promote = s.probes[0]
+    r = Result(text="only bad here", sources=["e1", "e2"])
+    assert result_basis(r, promote, s, events) == frozenset({"f_false_outside"})
+    assert choose([r], promote, s, events) == Choice(0, frozenset({"f_false_outside"}))

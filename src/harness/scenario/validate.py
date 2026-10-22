@@ -8,6 +8,7 @@ from typing import Literal
 
 from harness.contract import can_see
 from harness.scenario.model import (
+    FAMILIES,
     FEEDBACK_FAMILIES,
     Feedback,
     FeedbackTemplate,
@@ -35,7 +36,8 @@ class Issue:
     message: str
 
 
-LEAK_FAMILIES = ("leak_personal", "leak_cross_team")
+# The families that need a `leak` probe; derived from the model's list so a new family is seen.
+LEAK_FAMILIES = tuple(f for f in FAMILIES if f.startswith("leak_"))
 
 
 def _templates(feedback: Feedback) -> list[FeedbackTemplate]:
@@ -99,8 +101,10 @@ def _check_secret_exclusive(
 def validate_scenario(s: Scenario) -> list[Issue]:
     """Check a scenario's structure and labels before it is used.
 
-    Each problem yields exactly one code: checks that need a resolvable user or a known fact
-    skip the probes and events that already failed those checks.
+    Checks that need a resolvable user or a known fact skip the probes and events that already
+    failed those checks, so a problem is not reported twice under a dependent code. Independent
+    checks can still both fire on one defect (a secret marker repeated in a visible event body
+    may raise both `secret_marker_not_exclusive` and `marker_bleed`).
 
     Args:
         s: The scenario to check.

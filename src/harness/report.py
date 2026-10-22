@@ -27,6 +27,9 @@ NA = "n/a"
 UNRETRACTED = "미철회"
 UNREFLECTED = "미반영"
 AGGREGATION_NOTE = "M1·M2 구간과 순위 부트스트랩은 첫 회차 기준, 나머지 표는 회차 합산"
+POOLING_CAVEAT = (
+    "회차를 합산한 표의 구간은 회차를 서로 독립인 표본으로 보므로 실제보다 좁다(참고용)."
+)
 DRAFTS_WARNING = "> ⚠️ 초안 포함 — 발표 수치로 쓰지 않음"
 
 
@@ -485,6 +488,7 @@ def _markdown(
         else f"- 시나리오 경로: {', '.join(meta.scenario_roots) or '-'}"
     )
     repeats = ", ".join(f"{ids[name]} {n}" for name, n in _ordered_repeats(meta, ids)) or "-"
+    repeated = any(n > 1 for n in meta.repeats.values())
     head = [
         "# 메모리 평가 리포트",
         "",
@@ -500,7 +504,7 @@ def _markdown(
         f"- 초안 포함: {'예' if meta.include_drafts else '아니오'}",
         roots,
         f"- 반복 실행: {repeats}",
-        f"- 집계: {AGGREGATION_NOTE}",
+        *([f"- 집계: {AGGREGATION_NOTE}"] if repeated else []),
         "",
     ]
     check_rows = [
@@ -512,6 +516,7 @@ def _markdown(
         *_section_aux(ordered, ids, by_name),
         "## 계열별",
         "",
+        *([POOLING_CAVEAT, ""] if repeated else []),
         *_table(["엔진", "계열", "M1", "M2", "M3"], _family_rows(ordered, ids, lambda m: m.by_family)),
         "## 되먹임",
         "",

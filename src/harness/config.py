@@ -5,8 +5,9 @@ import json
 from datetime import timedelta
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from harness.yamlio import load_yaml
 
 
 class _Strict(BaseModel):
@@ -124,8 +125,9 @@ def load_config(path: Path) -> EvalConfig:
 
     Raises:
         pydantic.ValidationError: If a key is unknown or a value has the wrong type.
+        yaml.YAMLError: If the YAML is invalid or a key appears twice (the message names it).
     """
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    data = load_yaml(Path(path).read_text(encoding="utf-8"))
     return EvalConfig.model_validate(data or {})
 
 

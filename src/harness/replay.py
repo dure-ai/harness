@@ -387,7 +387,7 @@ def run_scenario(
             for slot, generated in feedback_events(
                 item, record.choice, scenario, cfg, taken, judged
             ):
-                taken.add(generated.event.id)  # evidence only once it is recorded
+                taken.add(generated.event.id)  # id numbering/clash set only; evidence is `recorded`
                 run.generated.append(generated)
                 run.generated_ids[(item.id, slot)] = generated.event.id
                 push_event(timeline, generated)
