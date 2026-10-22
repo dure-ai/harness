@@ -64,11 +64,16 @@ def format_query(query: Query) -> str:
 def engine_ns(namespace: str) -> str:
     """Derive the engine-side namespace id from the replay's namespace.
 
-    Hashing again hides the scenario id, which names the scenario family. The result uses only
+    The replay's namespace is already opaque: it holds no scenario id, only a keyed HMAC digest
+    of it. Hashing again is for character limits, not for hiding anything: the result uses only
     lowercase letters, digits and dashes, so it fits URL paths and filter values unchanged.
+    It stays a pure function of the namespace, so a different namespace format cannot leak
+    scenario information through it.
 
     Args:
-        namespace: The replay namespace, e.g. "<run_id>-r<round>:<scenario hash>".
+        namespace: The replay namespace, e.g. "<run_id>-r<round>:<16 hex digits>"; the part after
+            the colon is a keyed HMAC of the scenario id that only the run's blind seed can
+            reproduce.
 
     Returns:
         "t5-" followed by the first 24 hex digits of the SHA-256 of `namespace`.

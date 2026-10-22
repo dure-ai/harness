@@ -341,6 +341,7 @@ docker compose -f engines/docker/hindsight/compose.yaml up -d --wait
 docker compose -f engines/docker/mem0/compose.yaml up -d --wait --build
 
 # 3. 한 번의 실행에 두 엔진을 넣는다 (리포트에는 블라인드 id E1, E2로 나온다)
+#    기록된 실행을 재현하려면 그 실행의 engine_ids.json에 적힌 시드를 --blind-seed로 준다
 uv run harness run --scenarios scenarios/dev --engine hindsight --engine mem0
 
 # 4. 끝나면 컨테이너와 볼륨을 지운다
@@ -361,10 +362,11 @@ docker compose -f engines/docker/mem0/compose.yaml down -v
 - 시나리오가 아직 초안이면 3번에 `--include-drafts`가 필요합니다. 승인된 시나리오만 있으면 빼세요.
 - 포트는 `127.0.0.1:8888`(Hindsight)과 `127.0.0.1:8890`(Mem0)에만 열립니다. 주소를 바꾸려면 `HARNESS_HINDSIGHT_URL`, `HARNESS_MEM0_URL`을 쓰며, 어댑터는 `localhost`, `127.0.0.1`, `[::1]` 밖의 주소와 37701, 37777 포트를 거부합니다.
 - 어댑터는 시작할 때 `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`이 `config/eval-v0.1.yaml`의 `llm` 값과 같은지 확인하고, 다르면 실행 전에 멈춥니다. 키 값은 코드, 로그, 리포트 어디에도 남지 않습니다.
-- **이벤트 id는 엔진에 그대로 갑니다.** 출처 채점을 위해 Hindsight에는 `document_id`로, Mem0에는 기록 메타데이터로 보냅니다. 엔진 입장에서는 관찰 데이터이므로, 시나리오 작성자는 이벤트 id에 사실이나 정답 단서가 되는 말을 넣지 말고 중립적으로(`e1`, `e2`처럼) 지어야 합니다. 시나리오 id와 계열 이름은 어디에도 보내지 않습니다.
+- **이벤트 id는 엔진에 그대로 갑니다.** 출처 채점을 위해 Hindsight에는 `document_id`로, Mem0에는 기록 메타데이터로 보냅니다. 엔진 입장에서는 관찰 데이터이므로, 시나리오 작성자는 이벤트 id에 사실이나 정답 단서가 되는 말을 넣지 말고 중립적으로(`e1`, `e2`처럼) 지어야 합니다. 하네스가 되먹임 시나리오에서 만드는 기록의 id도 시나리오 이벤트와 같은 순번 형식 `e{n}`이라 id 모양으로는 구별되지 않습니다. 시나리오 id·계열 이름·문항 id·문항 종류는 어디에도 보내지 않으며, 엔진 쪽 그룹 이름(Hindsight 뱅크, Mem0 `run_id`)은 시드로 키를 정하는 불투명 이름공간에서 나온 값입니다.
 
 **알려진 한계**
 
+- 두 엔진은 이름만으로는 가려지지만 완전한 블라인드는 아닙니다. 어댑터가 돌려주는 오류 문구, 서버 버전, 포트(8888, 8890)와 결과 본문(`results.jsonl`)은 엔진 이름이 드러날 수 있는 엔진이 정한 문자열입니다(위 `run` 절의 블라인드 설명 참고).
 - 재정렬 모델이 다릅니다. Hindsight는 로컬 cross-encoder를 쓰고 Mem0는 쓰지 않습니다. 순위 차이에 이 영향이 섞입니다.
 - Mem0 오픈소스는 기록 시각을 무시합니다(가상 시계 미지원). 시간 계열 결과에는 "가상 시계 미지원" 주석이 붙고, 점수는 다른 엔진과 같은 방식으로 계산합니다.
 - Hindsight는 실행 중인 모델을 API로 읽을 수 없어 환경 변수로만 확인합니다. 컨테이너를 다른 값으로 띄웠다면 어댑터가 알지 못합니다. Mem0는 `GET /configure`로 실제 모델을 읽어 비교합니다.
