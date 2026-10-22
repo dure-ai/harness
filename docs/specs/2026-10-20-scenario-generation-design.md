@@ -149,11 +149,11 @@ flowchart LR
 
 통과해야 초안으로 저장한다.
 
-1. 기존 형식 검증(`validate_scenario`)과 변별력 검사(`check_discrimination`).
+1. 기존 형식 검증(`validate_scenario`)과 변별력 검사(`check_discrimination`). 검증기는 비밀 문자열 배타성(`secret_marker_not_exclusive`), 문항이 묻는 사실의 판정 문자열이 다른 사실의 기록 본문에 섞임(`marker_bleed`), 모르는 팀(`unknown_team`)도 본다. 검증기 오류가 있으면 거기서 멈추므로 두 층이 같은 결함을 잡을 때는 검증기 코드가 먼저 나온다.
 2. **판정 문자열 실림**: 사실의 `markers` 중 하나 이상이 그 사실과 연결된 이벤트 본문에 실제로 들어 있다(대소문자 무시).
-3. **다른 사실 재언급 금지**: 이벤트 본문에 **다른** 사실의 `markers`가 들어 있지 않다. 그러면 근거 판정이 섞인다.
+3. **다른 사실 재언급 금지**: 이벤트 본문에 **다른** 사실의 `markers`가 들어 있지 않다. 그러면 근거 판정이 섞인다. 문항이 묻는 사실은 검증기(`marker_bleed`)가 먼저 잡고, 이 검사는 어느 문항도 묻지 않는 사실의 마커까지 맡는다.
 4. **정답 단서 금지**: 이벤트 본문과 질문에 금지어(`outdated`, `no longer true`, `rumor`, `unverified`, `fake`, `false`, `deprecated` 등, 목록은 설정)가 없다. 단 사실 자체가 그 단어를 담아야 하는 경우(예: "`--legacy` flag is deprecated")는 그 사실의 `markers`에 있으면 허용한다. [판단]
-5. **비밀 문자열**: 누출 계열에서 `secret_markers`가 비밀 기록 본문에 들어 있고, 공개 기록에는 없다.
+5. **비밀 문자열**: 누출 계열에서 `secret_markers`가 비밀 기록 본문에 들어 있고, 공개 기록에는 없다. 질문자가 볼 수 있는 기록에 새면 검증기(`secret_marker_not_exclusive`)가 먼저 잡고, 이 검사는 아무 질문자도 볼 수 없는 기록까지 맡는다.
 6. 경고(저장은 함): `markers_missing` 등 기존 경고.
 
 떨어진 초안은 거절 로그에 (단계, 검사 코드, 메시지)로 남긴다. 같은 후보로 한 번 더 시도하지는 않는다. [판단]
