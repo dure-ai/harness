@@ -18,6 +18,7 @@ from harness.scenario.load import load_scenario
 from harness.scenario.model import Evidence, Scenario
 from tests.factories import T, ev, fact, probe, scenario
 from tests.test_cli import too_easy
+from tests.test_gen_checks import leak_scenario
 from tests.test_selfcheck import truth_change
 
 CFG = EvalConfig()
@@ -373,3 +374,93 @@ def test_rich_is_a_declared_dependency():
     project = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8"))
     names = {re.split(r"[<>=!~ \[;]", d, maxsplit=1)[0].lower() for d in project["project"]["dependencies"]}
     assert "rich" in names  # cli.py and review.py import it directly
+
+
+# ---- secret markers are not editable ------------------------------------------------------------
+
+CLEAR_SECRETS = """
+    data = __import__('yaml').safe_load(text)
+    for e in data['events']:
+        e['secret_markers'] = []
+    path.write_text(__import__('yaml').safe_dump(data, sort_keys=False))
+"""
+
+
+def test_review_edit_reverts_secret_marker_changes(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    path = draft(tmp_path, leak_scenario())
+    before = path.read_bytes()
+    result = edit_draft(path, editor(tmp_path, CLEAR_SECRETS), CFG, GEN)
+    assert result.status == "reverted"
+    assert result.changed_fields == ["events.sec.secret_markers"]
+    assert path.read_bytes() == before
+    assert load_scenario(path).events[0].secret_markers == ["sk-live-4242"]
+    kept = result.kept_copy  # the reviewer's edited text is kept, as for any label edit
+    assert kept is not None and kept.parent == tmp_path / "cache" / "review"
+    assert load_scenario(kept).events[0].secret_markers == []
+
+
+def test_review_edit_cannot_swap_secret_markers_for_junk(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    path = draft(tmp_path, leak_scenario())
+    before = path.read_bytes()
+    junk = "path.write_text(text.replace('- sk-live-4242', '- zzz'))"
+    result = edit_draft(path, editor(tmp_path, junk), CFG, GEN)
+    assert result.status == "reverted" and result.changed_fields == ["events.sec.secret_markers"]
+    assert path.read_bytes() == before
+    # Even a consistent swap (body and marker both renamed) is a label change.
+    both = "path.write_text(text.replace('sk-live-4242', 'zzz'))"
+    result = edit_draft(path, editor(tmp_path, both), CFG, GEN)
+    assert result.status == "reverted" and "events.sec.secret_markers" in result.changed_fields
+    assert path.read_bytes() == before
+
+
+def test_review_edit_cannot_change_the_recorded_secret_events(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    path = draft(tmp_path, leak_scenario())
+    before = path.read_bytes()
+    body = """
+        data = __import__('yaml').safe_load(text)
+        data['provenance']['secret_events'] = ['pub']
+        path.write_text(__import__('yaml').safe_dump(data, sort_keys=False))
+    """
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "reverted" and result.changed_fields == ["provenance.secret_events"]
+    assert path.read_bytes() == before
+
+
+def test_review_edit_of_text_still_checks_the_recorded_secret_events(tmp_path):
+    path = draft(tmp_path, leak_scenario())
+    body = "path.write_text(text.replace('release pipeline runs nightly', 'release pipeline uses sk-live-4242'))"
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "saved"
+    assert "secret_marker_not_exclusive" in [i.code for i in result.issues]
+
+
+def test_set_approved_of_an_old_file_without_secret_events_warns_but_approves(tmp_path):
+    import yaml
+
+    path = draft(tmp_path, leak_scenario())
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    del data["provenance"]["secret_events"]
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    issues = set_status(path, "approved", "me", None, CFG, GEN)
+    assert [i.code for i in issues] == ["secret_events_not_recorded"]
+    assert load_scenario(path).review.status == "approved"
+
+
+def test_set_approved_of_a_secret_event_without_markers_is_blocked(tmp_path):
+    s = leak_scenario()
+    s.events[0].secret_markers = []
+    path = draft(tmp_path, s)
+    issues = set_status(path, "approved", "me", None, CFG, GEN)
+    assert "secret_missing" in [i.code for i in blocking(issues)]
+    assert load_scenario(path).review.status == "draft"
+
+
+def test_show_lists_the_secret_findings(tmp_path):
+    s = leak_scenario()
+    s.events[0].secret_markers = []
+    out = io.StringIO()
+    Console(file=out, width=200, force_terminal=False).print(render_show(s, CFG, GEN))
+    assert "secret_missing" in out.getvalue()

@@ -374,7 +374,7 @@ def _one(
         run.llm_failed(e)
         return None
     run.llm_ok()
-    stop = blocking(check_draft(s, run.cfg, run.gen, sk.secret_event_ids))
+    stop = blocking(check_draft(s, run.cfg, run.gen))
     if stop:
         reject(
             "checks", stop[0].code, "; ".join(f"{i.code}: {i.message}" for i in stop)

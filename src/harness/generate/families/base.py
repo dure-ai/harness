@@ -240,7 +240,7 @@ class SkeletonBuilder:
 
     # Output ---------------------------------------------------------------------------------
 
-    def _provenance(self) -> Provenance:
+    def _provenance(self, secret_events: list[str]) -> Provenance:
         traces = list(dict.fromkeys(t.trajectory_id for t in self._traces))
         repos = list(
             dict.fromkeys((t.repo, t.license or "unknown") for t in self._traces)
@@ -250,10 +250,16 @@ class SkeletonBuilder:
             source_traces=traces,
             source_repos=[SourceRepo(repo=r, license=lic) for r, lic in repos],
             fabricated_facts=list(self.fabricated),
+            secret_events=secret_events,
         )
 
     def build(self, secret_event_ids: Iterable[str] = ()) -> Skeleton:
-        """The skeleton: events and probes sorted by time (stable), teams in creation order."""
+        """The skeleton: events and probes sorted by time (stable), teams in creation order.
+
+        The secret slots are also written to `provenance.secret_events` (empty for families
+        without secrets), so the checks and the review read them from the draft.
+        """
+        secret_ids = list(secret_event_ids)
         scenario = Scenario(
             id=scenario_id(
                 self.family, self.repo, self.trajectory_id, self.cand.index, self.seed
@@ -266,9 +272,9 @@ class SkeletonBuilder:
             facts=dict(self.facts),
             events=sorted(self.events, key=lambda e: e.t),
             probes=sorted(self.probes, key=lambda p: p.t),
-            provenance=self._provenance(),
+            provenance=self._provenance(secret_ids),
         )
-        return Skeleton(scenario=scenario, secret_event_ids=tuple(secret_event_ids))
+        return Skeleton(scenario=scenario, secret_event_ids=tuple(secret_ids))
 
 
 CONFIRMS: tuple[tuple[Signal, Kind], ...] = (

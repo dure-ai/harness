@@ -320,16 +320,16 @@ def test_generate_rejects_too_easy_and_errors_but_saves_warnings(
     assert len(list((tmp_path / "out" / "truth_change").glob("*.yaml"))) == 1
 
 
-def test_generate_passes_secret_events_to_the_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[tuple[str, ...]] = []
-
-    def spy(s: Any, cfg: Any, gen: Any, secret_event_ids: Any = ()) -> list[Issue]:
-        seen.append(tuple(secret_event_ids))
-        return []
-
-    monkeypatch.setattr(pipeline, "check_draft", spy)
+def test_generate_records_secret_events_in_the_saved_draft(tmp_path: Path) -> None:
+    """The secret slots are written into the draft; nothing re-derives them from the file later."""
     run(tmp_path, plain_fake(), ["leak_personal"], 1)
-    assert seen and seen[0]
+    (path,) = (tmp_path / "out" / "leak_personal").glob("*.yaml")
+    s = load_scenario(path)
+    assert s.provenance.secret_events
+    assert s.provenance.secret_events == [e.id for e in s.events if e.secret_markers]
+    run(tmp_path, plain_fake(), ["truth_change"], 1)
+    (other,) = (tmp_path / "out" / "truth_change").glob("*.yaml")
+    assert "secret_events: []" in other.read_text(encoding="utf-8")
 
 
 def test_generate_all_families_end_to_end(tmp_path: Path) -> None:

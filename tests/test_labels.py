@@ -30,7 +30,6 @@ def test_fingerprint_ignores_text_changes() -> None:
         f.markers = [*f.markers, "extra marker"]
     for e in b.events:
         e.text += " edited"
-        e.secret_markers = ["token-1"]
     for p in b.probes:
         p.query += " edited"
     b.review.notes = "looks fine"
@@ -113,3 +112,26 @@ def test_probe_order_and_language_are_label_fields() -> None:
     )
     b = a.model_copy(update={"probes": list(reversed(a.probes)), "language": "ko"})
     assert changed_label_fields(a, b) == ["language", "probe_order"]
+
+
+def test_secret_markers_are_a_label_field() -> None:
+    # They decide what counts as a leak, so a reviewer cannot change them (generation design 7.2).
+    a = scenario(
+        {"f": fact(markers=["m"])},
+        [ev("e1", T("10-01 10:00"), fact="f", text="m with key k-1", secret_markers=["k-1"])],
+        [probe("p", "promote", T("10-02 10:00"), ["f"])],
+    )
+    for edited in (["k-2"], [], ["k-1", "junk"]):
+        b = a.model_copy(deep=True)
+        b.events[0].secret_markers = edited
+        assert label_fingerprint(a) != label_fingerprint(b), edited
+        assert changed_label_fields(a, b) == ["events.e1.secret_markers"]
+
+
+def test_recorded_secret_events_are_part_of_the_fingerprint() -> None:
+    a = _scenario()
+    a.provenance.secret_events = ["e1"]
+    b = a.model_copy(deep=True)
+    b.provenance.secret_events = []
+    assert label_fingerprint(a) != label_fingerprint(b)
+    assert changed_label_fields(a, b) == ["provenance.secret_events"]

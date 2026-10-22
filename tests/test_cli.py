@@ -960,6 +960,18 @@ def test_scenario_new_every_family(tmp_path):
         assert len(list((tmp_path / family).glob("*.yaml"))) == 1
 
 
+def test_scenario_new_leak_family_says_the_secret_is_filled_in_by_hand(tmp_path):
+    from harness.scenario.load import load_scenario
+
+    out = runner.invoke(app, ["scenario", "new", "--family", "leak_personal", "--seed", "3", "--out", str(tmp_path)])
+    assert out.exit_code == 0 and "secret_markers" in out.output
+    (path,) = list(tmp_path.rglob("*.yaml"))
+    s = load_scenario(path)
+    assert s.provenance.secret_events and all(e.secret_markers == [] for e in s.events)
+    other = runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "3", "--out", str(tmp_path)])
+    assert "secret_markers" not in other.output
+
+
 def test_scenario_new_workaround_family_sets_fix(tmp_path):
     from harness.scenario.load import load_scenario
 

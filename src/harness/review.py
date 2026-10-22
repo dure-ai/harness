@@ -21,7 +21,7 @@ from rich.text import Text
 
 from harness.config import EvalConfig
 from harness.engines import make_engine
-from harness.generate.checks import blocking, check_draft, secret_events
+from harness.generate.checks import blocking, check_draft
 from harness.generate.config import GenConfig, cache_root
 from harness.generate.pipeline import save_draft
 from harness.replay import ScenarioRun, run_scenario
@@ -231,7 +231,7 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     save_draft(edited, path)
     return EditResult(
         "saved",
-        issues=check_draft(edited, cfg, gen, secret_events(edited)),
+        issues=check_draft(edited, cfg, gen),
         reset_to_draft=reset,
     )
 
@@ -280,7 +280,7 @@ def set_status(
     s = load_scenario(path)
     issues: list[Issue] = []
     if status == "approved":
-        issues = check_draft(s, cfg, gen, secret_events(s))
+        issues = check_draft(s, cfg, gen)
         if blocking(issues):
             return issues
     s.review = Review(
@@ -492,7 +492,7 @@ def render_show(
     tz = _zone(s.world.timezone)
     broken = any(i.level == "error" for i in validate_scenario(s))
     if gen is not None:
-        issues = check_draft(s, cfg, gen, secret_events(s))
+        issues = check_draft(s, cfg, gen)
     else:
         issues = validate_scenario(s)
         if not broken:

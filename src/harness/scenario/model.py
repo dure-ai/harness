@@ -171,6 +171,9 @@ class Provenance(_Strict):
         source_repos: Repositories (with licenses) the source traces came from.
         fabricated_facts: Ids of facts the generator invented rather than found in the trace.
         evidence: Per-event links back to the source traces.
+        secret_events: Ids of the events that hold the scenario's secrets (leak families),
+            written at generation time. A file without the key (older or hand-written) counts
+            as "not recorded"; see `generate.checks.secret_events`.
         reviewer_edited: Whether a human changed the scenario during review.
         generated_at: When the scenario was generated.
     """
@@ -183,6 +186,7 @@ class Provenance(_Strict):
     source_repos: list[SourceRepo] = []
     fabricated_facts: list[str] = []
     evidence: list[Evidence] = []
+    secret_events: list[str] = []
     reviewer_edited: bool = False
     generated_at: AwareDatetime | None = None
 

@@ -9,6 +9,7 @@ import pytest
 
 from harness.config import EvalConfig
 from harness.generate.candidates import CandidateList, FactCandidate
+from harness.generate.checks import check_draft
 from harness.generate.config import GenConfig
 from harness.generate.families import TEMPLATES, SkeletonBuilder, fits, why_not
 from harness.generate.llm import make_client
@@ -629,6 +630,27 @@ def test_fake_slots_fill_secret_and_feedback_slots() -> None:
     assert asker in s.world.teams["team-a"]
 
 
+@pytest.mark.parametrize("family", READ_ONLY + FEEDBACK)
+def test_non_leak_skeleton_records_no_secret_events(family: str) -> None:
+    sk = _skeleton(family)
+    assert sk.secret_event_ids == () and sk.scenario.provenance.secret_events == []
+    assert "secret_events" in sk.scenario.provenance.model_fields_set  # written, so not "not recorded"
+
+
+@pytest.mark.parametrize("family", ALL)
+def test_filled_skeleton_passes_check_draft_for_many_seeds(family: str) -> None:
+    """Every family's draft from the fake body writer is accepted by every automatic check."""
+    gen = _gen_cfg(banned_cue_words=["outdated", "no longer", "rumor", "deprecated"])
+    for seed in range(150):
+        s = _filled(_skeleton(family, seed=seed))
+        assert [i for i in check_draft(s, EvalConfig(), gen) if i.level == "error"] == [], seed
+        assert not _warned(check_draft(s, EvalConfig(), gen)), seed
+
+
+def _warned(issues) -> list:
+    return [i for i in issues if i.code == "secret_events_not_recorded"]
+
+
 def test_templates_cover_all_families() -> None:
     assert set(TEMPLATES) == set(FAMILIES)
 
@@ -638,6 +660,8 @@ def test_leak_skeleton_marks_secret_events(family: str) -> None:
     sk = _skeleton(family)
     s = sk.scenario
     assert sk.secret_event_ids
+    # The slots are recorded in the draft itself, so later checks need not re-derive them.
+    assert s.provenance.secret_events == list(sk.secret_event_ids)
     by_id = {e.id: e for e in s.events}
     leak = next(p for p in s.probes if p.kind == "leak")
     for eid in sk.secret_event_ids:

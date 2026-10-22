@@ -572,6 +572,8 @@ def scenario_new(
     save_draft(s, path)
     typer.echo(str(path))
     typer.echo("글을 채우려면: harness review edit " + s.id)
+    if s.provenance.secret_events:  # `secret_markers` is not editable in `review edit`
+        typer.echo("비밀 문자열(secret_markers)은 review edit로 고칠 수 없으니 파일을 직접 열어 채우세요: " + str(path))
 
 
 # ---- review -------------------------------------------------------------------------------------

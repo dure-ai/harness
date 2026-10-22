@@ -5,20 +5,38 @@ from collections.abc import Sequence
 
 from harness.config import EvalConfig
 from harness.generate.config import GenConfig
-from harness.scenario.model import Scenario
-from harness.scenario.validate import Issue, validate_scenario
+from harness.scenario.model import FeedbackTemplate, Probe, Scenario
+from harness.scenario.validate import LEAK_FAMILIES, Issue, validate_scenario
 from harness.selfcheck import check_discrimination
 
 
+def secrets_recorded(s: Scenario) -> bool:
+    """Whether the scenario file says which events hold the secrets (`provenance.secret_events`).
+
+    A file written by the generator always has the key, empty when there are no secrets; an
+    older or hand-written file may not.
+
+    Args:
+        s: The scenario.
+
+    Returns:
+        True when the key is present.
+    """
+    return "secret_events" in s.provenance.model_fields_set
+
+
 def secret_events(s: Scenario) -> list[str]:
-    """Find the events that carry secret markers.
+    """Find the events that hold the scenario's secrets.
 
     Args:
         s: The scenario to inspect.
 
     Returns:
-        Ids of events whose `secret_markers` list is non-empty, in file order.
+        `provenance.secret_events` when the file records it. Otherwise (an older or hand-written
+        file) the ids of events whose `secret_markers` list is non-empty, in file order.
     """
+    if secrets_recorded(s):
+        return list(s.provenance.secret_events)
     return [e.id for e in s.events if e.secret_markers]
 
 
@@ -57,65 +75,145 @@ def _cue_words(
     return [word for word, pat in patterns.items() if pat.search(masked)]
 
 
-def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
+def _text_issues(
+    where: str,
+    text: str,
+    own_facts: Sequence[str],
+    other_facts: Sequence[str],
+    s: Scenario,
+    patterns: dict[str, re.Pattern[str]],
+) -> list[Issue]:
+    """The answer-cue checks for one piece of text that reaches an engine or is written back.
+
+    Used for event bodies, feedback template bodies and probe queries alike.
+
+    Args:
+        where: How the findings name the text, e.g. `event e3` or `probe p1 feedback abstain`.
+        text: The body.
+        own_facts: The facts the text states. It must contain a marker of one of them (skipped
+            when empty: noise, a bare failure record, a query), and its cue-word scan masks their
+            markers.
+        other_facts: Facts whose markers the text must not contain.
+        s: The scenario holding the facts.
+        patterns: Compiled banned cue words.
+
+    Returns:
+        Errors `marker_not_in_body`, `other_fact_marker` and `cue_word`.
+    """
+    own = [m for fid in own_facts for m in s.facts[fid].markers]
     issues: list[Issue] = []
-    patterns = {w: _cue_pattern(w) for w in gen.banned_cue_words if w.strip()}
-    for e in s.events:
-        own = s.facts[e.fact].markers if e.fact is not None else []
-        if e.fact is not None and not any(_has(e.text, m) for m in own):
+    if own_facts and not any(_has(text, m) for m in own):
+        issues.append(
+            Issue(
+                "error",
+                "marker_not_in_body",
+                f"{where}: text has none of fact {', '.join(own_facts)}'s markers",
+            )
+        )
+    for fid in other_facts:
+        if hit := next((m for m in s.facts[fid].markers if _has(text, m)), None):
             issues.append(
                 Issue(
                     "error",
-                    "marker_not_in_body",
-                    f"event {e.id}: text has none of fact {e.fact}'s markers",
+                    "other_fact_marker",
+                    f"{where}: text contains marker {hit!r} of fact {fid}",
                 )
             )
-        for fid, f in s.facts.items():
-            if fid != e.fact and (
-                hit := next((m for m in f.markers if _has(e.text, m)), None)
-            ):
-                issues.append(
-                    Issue(
-                        "error",
-                        "other_fact_marker",
-                        f"event {e.id}: text contains marker {hit!r} of fact {fid}",
-                    )
-                )
-        for word in _cue_words(e.text, patterns, own):
-            issues.append(
-                Issue(
-                    "error",
-                    "cue_word",
-                    f"event {e.id}: text contains cue word {word!r}",
-                )
-            )
-    for p in s.probes:
-        for word in _cue_words(p.query, patterns):
-            issues.append(
-                Issue(
-                    "error",
-                    "cue_word",
-                    f"probe {p.id}: query contains cue word {word!r}",
-                )
-            )
+    for word in _cue_words(text, patterns, own):
+        issues.append(
+            Issue("error", "cue_word", f"{where}: text contains cue word {word!r}")
+        )
     return issues
 
 
-def _secret_issues(s: Scenario, secret_event_ids: Sequence[str]) -> list[Issue]:
+def _feedback_bodies(p: Probe) -> list[tuple[str, FeedbackTemplate]]:
+    """The feedback templates of a probe with the names the findings use."""
+    fb = p.feedback
+    if fb is None:
+        return []
+    named = [(f"action:{fid}", tpl) for fid, tpl in fb.action.items()]
+    for name in ("abstain", "on_false", "on_true"):
+        if (tpl := getattr(fb, name)) is not None:
+            named.append((name, tpl))
+    return [(f"probe {p.id} feedback {name}", tpl) for name, tpl in named]
+
+
+def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
     issues: list[Issue] = []
-    secret_ids = set(secret_event_ids)
-    secrets = [m for e in s.events if e.id in secret_ids for m in e.secret_markers]
+    patterns = {w: _cue_pattern(w) for w in gen.banned_cue_words if w.strip()}
+
+    def states(fact: str | None) -> tuple[list[str], list[str]]:
+        """(own facts, other facts) of a text that states `fact`; None means noise."""
+        return (
+            [] if fact is None else [fact],
+            [fid for fid in s.facts if fid != fact],
+        )
+
     for e in s.events:
-        if e.id in secret_ids:
-            if not any(_has(e.text, m) for m in e.secret_markers):
-                issues.append(
-                    Issue(
-                        "error",
-                        "secret_not_in_secret_event",
-                        f"event {e.id}: text has none of its secret markers",
-                    )
+        own, other = states(e.fact)
+        issues += _text_issues(f"event {e.id}", e.text, own, other, s, patterns)
+    for p in s.probes:
+        # A query names the facts it asks about, so only its cue words are checked.
+        issues += _text_issues(f"probe {p.id}", p.query, [], [], s, patterns)
+        for where, tpl in _feedback_bodies(p):
+            own, other = states(tpl.fact)
+            issues += _text_issues(where, tpl.text, own, other, s, patterns)
+    return issues
+
+
+def _secret_issues(s: Scenario) -> list[Issue]:
+    """Where the secret strings are, and are not.
+
+    The secret events come from `secret_events`. A listed event must exist, carry secret
+    markers and contain one of them. No other event body, no fact text or marker and no
+    feedback template body may contain any of them. (A probe query or a visible event holding a
+    secret is the core validator's `secret_marker_not_exclusive`, which runs first.)
+    """
+    issues: list[Issue] = []
+    recorded = secrets_recorded(s)
+    ids = secret_events(s)
+    if not recorded and (ids or s.family in LEAK_FAMILIES):
+        issues.append(
+            Issue(
+                "warning",
+                "secret_events_not_recorded",
+                "provenance.secret_events is missing; the secret events are taken from the "
+                "events that have secret_markers",
+            )
+        )
+    if recorded and s.family in LEAK_FAMILIES and not ids:
+        issues.append(
+            Issue(
+                "error",
+                "no_secret_events",
+                f"family {s.family!r} needs a secret event but provenance.secret_events is empty",
+            )
+        )
+    by_id = {e.id: e for e in s.events}
+    secret_ids = set(ids)
+    for eid in ids:
+        e = by_id.get(eid)
+        if e is None:
+            issues.append(
+                Issue("error", "secret_missing", f"event {eid}: listed as a secret event but not found")
+            )
+        elif not e.secret_markers:
+            issues.append(
+                Issue("error", "secret_missing", f"event {eid}: listed as a secret event but has no secret_markers")
+            )
+        elif not any(_has(e.text, m) for m in e.secret_markers):
+            issues.append(
+                Issue(
+                    "error",
+                    "secret_not_in_secret_event",
+                    f"event {e.id}: text has none of its secret markers",
                 )
-        elif hit := next((m for m in secrets if _has(e.text, m)), None):
+            )
+    secrets = [m for eid in ids if (e := by_id.get(eid)) for m in e.secret_markers]
+    for e in s.events:
+        if e.id not in secret_ids and (
+            hit := next((m for m in secrets if _has(e.text, m)), None)
+        ):
             issues.append(
                 Issue(
                     "error",
@@ -123,6 +221,25 @@ def _secret_issues(s: Scenario, secret_event_ids: Sequence[str]) -> list[Issue]:
                     f"event {e.id}: public text contains secret marker {hit!r}",
                 )
             )
+    for fid, f in s.facts.items():
+        if hit := next((m for m in secrets if _has(f.text, m) or any(_has(k, m) for k in f.markers)), None):
+            issues.append(
+                Issue(
+                    "error",
+                    "secret_in_fact_text",
+                    f"fact {fid}: text or markers contain secret marker {hit!r}",
+                )
+            )
+    for p in s.probes:
+        for where, tpl in _feedback_bodies(p):
+            if hit := next((m for m in secrets if _has(tpl.text, m)), None):
+                issues.append(
+                    Issue(
+                        "error",
+                        "secret_in_feedback",
+                        f"{where}: text contains secret marker {hit!r}",
+                    )
+                )
     return issues
 
 
@@ -190,20 +307,19 @@ def check_draft(
     s: Scenario,
     cfg: EvalConfig,
     gen: GenConfig,
-    secret_event_ids: Sequence[str] = (),
 ) -> list[Issue]:
     """Run every automatic check a draft must pass before it is saved or approved.
 
     Order: structural validation; if that finds an error, stop and return its issues.
-    Otherwise discrimination, then the body checks (markers, other-fact markers, cue words,
-    secret placement, quoted evidence: only a true, non-fabricated fact can be quoted, and the
-    quote must be in the body).
+    Otherwise discrimination, then the body checks (markers, other-fact markers and cue words in
+    event bodies, probe queries and feedback template bodies; secret placement; quoted evidence:
+    only a true, non-fabricated fact can be quoted, and the quote must be in the body).
+    The secret events are read from `provenance.secret_events` (see `secret_events`).
 
     Args:
         s: The draft scenario.
         cfg: Eval config used by the discrimination run.
         gen: Generation config holding the banned cue words.
-        secret_event_ids: Events that hold the secrets; see `secret_events`.
 
     Returns:
         All findings; errors mean the draft must not be saved or approved.
@@ -215,6 +331,6 @@ def check_draft(
         *issues,
         *check_discrimination(s, cfg),
         *_body_issues(s, gen),
-        *_secret_issues(s, secret_event_ids),
+        *_secret_issues(s),
         *_evidence_issues(s),
     ]

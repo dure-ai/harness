@@ -3,8 +3,10 @@
 Ground-truth labels decide scores, so `review edit` compares the fingerprint before and after
 an edit and undoes the edit when it moved (generation design 7.2). The order of events and probes
 in the file counts as a label (events at the same time are replayed in file order), and so does
-`language`. Text the reviewer may fix
-(fact text and markers, event text and secret markers, probe queries, feedback template text)
+`language`. `secret_markers` and `provenance.secret_events` are labels too: they decide what counts
+as a leak, so a body that does not fit its secret string is rejected and generated again, not
+patched. Text the reviewer may fix
+(fact text and markers, event text, probe queries, feedback template text)
 and the whole `review` section are left out, as is `provenance.reviewer_edited`, which the
 harness itself writes.
 """
@@ -16,7 +18,7 @@ from typing import Any
 from harness.scenario.model import FeedbackTemplate, Probe, Scenario
 
 _FACT = {"valid_from", "valid_until", "valid", "conditions", "fix"}
-_EVENT = {"id", "t", "user", "session", "repo", "scope", "team", "signal", "kind", "outcome", "fact", "refs", "meta"}
+_EVENT = {"id", "t", "user", "session", "repo", "scope", "team", "signal", "kind", "outcome", "fact", "refs", "meta", "secret_markers"}
 _PROBE = {"id", "kind", "t", "user", "session", "repo", "about", "meta", "k"}
 _TEMPLATE = {"fact", "signal", "kind", "outcome", "scope", "delay"}
 _ABSENT = object()
