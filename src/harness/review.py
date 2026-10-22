@@ -284,7 +284,8 @@ def set_status(
     Approval first compares the labels with `provenance.label_fingerprint`, recorded at
     generation: a mismatch means they were edited outside `review edit`, and the approval is
     refused (`labels_changed_outside_review`), and so is an LLM draft (`provenance.author` is
-    `llm`) that has a `generated_hash` but no fingerprint, because `generate` records both.
+    `llm`) that has a `generated_hash` but no usable fingerprint (none, or one without the
+    `l1:` prefix), because `generate` records both.
     Any other file without a usable fingerprint (none recorded, or one without the `l1:` prefix:
     an older file, or a hand-filled leak skeleton) is approved with the warning
     `label_fingerprint_not_recorded`.
@@ -317,8 +318,9 @@ def set_status(
     if status == "approved":
         fingerprint = fingerprint_state(s)
         prov = s.provenance
-        if prov.author == "llm" and prov.generated_hash and prov.label_fingerprint is None:
-            # `generate` records both for every LLM draft: the fingerprint was removed by hand.
+        if prov.author == "llm" and prov.generated_hash and fingerprint == "unverified":
+            # `generate` records both for every LLM draft: the fingerprint was removed or
+            # replaced by hand (none, or one without the current `l1:` prefix).
             fingerprint = "changed"
         if fingerprint == "changed":
             return [

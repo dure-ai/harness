@@ -221,7 +221,7 @@ def test_code_span_of_prose_is_flagged_but_code_is_not():
 def test_code_span_longer_than_80_chars_or_over_a_newline_is_flagged():
     long_code = "x = " + "a" * 40 + " == " + "b" * 30 + " and outdated"  # no spaces-only words
     assert len(long_code) > 80 and _scan(f"set `{long_code}` now") == ["outdated"]
-    short = "x = " + "a" * 40 + " == outdated"
+    short = "x = " + "a" * 40 + " == cfg.outdated"  # attached by "."; a spaced value is prose
     assert len(short) <= 80 and _scan(f"set `{short}` now") == []
     assert _scan("set `x =\n outdated` now") == ["outdated"]
 
@@ -273,6 +273,53 @@ def test_review_cue_spans_are_flagged(text, found):
 )
 def test_code_spans_with_attached_cue_words_stay_allowed(text):
     assert _scan(text, words=WORDS) == []
+
+
+R2_WORDS = (*WORDS, "incorrect", "replaced by")
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        # fix round 2: a bare cue word in a span is prose, whatever punctuation wraps it
+        ("`(deprecated)`", ["deprecated"]),
+        ("`(outdated)`", ["outdated"]),
+        ("`--outdated`", ["outdated"]),
+        ("`--legacy`", ["legacy"]),
+        ("`outdated()`", ["outdated"]),
+        ("`wrong()`", ["wrong"]),
+        # `(` after a space is not code
+        ("`requests.get (deprecated)`", ["deprecated"]),
+        ("`v1: (stale)`", ["stale"]),
+        # the value after = or : is exempt only for the literal false
+        ("`status: obsolete`", ["obsolete"]),
+        ("`TODO: obsolete`", ["obsolete"]),
+        ("`verdict = incorrect`", ["incorrect"]),
+        ("`x: replaced by`", ["replaced by"]),
+        ("`x = obsolete`", ["obsolete"]),
+        ('`x = "obsolete"`', ["obsolete"]),
+        ("`deprecated: true`", ["deprecated"]),
+    ],
+)
+def test_round2_bare_and_spaced_cue_words_in_spans_are_flagged(text, found):
+    assert _scan(text, words=R2_WORDS) == found
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["`enabled: false`", "debug=false", "`git log --oneline`", "`--legacy-peer-deps`", "`legacy_mode`",
+     "`mode=legacy`", "`deprecated=true`", "`f(deprecated)`", "`--legacy-x`", "``x = `false` ``"],
+)
+def test_round2_cue_words_attached_without_a_space_stay_allowed(text):
+    assert _scan(text, words=R2_WORDS) == []
+
+
+def test_fence_must_open_a_line_with_at_most_a_language_tag():
+    # Minor 1: an opening fence after prose, or with a sentence as its info string, is not a block.
+    assert _scan("Note ```this value is outdated and wrong\n```", words=R2_WORDS) == ["outdated", "wrong"]
+    assert _scan("```this value is outdated\n```", words=R2_WORDS) == ["outdated"]
+    assert _scan("log:\n  ```c++\nthis is outdated\n  ```", words=R2_WORDS) == []
+    assert _scan("```\nthis is outdated\n```", words=R2_WORDS) == []
 
 
 def test_false_literal_in_code_is_allowed_but_prose_false_is_not():

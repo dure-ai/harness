@@ -57,9 +57,13 @@ def _cue_pattern(word: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
 
 
-# A fenced block: a line-opening run of 3+ backticks, a newline, and the same run closing it on
-# a later line. A one-line ```...``` span is not a block; it is a span like `...`.
-_FENCE = re.compile(r"(?<!`)(`{3,})(?!`)[^\n]*\n(?:.*?\n)?[ \t]*\1(?!`)", re.DOTALL)
+# A fenced block: a run of 3+ backticks that opens a line (after optional indentation),
+# followed by at most a language tag (`yaml`, `c++`) and a newline, closed by the same run at
+# the start of a later line. A one-line ```...``` span, or ``` after prose on the same line, is
+# not a block; it is checked like any other text.
+_FENCE = re.compile(
+    r"^[ \t]*(`{3,})(?!`)[\w+#.-]*[ \t]*\n(?:.*?\n)?[ \t]*\1(?!`)", re.DOTALL | re.MULTILINE
+)
 _INLINE_SPAN = re.compile(r"(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)")
 _MASK = "\0"  # neither a word character nor whitespace, so no cue phrase can span it
 _SPAN_MAX_CHARS = 80
@@ -77,34 +81,41 @@ def _is_prose_word(token: str) -> bool:
     return core.isalpha()
 
 
-def _is_code(inner: str) -> bool:
+def _is_code(inner: str, cues: frozenset[str]) -> bool:
     """Whether the text of a one-line backtick span can be code at all.
 
-    It is at most 80 characters and has at most 3 plain words (`git log --oneline` qualifies;
-    `this is wrong, very wrong!` does not). A cue word inside such a span is still exempt only
-    when it is attached to code, see `_attached`.
+    It is at most 80 characters, has at most 3 plain words (`git log --oneline` qualifies;
+    `this is wrong, very wrong!` does not), and is not a cue word or phrase on its own once
+    edge punctuation, parentheses and hyphens are stripped (`(deprecated)`, `--outdated`,
+    `wrong()` are not code; the literal `false` is). A cue word inside such a span is still
+    exempt only when it is attached to code, see `_attached`.
     """
+    bare = _fold(inner.strip(_EDGE))
+    if bare in cues and bare != "false":
+        return False
     return len(inner) <= _SPAN_MAX_CHARS and sum(map(_is_prose_word, inner.split())) <= _SPAN_MAX_WORDS
 
 
 def _attached(inner: str, start: int, end: int) -> bool:
     """Whether the cue occurrence `inner[start:end]` of a code span reads as code, not as prose.
 
-    True when a code character (`= : - _ . / ( )`) touches it on the left (`--legacy`,
-    `api.deprecated`), or touches it on the right and joins it to more code (`deprecated=true`,
-    `legacy-x`; a trailing `obsolete:` or `outdated.` is prose punctuation); when it is the whole
-    value after `=` or `:` (`enabled: false`, ``x = `false` ``); or when it is the literal `false`
-    alone in the span. A cue phrase with plain words around it (`stale cache`, `is deprecated`,
-    `It's outdated`) is not attached.
+    Attached means touching a code character (`= : - _ . / ( )`) with no space: on the left
+    (`--legacy-x`, `mode=legacy`, `api.deprecated`; a `(` only right after a word character, as
+    in `f(deprecated)`, never `get (deprecated)`), or on the right when that character joins it
+    to more code (`deprecated=true`; a trailing `obsolete:` or `outdated.` is prose
+    punctuation). The literal `false` is also exempt as the whole value after `=` or `:`
+    (`enabled: false`, ``x = `false` ``) and alone in the span. Any other cue word after a
+    space (`status: obsolete`, `x = obsolete`, `stale cache`) is not attached.
     """
     before, after = inner[:start], inner[end:]
     if before and before[-1] in _CODE_CHARS:
-        return True
+        if before[-1] != "(" or (len(before) >= 2 and (before[-2].isalnum() or before[-2] == "_")):
+            return True
     if len(after) >= 2 and after[0] in _CODE_CHARS and not after[1].isspace():
         return True
-    if _VALUE_BEFORE.search(before) and _REST_EMPTY.match(after):
-        return True
-    return inner.strip(" `").casefold() == "false" == inner[start:end].casefold()
+    if inner[start:end].casefold() != "false":
+        return False
+    return bool(_VALUE_BEFORE.search(before) and _REST_EMPTY.match(after)) or inner.strip(" `").casefold() == "false"
 
 
 def _mask_code(text: str, patterns: Mapping[str, re.Pattern[str]]) -> str:
@@ -115,10 +126,11 @@ def _mask_code(text: str, patterns: Mapping[str, re.Pattern[str]]) -> str:
     masked. Outside code, the literal `false` right after `=` or `:` (`debug=false`) is masked.
     """
     masked = _FENCE.sub(_MASK, text)
+    cues = frozenset(_fold(w) for w in patterns)
 
     def span(m: re.Match[str]) -> str:
         inner = m.group(2)
-        if not _is_code(inner):
+        if not _is_code(inner, cues):
             return m.group(0)
         hits = sorted(
             (h.start(), h.end())

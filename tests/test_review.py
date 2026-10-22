@@ -597,6 +597,27 @@ def test_set_approved_of_an_llm_draft_whose_fingerprint_was_removed_is_refused(t
     assert load_scenario(path).review.status == "draft"
 
 
+def test_set_approved_of_an_llm_draft_with_an_unprefixed_fingerprint_is_refused(tmp_path):
+    # Fix round 2, Minor 3: an unknown fingerprint is no better than a removed one here.
+    s = truth_change()
+    s.provenance.author = "llm"
+    path = generated(tmp_path, s)
+    old = load_scenario(path).provenance.label_fingerprint
+    assert old is not None
+    _edit_yaml(path, lambda d: d["provenance"].update(label_fingerprint=old[3:]))
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["labels_changed_outside_review"]
+    assert load_scenario(path).review.status == "draft"
+
+
+def test_set_approved_of_an_old_llm_file_without_generated_hash_still_warns(tmp_path):
+    s = truth_change()
+    s.provenance.author = "llm"
+    path = draft(tmp_path, s)  # no generation hashes: an older file
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["label_fingerprint_not_recorded"] and not blocking(issues)
+
+
 def test_set_approved_of_a_non_llm_skeleton_without_fingerprint_still_warns(tmp_path):
     from harness.generate.pipeline import mark_generated
 
