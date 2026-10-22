@@ -347,7 +347,9 @@ def test_feedback_action_body_with_other_fact_marker_is_blocking():
     s = feedback_draft()
     other = s.facts["f_new"].markers[0]
     template(s, "action", "f_old").text += f" and also the {other} option"
-    issue = only(check_draft(s, CFG, GEN), "other_fact_marker")
+    # f_new is in the probe's `about`, so the core validator's template check (marker_bleed)
+    # catches it first and check_draft stops there.
+    issue = only(check_draft(s, CFG, GEN), "marker_bleed")
     assert issue.level == "error"
     assert s.probes[0].id in issue.message and "f_new" in issue.message
 
@@ -395,8 +397,11 @@ def test_bare_failure_outcome_without_fact_is_allowed():
 def test_bare_failure_outcome_still_may_not_carry_a_marker_or_cue_word():
     s = feedback_draft("echo")
     on_false = template(s, "on_false")
-    on_false.text = f"ci run failed: {s.facts['f_true'].markers[0]} is outdated"
-    assert {"other_fact_marker", "cue_word"} <= set(codes(check_draft(s, CFG, GEN)))
+    on_false.text = f"ci run failed: {s.facts['f_true'].markers[0]} broke"
+    # f_true is in the probe's `about`: the core validator's marker_bleed catches it first.
+    assert "marker_bleed" in codes(check_draft(s, CFG, GEN))
+    on_false.text = "ci run failed: the setting is outdated"
+    assert "cue_word" in codes(check_draft(s, CFG, GEN))
 
 
 def test_feedback_outcome_with_a_fact_needs_its_marker():
