@@ -172,9 +172,12 @@ def generated_event_id(taken: Collection[str]) -> str:
 
     Numbering starts after the ids in use (the scenario's events plus the events generated so
     far) and skips any id already taken, so author ids such as "e5" or "tc_o1" never clash. The
-    id is not computed from the scenario, probe or slot, and its format matches scenario ids
-    such as "e1", so an engine cannot tell generated events apart by their id. The mapping to
-    probes lives only in `ScenarioRun.generated_ids`. An engine that abstained earlier gets fewer
+    id is not computed from the scenario, probe or slot, and it has the format of the usual
+    scenario ids such as "e1". It is not fully indistinguishable (design 6.2): an engine can
+    still tell it apart when authors use another format (such as "tc_o1"), or by out-of-order
+    numbers when authors number events in time order; the action record's timing (probe time
+    plus 5 minutes, same user/session/repo) is a stronger tell. The mapping to probes lives only
+    in `ScenarioRun.generated_ids`. An engine that abstained earlier gets fewer
     generated records, so the same probe's record can get a different id per engine; scoring
     goes through `generated_ids` and is not affected.
 
@@ -291,8 +294,18 @@ def feedback_events(
 
 
 def _as_result(item: object) -> Result:
+    """Validate one search item into a new `Result` the engine does not share.
+
+    A `Result` is validated again, because an engine can assign fields after building it
+    (pydantic does not check assignments); an invalid shape raises and errors this scenario
+    only. `text` and `sources` are new values, so later changes by the engine do not reach the
+    stored copy. `meta` is copied one level deep only (objects in it may not be copyable, such
+    as locks or SDK handles); it is not scored or written to the report.
+    """
     if isinstance(item, Result):
-        return item.model_copy(deep=True)  # the engine may keep and change what it returned
+        return Result.model_validate(
+            {"text": item.text, "sources": item.sources, "meta": dict(item.meta)}
+        )
     if isinstance(item, dict):
         return Result.model_validate(item)
     raise TypeError(f"search returned {type(item).__name__}, expected Result or dict")

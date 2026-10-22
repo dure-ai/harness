@@ -47,11 +47,13 @@ def result_basis(
     1. With sources: the hidden facts of the known source events, those outside
        `probe.about` included (unknown ids, events without a fact and duplicates are ignored).
        If none of them is in `probe.about`, the result is not relevant: empty basis.
-    2. If step 1 yields several facts, keep those whose markers appear in the text, when any do.
+    2. If step 1 yields several facts, keep those whose markers appear in the text, when any
+       do and at least one kept fact is in `probe.about`; otherwise keep all of step 1.
     3. Without sources: the `about` facts whose markers appear in the text.
 
     A result that is relevant through one `about` fact is judged on every fact it states, so a
-    false fact outside `about` still makes the basis wrong.
+    false fact outside `about` still makes the basis wrong, and markers of facts outside
+    `about` cannot narrow the `about` facts away.
 
     Args:
         result: One search result.
@@ -75,7 +77,7 @@ def result_basis(
         return frozenset()
     if len(basis) >= 2:
         narrowed = _marker_hits(result, scenario, basis)
-        if narrowed:
+        if narrowed & about:
             return frozenset(narrowed)
     return frozenset(basis)
 

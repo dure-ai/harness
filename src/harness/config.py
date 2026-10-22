@@ -20,14 +20,14 @@ class Judgment(_Strict):
     """Pass criteria relative to the all_store baseline (pre-registered).
 
     Attributes:
-        m1_ratio: An engine's M1 must be at most `m1_ratio` times the baseline M1.
-        m2_drop: An engine's M2 may be at most `m2_drop` below the baseline M2.
-        m1_abs_cap: Optional absolute upper bound on M1; None disables it.
+        m1_ratio: An engine's M1 must be at most `m1_ratio` times the baseline M1 (>= 0).
+        m2_drop: An engine's M2 may be at most `m2_drop` below the baseline M2 (>= 0).
+        m1_abs_cap: Optional absolute upper bound on M1, in [0, 1]; None disables it.
     """
 
-    m1_ratio: float = 0.5
-    m2_drop: float = 0.10
-    m1_abs_cap: float | None = None
+    m1_ratio: float = Field(default=0.5, ge=0)
+    m2_drop: float = Field(default=0.10, ge=0)
+    m1_abs_cap: float | None = Field(default=None, ge=0, le=1)
 
 
 class Stats(_Strict):
@@ -46,12 +46,14 @@ class RepeatN(_Strict):
     """Parameters of the repeat_n baseline.
 
     Attributes:
-        n: Minimum number of similar events (itself included) before an event is handed over.
-        tau: Token-set Jaccard similarity at or above which two events count as similar.
+        n: Minimum number of similar events (itself included) before an event is handed over
+            (>= 1).
+        tau: Token-set Jaccard similarity at or above which two events count as similar, in
+            [0, 1].
     """
 
-    n: int = 3
-    tau: float = 0.5
+    n: int = Field(default=3, ge=1)
+    tau: float = Field(default=0.5, ge=0, le=1)
 
 
 class FeedbackDelays(_Strict):

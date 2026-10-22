@@ -127,3 +127,16 @@ class BadConfig(LatestWins):
 
     def info(self) -> EngineInfo:
         return EngineInfo(name="bad", version="1", sources=True, config={"client": object()})
+
+
+class PathConfig(LatestWins):
+    """`info().config` holds values that are JSON-able only in pydantic's JSON mode."""
+
+    def info(self) -> EngineInfo:
+        from decimal import Decimal
+        from pathlib import Path
+
+        return EngineInfo(
+            name="pathy", version="1", sources=True,
+            config={"v": Path("/data"), "rate": Decimal("1.5"), "raw": b"x"},
+        )

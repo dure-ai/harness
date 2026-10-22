@@ -472,6 +472,18 @@ def test_non_json_config_exits_2_before_evaluation(tmp_path):
     assert not out.exists()
 
 
+def test_config_json_only_in_json_mode_is_written_as_strings(tmp_path):
+    # Review finding: a Path/Decimal/bytes config passed the info check and then crashed the
+    # report after the whole evaluation.
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:PathConfig", "--repeat", "1")
+    assert result.exit_code == 0, result.output
+    report = Path(result.output.strip().splitlines()[-1])
+    infos = json.loads((report.parent / "summary.json").read_text("utf-8"))["meta"]["engine_infos"]
+    shown = next(i for i in infos.values() if i["config"].get("v") == "/data")
+    assert shown["config"] == {"v": "/data", "rate": "1.5", "raw": "x"}
+    assert "/data" in report.read_text("utf-8")
+
+
 def test_all_store_noacl_is_not_a_candidate(tmp_path):
     result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "all_store_noacl", "--repeat", "1")
     assert result.exit_code == 2

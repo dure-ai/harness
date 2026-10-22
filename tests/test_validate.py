@@ -420,3 +420,49 @@ def test_event_team_not_in_world_is_an_error():
 
 def test_event_team_in_world_is_fine():
     assert codes(base(events=events() + [ev("e3", T("10-02 10:00"), team="b")])) == set()
+
+
+# --- feedback templates are visible to the probe's asker (review finding C4) ---
+
+
+def _with_template(slot: str, tpl: FeedbackTemplate) -> Feedback:
+    if slot == "action":
+        return Feedback(action={"f_old": tpl})
+    return Feedback(**{slot: tpl})
+
+
+def feedback_world(slot: str, tpl: FeedbackTemplate, extra_events=()):
+    pb, pp = bleed_world().probes
+    return bleed_world(
+        family="echo",
+        mode="feedback",
+        events=[*bleed_world().events, *extra_events],
+        probes=[pb.model_copy(update={"feedback": _with_template(slot, tpl)}), pp],
+    )
+
+
+def test_feedback_world_is_clean():
+    assert validate_scenario(feedback_world("abstain", FeedbackTemplate(text="nothing found"))) == []
+
+
+@pytest.mark.parametrize("slot", ["action", "abstain", "on_true", "on_false"])
+def test_secret_marker_of_a_hidden_event_in_a_feedback_template_is_an_error(slot):
+    hidden = ev("e9", T("10-02 10:00"), user="u3", scope="personal", text="u3 note zz99",
+                secret_markers=["ZZ99"])
+    s = feedback_world(slot, FeedbackTemplate(text="followed the zz99 step"), [hidden])
+    assert codes(s) == {"secret_marker_not_exclusive"}
+    (issue,) = validate_scenario(s)
+    assert "pb" in issue.message and "e9" in issue.message
+
+
+@pytest.mark.parametrize("slot", ["action", "abstain", "on_true", "on_false"])
+def test_marker_of_another_about_fact_in_a_feedback_template_is_bleed(slot):
+    s = feedback_world(slot, FeedbackTemplate(text="checked the oldmark policy", fact="f_new"))
+    assert codes(s) == {"marker_bleed"}
+    (issue,) = validate_scenario(s)
+    assert "pb" in issue.message and "f_old" in issue.message
+
+
+def test_own_fact_marker_in_a_feedback_template_is_not_bleed():
+    s = feedback_world("action", FeedbackTemplate(text="applied the OLDMARK policy", fact="f_old"))
+    assert codes(s) == set()

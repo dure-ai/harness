@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+from pydantic_core import to_jsonable_python
 
 from harness.contract import EngineInfo
 from harness.engines import BASELINES
@@ -99,25 +100,34 @@ def blind_ids(names: list[str], seed: int) -> dict[str, str]:
 # ---- JSON ------------------------------------------------------------------------------------
 
 
-def _plain(obj: Any) -> Any:
-    """Recursively turn dataclasses, pydantic models, datetimes and sets into JSON-able values."""
+def jsonable(obj: Any) -> Any:
+    """Recursively turn dataclasses, pydantic models, datetimes and sets into JSON-able values.
+
+    Any other value that JSON cannot hold (a Path, Decimal or bytes in `EngineInfo.config`, say)
+    is converted the way pydantic's JSON mode converts it (`model_dump(mode="json")`), so a Path
+    is written as its string. Sets are written sorted. Raises `TypeError` or `ValueError` for
+    values pydantic cannot convert either; `harness run` checks `info()` with this function
+    before the evaluation starts.
+    """
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return {f.name: _plain(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+        return {f.name: jsonable(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
     if isinstance(obj, BaseModel):
-        return _plain(obj.model_dump())
+        return jsonable(obj.model_dump())
     if isinstance(obj, datetime):
         return obj.isoformat()
     if isinstance(obj, (set, frozenset)):
-        return sorted(_plain(v) for v in obj)
+        return sorted(jsonable(v) for v in obj)
     if isinstance(obj, Mapping):
-        return {str(k): _plain(v) for k, v in obj.items()}
+        return {str(k): jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [_plain(v) for v in obj]
-    return obj
+        return [jsonable(v) for v in obj]
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    return to_jsonable_python(obj)
 
 
 def _metrics_json(m: Metrics, sealed: bool) -> dict[str, Any]:
-    d = _plain(m)
+    d = jsonable(m)
     if sealed:  # no scenario ids or fact ids
         d.pop("errors")
         d["n_errors"] = len(m.errors)
@@ -192,7 +202,7 @@ def _info_json(
     name: str, info: EngineInfo, ids: Mapping[str, str], scrub: Callable[[str], str]
 ) -> dict[str, Any]:
     """EngineInfo as JSON with every string value scrubbed; `name` is the blind id."""
-    return {**_scrub_value(_plain(info), scrub), "name": ids[name]}
+    return {**_scrub_value(jsonable(info), scrub), "name": ids[name]}
 
 
 def _order_key(ids: Mapping[str, str]) -> Callable[[str], tuple[int, int]]:
@@ -227,7 +237,7 @@ def _summary(
     scrub: Callable[[str], str],
 ) -> dict[str, Any]:
     by_name = {s.engine_id: s for s in ordered}
-    meta_json = _plain(meta)
+    meta_json = jsonable(meta)
     meta_json["engine_infos"] = {
         ids[name]: _info_json(name, info, ids, scrub)
         for name, info in sorted(meta.engine_infos.items(), key=lambda kv: _order_key(ids)(kv[0]))
@@ -240,14 +250,14 @@ def _summary(
         "engines": {
             ids[s.engine_id]: {
                 "metrics": _metrics_json(s.metrics, meta.sealed),
-                "verdict": _plain(s.verdict),
+                "verdict": jsonable(s.verdict),
                 "repeats": [_metrics_json(r, meta.sealed) for r in s.repeats],
-                "flip": _plain(s.flip),
+                "flip": jsonable(s.flip),
                 "relative": _relative(s, by_name),
             }
             for s in ordered
         },
-        "ranking": [{**_plain(e), "engine_id": ids[e.engine_id]} for e in ranking],
+        "ranking": [{**jsonable(e), "engine_id": ids[e.engine_id]} for e in ranking],
         "selfcheck": [
             {"name": c.name, "ok": c.ok, **({} if meta.sealed else {"detail": scrub(c.detail)})}
             for c in selfcheck
@@ -272,7 +282,7 @@ def _result_lines(
                     "outcome": rec.outcome,
                     "choice": {"index": rec.choice.index, "basis": sorted(rec.choice.basis)},
                     "results": [{"text": r.text, "sources": list(r.sources)} for r in rec.results],
-                    "leaks": [_plain(leak) for leak in rec.leaks],
+                    "leaks": [jsonable(leak) for leak in rec.leaks],
                 }
                 lines.append(json.dumps(line, ensure_ascii=False, separators=(",", ":")))
     return lines

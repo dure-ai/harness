@@ -14,7 +14,7 @@ from harness.contract import BaseEngine, EngineInfo
 from harness.engines import BASELINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, run_scenario
-from harness.report import RunMeta, harness_version, machine_info, write_report
+from harness.report import RunMeta, harness_version, jsonable, machine_info, write_report
 from harness.scenario.load import (
     ScenarioLoadError,
     ScenarioSet,
@@ -192,13 +192,14 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
     """Return `engine.info()` after checking that it is an `EngineInfo` the report can write.
 
     Raises:
-        TypeError: If `info()` returns something else, or a config that is not JSON-serializable.
+        TypeError: If `info()` returns something else, or a config the report cannot write as
+            JSON (checked with the report's own conversion, `report.jsonable`).
     """
     info = engine.info()
     if not isinstance(info, EngineInfo):
         raise TypeError(f"info() returned {type(info).__name__}, expected EngineInfo")
     try:
-        json.dumps(info.model_dump(mode="json"))
+        json.dumps(jsonable(info))  # the same conversion the report uses
     except (TypeError, ValueError) as e:
         raise TypeError(f"info() is not JSON-serializable: {e}") from e
     return info

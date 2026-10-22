@@ -278,6 +278,60 @@ def test_malformed_search_return_marks_error(items):
     assert run.error is not None and run.probes == []
 
 
+class MutatedAfterValidation(BaseEngine):
+    """Returns a Result whose fields were changed after validation."""
+
+    def __init__(self, sources):
+        self.sources = sources
+
+    def info(self):
+        return EngineInfo(name="w", version="1")
+
+    def reset(self, namespace):
+        pass
+
+    def record(self, event):
+        pass
+
+    def search(self, query):
+        r = Result(text="m")
+        r.sources = self.sources  # pydantic does not validate assignment
+        return [r]
+
+
+@pytest.mark.parametrize("sources", [[["e1"]], None, "e1", [1, "e1"]])
+def test_result_mutated_into_an_invalid_shape_errors_the_scenario_only(sources):
+    run = run_scenario(MutatedAfterValidation(sources), _same_time(), run_id="r", cfg=CFG)
+    assert run.error is not None and run.probes == []
+
+
+class UncopyableMeta(BaseEngine):
+    """Puts objects that cannot be deep-copied (a lock) into `Result.meta`."""
+
+    def __init__(self):
+        self.events: list[Event] = []
+
+    def info(self):
+        return EngineInfo(name="lock", version="1")
+
+    def reset(self, namespace):
+        pass
+
+    def record(self, event):
+        self.events.append(event)
+
+    def search(self, query):
+        import threading
+
+        return [Result(text=e.text, sources=[e.id], meta={"lock": threading.Lock()}) for e in self.events]
+
+
+def test_meta_that_cannot_be_deep_copied_does_not_crash():
+    run = run_scenario(UncopyableMeta(), _truth_change(), run_id="r", cfg=CFG)
+    assert run.error is None and run.probes
+    assert "lock" in run.probes[0].results[0].meta
+
+
 class Cites(BaseEngine):
     """Stores nothing and cites fixed event ids, recorded or not."""
 

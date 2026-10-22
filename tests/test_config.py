@@ -106,3 +106,29 @@ def test_config_accepts_zero_delays_and_minimums():
     cfg = EvalConfig(k=1, llm_repeats=1, stats={"bootstrap_iters": 1},
                      feedback={"action": timedelta(0), "on_false": timedelta(0), "on_true": timedelta(0)})
     assert cfg.k == 1
+
+
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        "repeat_n: {n: 0}\n",
+        "repeat_n: {tau: -0.1}\n",
+        "repeat_n: {tau: 1.5}\n",
+        "judgment: {m1_ratio: -0.5}\n",
+        "judgment: {m2_drop: -0.1}\n",
+        "judgment: {m1_abs_cap: -0.1}\n",
+        "judgment: {m1_abs_cap: 1.2}\n",
+    ],
+)
+def test_config_rejects_out_of_range_values(tmp_path, yaml_text):
+    p = tmp_path / "c.yaml"
+    p.write_text(yaml_text)
+    with pytest.raises(ValidationError):
+        load_config(p)
+
+
+def test_config_accepts_range_edges():
+    for tau in (0, 1):
+        assert EvalConfig(repeat_n={"n": 1, "tau": tau}).repeat_n.tau == tau
+    for cap in (0, 1, None):
+        assert EvalConfig(judgment={"m1_ratio": 0, "m2_drop": 0, "m1_abs_cap": cap}).judgment.m1_abs_cap == cap

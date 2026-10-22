@@ -271,6 +271,21 @@ def test_machine_info():
     assert "Python" in machine_info()
 
 
+def test_engine_info_config_written_in_json_mode(tmp_path):
+    from pathlib import Path
+
+    from harness.report import jsonable
+
+    info = EngineInfo(name="x", version="1", config={"v": Path("/data"), "s": {"b", "a"}})
+    assert jsonable(info)["config"] == {"v": "/data", "s": ["a", "b"]}
+    m, scores, ranking, runs, selfcheck = fixture()
+    m.engine_infos = {SECRET: info}
+    out = tmp_path / "out"
+    write_report(out, m, scores, ranking, runs, selfcheck, blind_seed=3)
+    shown = json.loads((out / "summary.json").read_text("utf-8"))["meta"]["engine_infos"]
+    assert [i["config"]["v"] for i in shown.values()] == ["/data"]
+
+
 def test_engine_info_scrubbed(tmp_path):
     info = EngineInfo(
         name=SECRET,

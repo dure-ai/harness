@@ -127,11 +127,42 @@ def test_result_with_no_source_fact_in_about_is_not_relevant():
     assert choose([r], promote, s, events) == Choice(None, frozenset())
 
 
-def test_narrowing_may_leave_only_facts_outside_about():
-    # Design 7.2: narrowing by markers can drop every `about` fact; the basis is then judged as
-    # narrowed (non-empty, so the result still counts as relevant).
+def test_narrowing_that_drops_every_about_fact_is_not_applied():
+    # Design 7.2 step 2: narrowing by markers is skipped when it would drop every `about` fact;
+    # the un-narrowed (mixed) basis is judged instead.
     s, events = _true_and_false_outside_about()
     promote = s.probes[0]
     r = Result(text="only bad here", sources=["e1", "e2"])
-    assert result_basis(r, promote, s, events) == frozenset({"f_false_outside"})
-    assert choose([r], promote, s, events) == Choice(0, frozenset({"f_false_outside"}))
+    both = frozenset({"f_true", "f_false_outside"})
+    assert result_basis(r, promote, s, events) == both
+    assert choose([r], promote, s, events) == Choice(0, both)
+
+
+def test_stale_about_source_is_not_hidden_by_an_outside_marker():
+    # Review finding: a result citing a stale `about` event plus an unrelated true event, whose
+    # text names only the unrelated fact, must still be judged on the stale fact.
+    from harness.scoring import judge
+
+    s = scenario(
+        facts={
+            "stale": fact(markers=["old-port"], valid_until=T("10-03 00:00")),
+            "cur": fact(markers=["new-port"], valid_from=T("10-03 00:00")),
+            "other": fact(markers=["lint-rule"]),
+        },
+        events=[
+            ev("e1", T("10-01 10:00"), fact="stale", text="use old-port"),
+            ev("e2", T("10-04 10:00"), fact="cur", text="use new-port"),
+            ev("e3", T("10-02 10:00"), fact="other", text="lint-rule on"),
+        ],
+        probes=[
+            probe("pb", "block", T("10-06 10:00"), ["stale"]),
+            probe("pp", "promote", T("10-06 11:00"), ["stale", "cur"]),
+        ],
+    )
+    events = {le.event.id: le for le in s.labeled_events()}
+    r = Result(text="remember the lint-rule", sources=["e1", "e3"])
+    block, promote = s.probes
+    for p, expected in ((block, "FP"), (promote, "PROMOTE_FP")):
+        choice = choose([r], p, s, events)
+        assert choice.basis == frozenset({"stale", "other"})
+        assert judge(p, choice, s) == expected

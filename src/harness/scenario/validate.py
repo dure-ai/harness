@@ -45,6 +45,17 @@ def _templates(feedback: Feedback) -> list[FeedbackTemplate]:
     return [*feedback.action.values(), *(t for t in singles if t is not None)]
 
 
+def _named_templates(feedback: Feedback | None) -> list[tuple[str, FeedbackTemplate]]:
+    """(slot name, template) for every feedback template, e.g. ("action[f_old]", ...)."""
+    if feedback is None:
+        return []
+    singles = [("abstain", feedback.abstain), ("on_false", feedback.on_false), ("on_true", feedback.on_true)]
+    return [
+        *((f"action[{key}]", t) for key, t in feedback.action.items()),
+        *((slot, t) for slot, t in singles if t is not None),
+    ]
+
+
 def _unknown_users(s: Scenario) -> tuple[set[str], list[str]]:
     """Users that cannot be resolved to exactly one team, plus a message per problem."""
     memberships = Counter(u for members in s.world.teams.values() for u in set(members))
@@ -74,7 +85,24 @@ def _check_secret_exclusive(
     labeled: list[LabeledEvent],
     error: Callable[[str, str], None],
 ) -> None:
-    """Report secret markers of events hidden from the asker that the asker's side also shows."""
+    """Report secret markers of events hidden from the asker that the asker's side also shows.
+
+    The asker's side is the query, the events visible to the asker by the probe time, and the
+    probe's own feedback templates (the asker writes those records, so the asker sees them;
+    they are checked against every event hidden from the asker, whenever it is recorded).
+    """
+    for slot, tpl in _named_templates(p.feedback):
+        body = tpl.text.casefold()
+        for le in labeled:
+            if can_see(le.event, p.user, team):
+                continue
+            hit = _first_marker_in(le.secret_markers, body)
+            if hit is not None:
+                error(
+                    "secret_marker_not_exclusive",
+                    f"probe {p.id}: feedback template {slot} contains secret marker {hit!r} "
+                    f"of event {le.event.id}, which the asker cannot see",
+                )
     recorded = [le for le in labeled if le.event.t <= p.t]
     visible = [le for le in recorded if can_see(le.event, p.user, team)]
     query = p.query.casefold()
@@ -265,9 +293,28 @@ def validate_scenario(s: Scenario) -> list[Issue]:
                 f"probe {p.id}: no recorded about fact is hidden from the asker",
             )
 
+    # Feedback templates become events too, so their texts are checked like event bodies.
+    templates = [
+        (f"probe {q.id} feedback template {slot}", tpl)
+        for q in s.probes
+        for slot, tpl in _named_templates(q.feedback)
+    ]
     bled: set[tuple[str, str]] = set()
     for p in s.probes:
         about_ids = [fid for fid in p.about if fid in s.facts]
+        for where, tpl in templates:
+            body = tpl.text.casefold()
+            for fid in about_ids:
+                if fid == tpl.fact or (where, fid) in bled:
+                    continue
+                hit = _first_marker_in(s.facts[fid].markers, body)
+                if hit is not None:
+                    bled.add((where, fid))
+                    error(
+                        "marker_bleed",
+                        f"{where}: text contains marker {hit!r} of fact {fid!r}, which is not "
+                        f"the template's fact (probe {p.id} asks about it)",
+                    )
         for le in labeled:
             body = le.event.text.casefold()
             for fid in about_ids:
