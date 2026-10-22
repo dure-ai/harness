@@ -136,6 +136,15 @@ def _config(config: Path) -> EvalConfig:
         raise _fail(f"error: cannot load config {config}: {e}", 2) from e
 
 
+# What `--sealed` says about a load error: one fixed sentence per error code, never the path,
+# a scenario id or the parser's text.
+_SEALED_LOAD_ERRORS = {
+    "load": "a scenario file failed to load",
+    "approved_content_changed": "an approved scenario file was edited after its approval",
+    "approved_hash_missing": "an approved scenario file was approved by hand, without a recorded approval hash",
+}
+
+
 def _load(
     scenarios: list[Path], config: Path, include_drafts: bool, sealed: bool
 ) -> tuple[EvalConfig, ScenarioSet]:
@@ -147,11 +156,7 @@ def _load(
         loaded = load_set(scenarios, include_drafts)
     except ScenarioLoadError as e:
         if sealed:  # the path and the parser message can reveal scenario content
-            what = (
-                "an approved scenario file was edited after its approval"
-                if e.code != "load"
-                else "a scenario file failed to load"
-            )
+            what = _SEALED_LOAD_ERRORS.get(e.code, _SEALED_LOAD_ERRORS["load"])
             raise _fail(f"error {e.code}: {what} (details hidden by --sealed)", 1) from e
         raise _fail(f"{e.path}: error {e.code} {e.message}", 1) from e
     if sealed and loaded.warnings:  # the lines name files

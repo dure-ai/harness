@@ -1080,6 +1080,38 @@ def test_run_refuses_an_approved_file_edited_after_approval(tmp_path):
     assert "tc.yaml" not in sealed.output and "secret" not in sealed.output
 
 
+def _drop_approved_hash(path: Path) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    del data["review"]["approved_hash"]  # as if the status had been set to approved by hand
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("code", "break_it", "says", "must_not_say"),
+    [
+        ("approved_content_changed", _tamper, "edited after its approval", "by hand"),
+        ("approved_hash_missing", _drop_approved_hash, "approved by hand", "edited after"),
+    ],
+)
+def test_sealed_approval_errors_each_get_their_own_message(tmp_path, code, break_it, says, must_not_say):
+    d = approved_dir(tmp_path)
+    break_it(d / "tc.yaml")
+    runs = [run_cli(tmp_path, d, "--sealed")[0], runner.invoke(app, ["selfcheck", "--scenarios", str(d), "--sealed"])]
+    for result in runs:
+        assert result.exit_code == 1
+        assert f"error {code}: " in result.output and says in result.output
+        assert must_not_say not in result.output and "details hidden by --sealed" in result.output
+        for leak in ("tc.yaml", "secret", str(d)):  # no path, id or parser text
+            assert leak not in result.output, leak
+
+
+def test_sealed_load_failure_message_is_unchanged(tmp_path):
+    d = good_dir(tmp_path)
+    (d / "broken.yaml").write_text("id: [unclosed\n", encoding="utf-8")
+    result, _ = run_cli(tmp_path, d, "--sealed")
+    assert result.exit_code == 1 and "error load: a scenario file failed to load" in result.output
+
+
 def test_unverified_approvals_are_warned_with_paths(tmp_path):
     d = good_dir(tmp_path, hashed=False)  # approved by hand, no approved_hash
     result, _ = run_cli(tmp_path, d)

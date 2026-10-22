@@ -26,7 +26,8 @@ class ScenarioLoadError(Exception):
         path: The offending file; its name prefixes the message.
         message: What went wrong.
         code: `load` for a file that does not read or validate, `approved_content_changed` for
-            an approved file edited after its approval or approved by hand (`load_set`).
+            an approved file edited after its approval, `approved_hash_missing` for an approved
+            file made by the current tooling that has no approval hash (`load_set`).
     """
 
     def __init__(self, path: Path, message: str, code: str = "load"):
