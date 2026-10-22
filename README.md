@@ -163,6 +163,7 @@ uv sync --extra gen                      # anthropic, openai, pyarrow, huggingfa
 export ANTHROPIC_API_KEY=...             # config/gen-v0.1.yaml의 api_key_env를 주면 두 공급자 모두 그 변수를 읽음
 
 # 1. 궤적 조각 받기: 크기(MB)를 보여 주고 y/N을 묻는다. --yes로 건너뜀. 조각 하나가 수백 MB
+#    --timeout 초(기본 60): 서버가 답하지 않으면 그 시간 뒤 오류로 끝남
 uv run harness traces fetch --config v1.2 --split minisweagent --shard 0
 uv run harness traces list               # 받은 조각, 저장소별 궤적 수, 묶음 수
 
@@ -212,6 +213,7 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 - `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
 - 생성할 때 정답 지문을 `provenance.label_fingerprint`에 적어 둡니다. `review edit`를 거치지 않고 편집기로 정답(기간·라벨 등)을 바꾼 파일은 지문이 달라 승인되지 않습니다(`labels_changed_outside_review`, 종료 코드 1). 바꾼 것을 되돌리거나 거절하세요. 지문이 없는 이전 파일은 경고 `label_fingerprint_not_recorded`와 함께 승인됩니다.
 - 승인하면 그 내용의 해시를 `review.approved_hash`에 적습니다. 승인한 파일을 나중에 고치면 `run`·`selfcheck`·`scenario check`가 오류 `approved_content_changed`로 멈추므로 다시 검토해 승인하세요(`review list`에도 표시됩니다). `review` 블록(메모 등)과 주석·서식만 바꾼 것은 괜찮습니다. 해시가 없는 승인 파일(이전 파일, 손으로 `approved`로 바꾼 파일)은 오류가 아니라 경고 `approval_unverified`로 읽히며, `--sealed`에서는 경고 개수만 보여 줍니다.
+- 자동 검사(`check_draft`)는 필요조건일 뿐입니다. 본문이 자기 라벨과 모순되는지는 코드가 못 잡으므로 `show`로 직접 확인하세요.
 - 이 해시들은 파일 안에 있으므로 실수로 고친 것을 잡는 장치입니다. 해시까지 일부러 다시 쓰는 것은 막지 못하며, 무엇이 바뀌었는지의 근거는 git 이력입니다.
 - id가 없거나 같은 id의 파일이 여럿이면 종료 코드 1입니다. 다른 위치는 `--root`로 지정합니다.
 
@@ -240,6 +242,8 @@ uv run harness traces fetch --config v1.2 --split minisweagent --shard 0   # 처
 uv run harness generate --family all --n 1 --max-traces 10 --seed 20261020
 ```
 
+`traces fetch`는 서버가 연결만 받고 답하지 않으면 `--timeout`초(기본 60) 뒤에 `error: ... timed out ...`으로 끝납니다(종료 코드 2). 목록을 받을 때는 호출 전체에, 내려받을 때는 답도 진행도 없는 시간에 적용되므로 큰 조각이 60초를 넘겨도 바이트가 계속 오면 끊기지 않습니다. 느린 회선이면 `--timeout 300`처럼 늘려 다시 실행하세요(받던 파일은 크기가 맞을 때만 건너뜁니다).
+
 끝나면 요약이 나옵니다.
 
 ```
@@ -262,6 +266,8 @@ uv run harness generate --family all --n 1 --max-traces 10 --seed 20261020
 
 같은 시드와 같은 캐시로 다시 돌리면 같은 id와 같은 초안이 나옵니다(파일마다 다른 것은 `generated_at`과 그에 따라 바뀌는 `generated_hash`). LLM 응답은 캐시(`~/.cache/t5-harness/llm/`)에서 다시 쓰므로 비용이 다시 들지 않습니다. 새 초안이 필요하면 `--seed`를 바꿉니다.
 
+**재현성**: 생성 시드만으로 LLM이 쓴 본문까지 같다고 보장하지는 않습니다(모델·공급자가 바뀌거나 캐시가 없으면 문장이 달라질 수 있습니다). 실행끼리 비교할 때는 시드가 아니라 **승인된 시나리오 파일과 평가 설정을 고정**하세요(커밋으로 남기기). 같은 시나리오 파일과 같은 엔진 응답이면 재생과 채점 결과는 같습니다. 엔진 응답이 달라서 되먹임이 갈라지는 것은 오류가 아니라 평가 대상입니다. 자세한 내용은 설계 12장.
+
 ### 2. 검토하기
 
 ```bash
@@ -278,6 +284,7 @@ uv run harness review set <id> rejected --reviewer 이름 --note "이유"
 - **본문에 정답 단서가 없는가**: "outdated", "rumor"처럼 답을 알려 주는 말이 없는지(자동 검사도 하지만 사람이 한 번 더). 자동 검사는 백틱 안의 코드와 그 이벤트 사실의 마커 자리는 건너뜁니다.
 - **질문 표현만으로 정답 종류를 추측할 수 없는가**: 짝 문항이 같은 형식과 어조로 묻는지, 어떤 사실을 전제하거나 의심하는 말("still", "really", "now that ...")이 없는지.
 - **`origin: quoted` 근거가 맞는가**: 인용은 원래 후보의 참인 사실을 말하는 이벤트에만 붙습니다(지어낸 사실·잡음 이벤트에 붙으면 자동 검사가 거절).
+- **본문이 자기 라벨과 모순되지 않는가**: 참인 사실의 기록이 "쓰지 마라"고 하거나, 성공으로 라벨된 확인이 "거절했다"고 쓰여도 판정 문자열만 있으면 자동 검사를 통과합니다. 자동 검사는 필요조건일 뿐이고, 이 모순을 거르는 유일한 안전장치는 사람의 검토입니다.
 - **판정 문자열(`markers`)이 본문 표현과 맞는가**: 출처를 안 주는 엔진은 이 문자열로 채점됩니다.
 - **기준선 미리보기**: `oracle`은 모든 문항을 맞히고, `all_store`는 막아야 할 문항에서 틀려야 변별력이 있습니다.
 

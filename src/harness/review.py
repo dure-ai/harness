@@ -289,6 +289,11 @@ def set_status(
     file is left as it is. An approval records `review.approved_hash` (`content_hash` of the
     saved file), which `load_set` checks. Rejection always works.
 
+    Limits: a passing `check_draft` is necessary, not sufficient (a body that contradicts its
+    label is only caught by the reviewer reading it). The fingerprint and `approved_hash` live
+    in the file itself, so they catch accidental edits, not deliberate tampering; git history
+    is the record of what changed.
+
     Args:
         path: The scenario file.
         status: The new review status.

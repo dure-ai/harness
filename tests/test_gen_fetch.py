@@ -1,5 +1,9 @@
 """Tests for listing, downloading and counting Open-SWE-Traces shards (no network)."""
 
+import socket
+import threading
+import time
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -8,6 +12,7 @@ import pytest
 
 from harness.generate.fetch import (
     CONFIG_MODELS,
+    FetchError,
     ShardInfo,
     cache_stats,
     fetch_shard,
@@ -111,6 +116,57 @@ def test_fetch_redownloads_a_file_of_the_wrong_size(tmp_path: Path) -> None:
     api = FakeApi()
     fetch_shard(info, tmp_path, api)
     assert api.downloads == [info.path]
+
+
+@pytest.fixture
+def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """A local TCP server that accepts connections and never answers; yields its URL."""
+    pytest.importorskip("huggingface_hub")
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    held: list[socket.socket] = []
+
+    def accept() -> None:
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            held.append(conn)  # keep it open, never reply
+
+    threading.Thread(target=accept, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.getsockname()[1]}"
+    from huggingface_hub import constants
+
+    monkeypatch.setattr(constants, "ENDPOINT", url)
+    monkeypatch.setattr(
+        constants, "HUGGINGFACE_CO_URL_TEMPLATE", url + "/{repo_id}/resolve/{revision}/{filename}"
+    )
+    real_getaddrinfo = socket.getaddrinfo
+
+    def local_only(host: Any, *args: Any, **kw: Any) -> Any:
+        assert host == "127.0.0.1", f"test must not reach the network: {host!r}"
+        return real_getaddrinfo(host, *args, **kw)
+
+    monkeypatch.setattr(socket, "getaddrinfo", local_only)
+    yield url
+    srv.close()
+    for c in held:
+        c.close()
+
+
+def test_fetch_gives_up_after_timeout(silent_server: str, tmp_path: Path) -> None:
+    # The only test that really waits: a server that never answers, with a 0.2 s limit.
+    info = ShardInfo(path="data/minisweagent/qwen38_27b/src/train-00000-of-00001.parquet", size=10)
+    for call in (
+        lambda: list_shards("v1.2", "minisweagent", timeout=0.2),
+        lambda: fetch_shard(info, tmp_path, timeout=0.2),
+    ):
+        started = time.monotonic()
+        with pytest.raises(FetchError, match="timed out|no answer"):
+            call()
+        assert time.monotonic() - started < 2.0
 
 
 def test_cache_stats_counts_repos_tasks_and_bundles(tmp_path: Path) -> None:

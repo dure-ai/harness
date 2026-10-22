@@ -317,6 +317,10 @@ def check_draft(
     only a true, non-fabricated fact can be quoted, and the quote must be in the body).
     The secret events are read from `provenance.secret_events` (see `secret_events`).
 
+    The checks are necessary, not sufficient. They look at structure, markers, banned cue
+    words and secret placement; they cannot tell whether an event body contradicts its own
+    label (e.g. a "true" fact whose record says not to use it). Only human review catches that.
+
     Args:
         s: The draft scenario.
         cfg: Eval config used by the discrimination run.

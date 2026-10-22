@@ -424,14 +424,23 @@ def traces_fetch(
     split: Annotated[str, typer.Option(help="Agent: openhands, sweagent or minisweagent.")],
     shard: Annotated[int, typer.Option(min=0, help="Index in the sorted list of files.")] = 0,
     yes: Annotated[bool, typer.Option("--yes", help="Download without asking.")] = False,
+    timeout: Annotated[
+        float,
+        typer.Option(
+            help="Seconds a server may stay silent before giving up (>0); applies to listing "
+            "(whole call) and download (no answer or progress)."
+        ),
+    ] = 60.0,
 ) -> None:
     """Download one parquet shard of Open-SWE-Traces into the cache, after showing its size."""
+    if not timeout > 0:
+        raise _fail(f"error: --timeout must be greater than 0, got {timeout:g}", 2)
     with _needs_gen():
         from harness.generate import fetch
         from harness.generate.config import cache_root
 
         try:
-            shards = fetch.list_shards(dataset_config, split)
+            shards = fetch.list_shards(dataset_config, split, timeout=timeout)
         except ValueError as e:
             raise _fail(f"error: {e}", 2) from e
         except ModuleNotFoundError:
@@ -446,7 +455,7 @@ def traces_fetch(
             raise _fail("취소했습니다. 아무것도 받지 않았습니다.", 1)
         dest = cache_root() / "traces" / dataset_config / split
         try:
-            path = fetch.fetch_shard(info, dest)
+            path = fetch.fetch_shard(info, dest, timeout=timeout)
         except ModuleNotFoundError:
             raise
         except Exception as e:

@@ -646,7 +646,7 @@ def test_cli_fetch_declined_downloads_nothing(tmp_path, monkeypatch):
 
     monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
     info = fetch.ShardInfo(path="data/minisweagent/qwen38_27b/src/train-00000-of-00002.parquet", size=250_000_000)
-    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None: [info])
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None, timeout=60.0: [info])
     monkeypatch.setattr(fetch, "fetch_shard", lambda *a, **k: pytest.fail("must not download"))
     result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "minisweagent", "--shard", "0"], input="n\n")
     assert result.exit_code == 1
@@ -659,22 +659,50 @@ def test_cli_fetch_confirmed_downloads_into_the_cache(tmp_path, monkeypatch):
 
     monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
     infos = [fetch.ShardInfo(path=f"data/sweagent/qwen38_27b/src/train-0000{i}-of-00002.parquet", size=10) for i in (0, 1)]
-    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None: infos)
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None, timeout=60.0: infos)
     got = []
-    monkeypatch.setattr(fetch, "fetch_shard", lambda info, dest, api=None: got.append((info, dest)) or dest / info.path)
+    monkeypatch.setattr(fetch, "fetch_shard", lambda info, dest, api=None, timeout=60.0: got.append((info, dest, timeout)) or dest / info.path)
     result = runner.invoke(app, ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--shard", "1"], input="y\n")
     assert result.exit_code == 0, result.output
-    assert got == [(infos[1], tmp_path / "cache" / "traces" / "v1.1" / "sweagent")]
+    assert got == [(infos[1], tmp_path / "cache" / "traces" / "v1.1" / "sweagent", 60.0)]
     got.clear()
     assert runner.invoke(app, ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--yes"]).exit_code == 0
     assert got[0][0] == infos[0]
+    got.clear()
+    args = ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--yes", "--timeout", "5"]
+    assert runner.invoke(app, args).exit_code == 0
+    assert got[0][2] == 5.0
+
+
+def test_cli_fetch_rejects_a_non_positive_timeout(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(fetch, "list_shards", lambda *a, **k: pytest.fail("must not reach the network"))
+    for bad in ("0", "-3"):
+        args = ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes", "--timeout", bad]
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2 and "--timeout must be greater than 0" in result.output
+
+
+def test_cli_fetch_reports_a_timeout_as_an_error(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+
+    def silent(*a, **k):
+        raise fetch.FetchError("timed out: no answer from the server for 1 s while listing")
+
+    monkeypatch.setattr(fetch, "list_shards", silent)
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes"])
+    assert result.exit_code == 2 and "timed out" in result.output
 
 
 def test_cli_fetch_bad_arguments_exit2(tmp_path, monkeypatch):
     from harness.generate import fetch
 
     monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
-    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None: [])
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None, timeout=60.0: [])
     result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes"])
     assert result.exit_code == 2 and "has 0 shards" in result.output
     monkeypatch.undo()
