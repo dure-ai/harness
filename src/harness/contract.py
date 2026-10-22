@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 Scope = Literal["personal", "team"]
 Signal = Literal["self", "test", "review", "human", "doc"]
@@ -16,13 +16,15 @@ Kind = Literal["agent_record", "ci_result", "human_confirm", "commit"]
 Outcome = Literal["success", "failure", "unknown"]
 
 
-class Event(BaseModel, frozen=True):
+class Event(BaseModel):
     """One observation handed to an engine through `record()`. Carries no ground truth.
 
     `refs` are ids of earlier events this one judges, e.g. a CI result about an earlier change.
     They are written by the scenario author (or, for generated outcome records, taken from the
     followed result's sources), never derived from hidden labels.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     t: AwareDatetime
@@ -39,8 +41,10 @@ class Event(BaseModel, frozen=True):
     refs: tuple[str, ...] = ()
 
 
-class Query(BaseModel, frozen=True):
+class Query(BaseModel):
     """What the simulated agent asks. `team` is the asker's team, `t` the virtual time of asking."""
+
+    model_config = ConfigDict(frozen=True)
 
     text: str
     user: str
