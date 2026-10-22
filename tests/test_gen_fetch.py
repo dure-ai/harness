@@ -1,5 +1,6 @@
 """Tests for listing, downloading and counting Open-SWE-Traces shards (no network)."""
 
+import logging
 import socket
 import threading
 import time
@@ -118,6 +119,17 @@ def test_fetch_redownloads_a_file_of_the_wrong_size(tmp_path: Path) -> None:
     assert api.downloads == [info.path]
 
 
+class _DropWorkerThreadRecords(logging.Filter):
+    """Drops log records made off the main thread, i.e. by the abandoned fetch worker.
+
+    The retry notices ("Retrying in 2s [Retry 2/5]") do not name the server, so they cannot be
+    matched by message. Every other test reaches `huggingface_hub` only through a fake API.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.threadName == "MainThread"
+
+
 @pytest.fixture
 def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     """A local TCP server that accepts connections and never answers; yields its URL."""
@@ -138,6 +150,12 @@ def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     threading.Thread(target=accept, daemon=True).start()
     url = f"http://127.0.0.1:{srv.getsockname()[1]}"
     from huggingface_hub import constants
+
+    # The abandoned fetch thread keeps retrying against the closed server for a minute and logs
+    # each failure; drop its records so later tests see no noise.
+    quiet = _DropWorkerThreadRecords()
+    for name in ("huggingface_hub", "huggingface_hub.utils._http"):
+        logging.getLogger(name).addFilter(quiet)
 
     monkeypatch.setattr(constants, "ENDPOINT", url)
     monkeypatch.setattr(
@@ -164,7 +182,7 @@ def test_fetch_gives_up_after_timeout(silent_server: str, tmp_path: Path) -> Non
         lambda: fetch_shard(info, tmp_path, timeout=0.2),
     ):
         started = time.monotonic()
-        with pytest.raises(FetchError, match="timed out|no answer"):
+        with pytest.raises(FetchError, match="no answer or progress for"):
             call()
         assert time.monotonic() - started < 2.0
 

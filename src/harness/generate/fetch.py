@@ -108,7 +108,7 @@ def _guarded[T](call: Callable[[], T], timeout: float, activity: _Activity, what
             raise value
         if time.monotonic() - activity.last > timeout:
             raise FetchError(
-                f"timed out: no answer from the server for {timeout:g} s while {what}; "
+                f"timed out: no answer or progress for {timeout:g} s while {what}; "
                 "check the network or raise --timeout"
             )
 
