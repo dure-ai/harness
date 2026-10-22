@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import math
 import platform
 import random
 import secrets
@@ -105,25 +106,48 @@ def jsonable(obj: Any) -> Any:
 
     Any other value that JSON cannot hold (a Path, Decimal or bytes in `EngineInfo.config`, say)
     is converted the way pydantic's JSON mode converts it (`model_dump(mode="json")`), so a Path
-    is written as its string. Sets are written sorted. Raises `TypeError` or `ValueError` for
-    values pydantic cannot convert either; `harness run` checks `info()` with this function
-    before the evaluation starts.
+    is written as its string, and a NaN or infinite float is written as null. Sets are written
+    sorted; a set whose items cannot be compared is ordered by (type name, repr) instead.
+    `harness run` checks `info()` with this function before the evaluation starts.
+
+    Raises:
+        TypeError: For a value pydantic cannot convert either; the message names its key path
+            (e.g. `config.client`).
     """
+    return _jsonable(obj, "")
+
+
+def _jsonable(obj: Any, path: str) -> Any:
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return {f.name: jsonable(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+        return {f.name: _jsonable(getattr(obj, f.name), _key(path, f.name)) for f in dataclasses.fields(obj)}
     if isinstance(obj, BaseModel):
-        return jsonable(obj.model_dump())
+        return _jsonable(obj.model_dump(), path)
     if isinstance(obj, datetime):
         return obj.isoformat()
     if isinstance(obj, (set, frozenset)):
-        return sorted(jsonable(v) for v in obj)
+        items = [_jsonable(v, f"{path}[]") for v in obj]
+        try:
+            return sorted(items)
+        except TypeError:
+            return sorted(items, key=lambda v: (type(v).__name__, repr(v)))
     if isinstance(obj, Mapping):
-        return {str(k): jsonable(v) for k, v in obj.items()}
+        return {str(k): _jsonable(v, _key(path, str(k))) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        return [jsonable(v) for v in obj]
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return [_jsonable(v, f"{path}[{i}]") for i, v in enumerate(obj)]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if obj is None or isinstance(obj, (str, int, bool)):
         return obj
-    return to_jsonable_python(obj)
+    try:
+        converted = to_jsonable_python(obj)
+    except (TypeError, ValueError) as e:
+        where = path or "value"
+        raise TypeError(f"{where}: cannot write {type(obj).__name__} as JSON ({e})") from e
+    return _jsonable(converted, path)
+
+
+def _key(path: str, key: str) -> str:
+    return f"{path}.{key}" if path else key
 
 
 def _metrics_json(m: Metrics, sealed: bool) -> dict[str, Any]:

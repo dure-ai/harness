@@ -484,6 +484,22 @@ def test_config_json_only_in_json_mode_is_written_as_strings(tmp_path):
     assert "/data" in report.read_text("utf-8")
 
 
+def test_info_check_accepts_what_the_report_writes_and_names_the_bad_key():
+    from harness.cli import _checked_info
+    from tests.dummy_engine import BadConfig, Dummy
+
+    class Odd(Dummy):
+        def info(self):
+            from harness.contract import EngineInfo
+
+            return EngineInfo(name="odd", version="1", config={"nan": float("nan"), "mixed": {1, "a"}})
+
+    assert _checked_info(Odd()).config["mixed"] == {1, "a"}
+    with pytest.raises(TypeError) as e:
+        _checked_info(BadConfig())
+    assert "config.client" in str(e.value)
+
+
 def test_all_store_noacl_is_not_a_candidate(tmp_path):
     result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "all_store_noacl", "--repeat", "1")
     assert result.exit_code == 2

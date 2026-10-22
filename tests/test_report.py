@@ -12,6 +12,7 @@ from harness.report import (
     _scrubber,
     blind_ids,
     harness_version,
+    jsonable,
     machine_info,
     write_report,
 )
@@ -284,6 +285,27 @@ def test_engine_info_config_written_in_json_mode(tmp_path):
     write_report(out, m, scores, ranking, runs, selfcheck, blind_seed=3)
     shown = json.loads((out / "summary.json").read_text("utf-8"))["meta"]["engine_infos"]
     assert [i["config"]["v"] for i in shown.values()] == ["/data"]
+
+
+def test_jsonable_writes_non_finite_floats_as_null():
+    info = EngineInfo(name="x", version="1", config={"a": float("nan"), "b": [float("inf"), -float("inf")], "c": 1.5})
+    assert jsonable(info)["config"] == {"a": None, "b": [None, None], "c": 1.5}
+    assert "NaN" not in json.dumps(jsonable(info)) and "Infinity" not in json.dumps(jsonable(info))
+
+
+def test_jsonable_orders_an_unsortable_set_deterministically():
+    out = jsonable({"s": {1, "a", 2.5}})
+    assert out["s"] == [2.5, 1, "a"]  # by (type name, repr): float, int, str
+    assert jsonable({"s": {"a", 1, 2.5}}) == out
+
+
+def test_jsonable_names_the_key_path_it_cannot_convert():
+    import pytest
+
+    info = EngineInfo(name="x", version="1", config={"outer": {"items": [1, object()]}})
+    with pytest.raises((TypeError, ValueError)) as e:
+        jsonable(info)
+    assert "config.outer.items[1]" in str(e.value)
 
 
 def test_engine_info_scrubbed(tmp_path):
