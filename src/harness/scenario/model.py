@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal, get_args
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from harness.contract import Event, Kind, Outcome, Query, Scope, Signal
 
@@ -117,7 +117,7 @@ class Probe(_Strict):
     query: str
     about: list[str]
     meta: dict[str, str] = {}
-    k: int | None = None
+    k: int | None = Field(default=None, ge=1)
     feedback: Feedback | None = None
 
 
@@ -158,9 +158,13 @@ class LabeledEvent:
 
 
 class Scenario(_Strict):
-    """One evaluation scenario: a world, its facts, the events engines see, and probes."""
+    """One evaluation scenario: a world, its facts, the events engines see, and probes.
 
-    id: str
+    `id` is a plain name (letters, digits, `.`, `_`, `-`; at most 120 characters, starting with a
+    letter or digit) because it ends up in engine namespaces and file names.
+    """
+
+    id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
     family: Family
     mode: Literal["read_only", "feedback"]
     language: str = "en"
@@ -203,7 +207,7 @@ class Scenario(_Strict):
             session=probe.session,
             repo=probe.repo,
             t=probe.t,
-            k=probe.k or k,
+            k=k if probe.k is None else probe.k,
             meta=probe.meta,
         )
 

@@ -291,3 +291,54 @@ def test_generated_event_is_evidence_only_after_it_is_recorded():
     by_id = {r.probe_id: r for r in run.probes}
     assert by_id["p_early"].outcome == "FN"
     assert by_id["p_late"].outcome == "TP"
+
+
+class Mutator(BaseEngine):
+    """Keeps every Result it returned and rewrites it at the next `record` call."""
+
+    def __init__(self):
+        self.kept: list[Result] = []
+        self.events: list[Event] = []
+
+    def info(self):
+        return EngineInfo(name="mut", version="0")
+
+    def reset(self, namespace):
+        pass
+
+    def record(self, event):
+        self.events.append(event)
+        for r in self.kept:
+            r.text = "MUTATED-AFTER-SCORING"
+            r.sources = []
+
+    def search(self, query):
+        out = [Result(text=e.text, sources=[e.id]) for e in self.events[-1:]]
+        self.kept.extend(out)
+        return out
+
+
+def test_stored_result_does_not_change_when_engine_mutates_it():
+    s = scenario(
+        facts={"f": fact(markers=["m"])},
+        events=[ev("e1", T("10-01 10:00"), fact="f", text="alpha m"),
+                ev("e2", T("10-12 10:00"), text="later noise")],
+        probes=[probe("pp", "promote", T("10-10 10:00"), ["f"], query="alpha")],
+    )
+    eng = Mutator()
+    run = run_scenario(eng, s, run_id="r", cfg=CFG)
+    assert run.error is None
+    stored = run.probes[0].results[0]
+    assert eng.kept[0].text == "MUTATED-AFTER-SCORING"
+    assert stored is not eng.kept[0]
+    assert (stored.text, stored.sources) == ("alpha m", ["e1"])
+
+
+def test_explicit_probe_k_is_honoured_in_replay():
+    s = scenario(
+        facts={"f": fact()},
+        events=[ev(f"e{i}", T(f"10-0{i} 10:00"), fact="f", text="alpha") for i in range(1, 5)],
+        probes=[probe("pp", "promote", T("10-10 10:00"), ["f"], query="alpha", k=1)],
+    )
+    run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=EvalConfig(k=3))
+    assert len(run.probes[0].results) == 1

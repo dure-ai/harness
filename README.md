@@ -24,7 +24,7 @@ uv run harness selfcheck --scenarios scenarios/examples --include-drafts
 uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 ```
 
-평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
+평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다. 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
 ## 동작 확인과 결과 읽기
 
@@ -152,7 +152,7 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
 
 ## 시나리오 형식
 
-YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, 문항(`block` / `promote` / `leak`)의 형식과 계열별 틀은 설계 문서 [5장](docs/specs/2026-10-19-memory-eval-harness-design.md#5-시나리오-형식)을 보세요. 시각은 모두 시간대를 포함해야 합니다(예: `2026-10-09T14:00+09:00`).
+YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, 문항(`block` / `promote` / `leak`)의 형식과 계열별 틀은 설계 문서 [5장](docs/specs/2026-10-19-memory-eval-harness-design.md#5-시나리오-형식)을 보세요. 시각은 모두 시간대를 포함해야 합니다(예: `2026-10-09T14:00+09:00`). 시나리오 `id`는 영문자·숫자로 시작하고 영문자·숫자·`.`·`_`·`-`만 쓰며 120자 이하입니다. 같은 키를 두 번 쓰면(중복 키) 로드 오류입니다.
 
 ## 알려진 한계
 

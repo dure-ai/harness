@@ -97,3 +97,17 @@ class FailOnSecondRepeat(LatestWins):
         if "-r2:" in namespace:
             raise RuntimeError("second repeat fails")
         super().reset(namespace)
+
+
+class DictInfo(LatestWins):
+    """`info()` returns a plain dict instead of an EngineInfo."""
+
+    def info(self):
+        return {"name": "x", "version": "1"}
+
+
+class BadConfig(LatestWins):
+    """`info().config` holds a value that cannot be written to JSON."""
+
+    def info(self) -> EngineInfo:
+        return EngineInfo(name="bad", version="1", sources=True, config={"client": object()})

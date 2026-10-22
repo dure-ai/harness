@@ -439,3 +439,26 @@ def test_run_sealed_counts_errors_from_every_repeat(tmp_path):
     errors = _errors_section(result)
     assert "오류가 난 시나리오 수: 2" in errors
     assert "second repeat fails" not in errors
+
+
+def test_info_returning_dict_exits_2(tmp_path):
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:DictInfo", "--repeat", "1")
+    assert result.exit_code == 2
+    assert "cannot build engine" in result.output and "EngineInfo" in result.output
+    assert "Traceback" not in result.output
+    assert not out.exists()
+
+
+def test_non_json_config_exits_2_before_evaluation(tmp_path):
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:BadConfig", "--repeat", "1")
+    assert result.exit_code == 2
+    assert "cannot build engine" in result.output
+    assert not isinstance(result.exception, TypeError)
+    assert not out.exists()
+
+
+def test_all_store_noacl_is_not_a_candidate(tmp_path):
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "all_store_noacl", "--repeat", "1")
+    assert result.exit_code == 2
+    assert "all_store_noacl" in result.output
+    assert not out.exists()

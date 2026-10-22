@@ -382,3 +382,18 @@ def test_delay_labels(tmp_path):
     cells = [c.strip() for c in row.strip("|").split("|")]
     assert cells[2] == "중앙값 3600s, 미철회 1/2"  # retraction
     assert cells[4] == "중앙값 -, 미반영 1/1"  # reflection
+
+
+def test_engine_ids_written_even_if_report_fails(tmp_path, monkeypatch):
+    import pytest
+
+    import harness.report as report
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("render failed")
+
+    monkeypatch.setattr(report, "_markdown", boom)
+    with pytest.raises(RuntimeError):
+        write(tmp_path)
+    ids = json.loads((tmp_path / "out" / "engine_ids.json").read_text("utf-8"))["ids"]
+    assert sorted(ids.values()) == sorted([SECRET, OTHER])

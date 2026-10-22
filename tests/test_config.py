@@ -57,3 +57,41 @@ def test_config_parses_iso_durations(tmp_path):
 def test_repo_config_equals_defaults():
     assert load_config(REPO_CONFIG) == EvalConfig()
     assert config_hash(load_config(REPO_CONFIG)) == config_hash(EvalConfig())
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_config_rejects_k_below_one(tmp_path, bad):
+    p = tmp_path / "c.yaml"
+    p.write_text(f"k: {bad}\n")
+    with pytest.raises(ValidationError):
+        load_config(p)
+
+
+def test_config_rejects_llm_repeats_zero(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("llm_repeats: 0\n")
+    with pytest.raises(ValidationError):
+        load_config(p)
+
+
+def test_config_rejects_bootstrap_iters_zero(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("stats: {bootstrap_iters: 0}\n")
+    with pytest.raises(ValidationError):
+        load_config(p)
+
+
+@pytest.mark.parametrize("slot", ["action", "on_false", "on_true"])
+def test_config_rejects_negative_feedback_delay(tmp_path, slot):
+    p = tmp_path / "c.yaml"
+    p.write_text(f"feedback: {{{slot}: -PT1H}}\n")
+    with pytest.raises(ValidationError):
+        load_config(p)
+    with pytest.raises(ValidationError):
+        EvalConfig(feedback={slot: timedelta(seconds=-1)})
+
+
+def test_config_accepts_zero_delays_and_minimums():
+    cfg = EvalConfig(k=1, llm_repeats=1, stats={"bootstrap_iters": 1},
+                     feedback={"action": timedelta(0), "on_false": timedelta(0), "on_true": timedelta(0)})
+    assert cfg.k == 1

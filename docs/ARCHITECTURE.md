@@ -91,6 +91,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 - **통과 기준**(`config.Judgment`, 사전 등록): M1 ≤ all_store M1 × 0.5, M2 ≥ all_store M2 − 0.10, M3 = 0. 비교에는 1e-9 허용 오차를 둡니다.
 - 오류 난 시나리오가 하나라도 있으면 통과하지 못합니다("판정 불가: 오류 시나리오 N개"). 오류 시나리오가 조용히 분모에서 빠지는 것을 막기 위해서입니다.
 - 반복 실행(`llm_repeats`): M1·M2는 평균, M3와 오류는 가장 나쁜 반복을 씁니다.
+- **입력 경계**: 설정 범위(`k`·`llm_repeats`·`bootstrap_iters` ≥ 1, 되먹임 지연 ≥ 0), 시나리오 `id` 패턴, YAML 중복 키는 읽을 때 거부합니다. `--engine`은 `package.module:ClassName`만 받고(`all_store_noacl` 등 내부 이름은 종료 코드 2), `info()`가 `EngineInfo`가 아니거나 JSON으로 쓸 수 없으면 첫 빌드 실패와 같이 종료 코드 2입니다. 엔진이 돌려준 `Result`는 깊은 복사해 보관하고, 리포트는 `engine_ids.json`을 가장 먼저 씁니다.
 - **순위**(`rank`): 통과한 엔진만 M2 순서. promote TP 차이의 95% bootstrap 구간이 0을 포함하면 `TIEBREAKS`(m1 → shallow_fix → retraction → reach → context_chars) 순으로 가릅니다.
 
 ## 자가 검증

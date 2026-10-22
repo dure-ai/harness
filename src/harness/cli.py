@@ -1,5 +1,6 @@
 """The `harness` command line: scenario check, selfcheck and run."""
 
+import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Annotated
 import typer
 
 from harness.config import EvalConfig, config_hash, load_config
-from harness.contract import EngineInfo
+from harness.contract import BaseEngine, EngineInfo
 from harness.engines import BASELINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import ScenarioRun, run_scenario
@@ -186,6 +187,22 @@ def selfcheck(
 # ---- run --------------------------------------------------------------------------------------
 
 
+def _checked_info(engine: BaseEngine) -> EngineInfo:
+    """Return `engine.info()` after checking that it is an `EngineInfo` the report can write.
+
+    Raises:
+        TypeError: If `info()` returns something else, or a config that is not JSON-serializable.
+    """
+    info = engine.info()
+    if not isinstance(info, EngineInfo):
+        raise TypeError(f"info() returned {type(info).__name__}, expected EngineInfo")
+    try:
+        json.dumps(info.model_dump(mode="json"))
+    except (TypeError, ValueError) as e:
+        raise TypeError(f"info() is not JSON-serializable: {e}") from e
+    return info
+
+
 def _run_extra(
     name: str,
     repeats: int,
@@ -202,7 +219,7 @@ def _run_extra(
             try:
                 engine = make_engine(name, s, cfg)
                 if name not in infos:
-                    infos[name] = engine.info()
+                    infos[name] = _checked_info(engine)
             except Exception as e:
                 if (
                     r == 1 and i == 0
@@ -229,7 +246,7 @@ def run(
         list[str] | None,
         typer.Option(
             "--engine",
-            help="Extra engine: 'pkg.module:Class' (repeatable). Baselines always run.",
+            help="Extra engine: 'pkg.module:Class' (repeatable). Baselines always run; other bare names are rejected.",
         ),
     ] = None,
     config: ConfigOpt = Path("config/eval-v0.1.yaml"),
@@ -266,6 +283,13 @@ def run(
     report_runs = dict(base_runs)
     repeat_counts: dict[str, int] = dict.fromkeys(BASELINES, 1)
 
+    for name in engine or []:
+        if name not in BASELINES and ":" not in name:  # internal names such as all_store_noacl
+            raise _fail(
+                f"error: unknown engine {name!r}; use 'package.module:ClassName' "
+                f"(baselines {', '.join(BASELINES)} always run)",
+                2,
+            )
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     candidate_scores: list[EngineScore] = []
     candidate_runs: dict[str, list[ScenarioRun]] = {}

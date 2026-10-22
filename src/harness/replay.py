@@ -242,7 +242,7 @@ def feedback_events(
 
 def _as_result(item: object) -> Result:
     if isinstance(item, Result):
-        return item
+        return item.model_copy(deep=True)  # the engine may keep and change what it returned
     if isinstance(item, dict):
         return Result.model_validate(item)
     raise TypeError(f"search returned {type(item).__name__}, expected Result or dict")
@@ -320,7 +320,7 @@ def run_scenario(
         except Exception as e:
             run.error = f"{type(e).__name__}: {e}"
             return run
-        results = raw[: item.k or cfg.k]
+        results = raw[: cfg.k if item.k is None else item.k]
         record = _score_probe(item, results, scenario, recorded, search_ms)
         run.probes.append(record)
         if scenario.mode == "feedback" and item.feedback is not None:

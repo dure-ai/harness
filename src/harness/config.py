@@ -6,7 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _Strict(BaseModel):
@@ -37,7 +37,7 @@ class Stats(_Strict):
         seed: Random seed, fixed so intervals are reproducible.
     """
 
-    bootstrap_iters: int = 10000
+    bootstrap_iters: int = Field(default=10000, ge=1)
     seed: int = 20261019
 
 
@@ -65,6 +65,14 @@ class FeedbackDelays(_Strict):
     action: timedelta = timedelta(minutes=5)
     on_false: timedelta = timedelta(days=1)
     on_true: timedelta = timedelta(0)
+
+    @field_validator("action", "on_false", "on_true")
+    @classmethod
+    def _not_negative(cls, value: timedelta) -> timedelta:
+        """Reject a negative delay: a generated record would then precede its probe."""
+        if value < timedelta(0):
+            raise ValueError("delay must be zero or positive")
+        return value
 
 
 class LLM(_Strict):
@@ -96,12 +104,12 @@ class EvalConfig(_Strict):
     """
 
     version: str = "0.1"
-    k: int = 5
+    k: int = Field(default=5, ge=1)
     judgment: Judgment = Judgment()
     stats: Stats = Stats()
     repeat_n: RepeatN = RepeatN()
     feedback: FeedbackDelays = FeedbackDelays()
-    llm_repeats: int = 3
+    llm_repeats: int = Field(default=3, ge=1)
     llm: LLM = LLM()
 
 

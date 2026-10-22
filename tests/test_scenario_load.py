@@ -208,3 +208,56 @@ def test_labeled_events_carry_refs():
     )
     events = [le.event for le in sc.labeled_events()]
     assert events[0].refs == () and events[1].refs == ("e1",)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "key"),
+    [
+        ("mode: read_only\n", "mode: read_only\nmode: feedback\n", "mode"),
+        ("facts:\n", 'facts:\n  f_old:\n    text: "FIRST definition"\n', "f_old"),
+    ],
+)
+def test_duplicate_yaml_key_is_a_load_error(tmp_path, old, new, key):
+    p = write(tmp_path, EXAMPLE_YAML.replace(old, new, 1))
+    with pytest.raises(ScenarioLoadError) as e:
+        load_scenario(p)
+    assert p.name in str(e.value)
+    assert "duplicate" in e.value.message and repr(key) in e.value.message and "line" in e.value.message
+
+
+def test_duplicate_yaml_key_in_sealed_cli_hides_path(tmp_path):
+    from typer.testing import CliRunner
+
+    from harness.cli import app
+
+    d = tmp_path / "scenarios"
+    d.mkdir()
+    write(d, EXAMPLE_YAML.replace("mode: read_only\n", "mode: read_only\nmode: feedback\n", 1), "secret-name.yaml")
+    result = CliRunner().invoke(app, ["selfcheck", "--scenarios", str(d), "--sealed"])
+    assert result.exit_code == 1
+    assert "secret-name" not in result.output and "mode" not in result.output
+    assert "error load" in result.output
+
+
+@pytest.mark.parametrize("bad", ["../escape", "a/b", "a\\b", "", ".hidden", "-lead", "has space", "x" * 121, "a:b", "a\nb"])
+def test_scenario_id_with_path_characters_is_rejected(bad):
+    with pytest.raises(ValueError):
+        scenario({}, [], [], id=bad)
+
+
+@pytest.mark.parametrize("good", ["a", "A1", "vendor-module-ownership-001", "a.b_c-d", "x" * 120])
+def test_scenario_id_accepts_plain_ids(good):
+    assert scenario({}, [], [], id=good).id == good
+
+
+def test_explicit_probe_k_is_honoured_and_k_below_one_rejected():
+    from pydantic import ValidationError
+
+    from harness.scenario.model import Probe
+
+    sc = scenario({"f": fact()}, [], [probe("p", "block", T("10-14 10:00"), ["f"])])
+    assert sc.query_for(probe("p", "block", T("10-14 10:00"), ["f"], k=1), k=5).k == 1
+    for bad in (0, -1):
+        with pytest.raises(ValidationError):
+            probe("p", "block", T("10-14 10:00"), ["f"], k=bad)
+    assert Probe.model_fields["k"].default is None
