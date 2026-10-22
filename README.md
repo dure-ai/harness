@@ -24,7 +24,7 @@ uv run harness selfcheck --scenarios scenarios/examples --include-drafts
 uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 ```
 
-평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다. 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
+평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다(pydantic JSON 모드로 바꿀 수 있는 값이면 됩니다. `Path` 등은 문자열로 기록). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
 ## 동작 확인과 결과 읽기
 

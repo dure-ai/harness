@@ -72,7 +72,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 ## 문항 하나가 채점되는 과정
 
-1. **근거(`result_basis`)**: 결과의 `sources`가 가리키는 이벤트의 숨은 사실 전부(`about` 밖의 것 포함). 그 시점까지 `record`가 끝난 이벤트만 셉니다(`run_scenario`의 `recorded`. 생성 이벤트도 시간표에서 꺼내 기록된 뒤부터). 모은 사실이 하나도 `about`에 없으면 관련 없는 결과(빈 근거)입니다. 근거가 여러 개면 마커로 좁힙니다. `sources`가 없으면 `about` 사실의 마커가 본문에 나오는지로 대신 판단합니다.
+1. **근거(`result_basis`)**: 결과의 `sources`가 가리키는 이벤트의 숨은 사실 전부(`about` 밖의 것 포함). 그 시점까지 `record`가 끝난 이벤트만 셉니다(`run_scenario`의 `recorded`. 생성 이벤트도 시간표에서 꺼내 기록된 뒤부터). 모은 사실이 하나도 `about`에 없으면 관련 없는 결과(빈 근거)입니다. 근거가 여러 개면 본문에 마커가 나오는 사실로 좁히되, 좁힌 집합에 `about` 사실이 하나도 남지 않으면 좁히지 않습니다(섞인 근거는 틀림. `about` 밖 사실의 마커가 `about` 사실을 근거에서 빼지 못합니다). `sources`가 없으면 `about` 사실의 마커가 본문에 나오는지로 대신 판단합니다.
 2. **선택(`choose`)**: 근거가 비지 않은 첫 결과를 따라갑니다. 없으면 기권. 에이전트는 엔진이 붙인 점수·라벨을 보지 않으므로 순서와 근거만이 차이를 만듭니다.
 3. **판정(`judge`)**: 근거 중 하나라도 그 시각·맥락에서 거짓이면 틀린 근거입니다(`is_wrong` → `true_at`).
    - block 문항: 틀린 근거로 행동 → FP(M1), 아니면 BLOCKED
@@ -84,14 +84,14 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 ## 피드백 모드
 
-`mode: feedback` 시나리오에서는 에이전트가 행동한 뒤 남기는 기록(행동 기록, 결과 기록)을 하네스가 만들어 시간표에 다시 넣습니다(`feedback_events`). 결과 기록 시각은 `max(질문 + 지연, 행동 기록 시각)`이라 행동 기록보다 앞서지 않고, 같은 시각이면 행동 기록이 먼저 재생됩니다. 생성 이벤트 id는 시나리오 이벤트와 같은 형식의 순번 `e{n}`입니다(`generated_event_id`: 쓰는 id 수 + 1부터, 이미 쓰는 id는 건너뜀). 시나리오·문항 id를 쓰지 않으므로 id 형식으로는 생성 이벤트와 시나리오 이벤트를 구별할 수 없고, 문항과의 대응은 하네스 쪽 `ScenarioRun.generated_ids`에만 있습니다. 앞 문항의 기권 여부로 생성 기록 수가 달라져 같은 문항의 생성 id가 엔진마다 다를 수 있지만, 채점은 `generated_ids`로 이어 보므로 영향이 없습니다. 피드백 시나리오 점수는 헤드라인 M1·M2와 섞지 않고 `feedback_by_family`에 따로 둡니다.
+`mode: feedback` 시나리오에서는 에이전트가 행동한 뒤 남기는 기록(행동 기록, 결과 기록)을 하네스가 만들어 시간표에 다시 넣습니다(`feedback_events`). 결과 기록 시각은 `max(질문 + 지연, 행동 기록 시각)`이라 행동 기록보다 앞서지 않고, 같은 시각이면 행동 기록이 먼저 재생됩니다. 생성 이벤트 id는 흔한 시나리오 이벤트 id와 같은 형식의 순번 `e{n}`입니다(`generated_event_id`: 쓰는 id 수 + 1부터, 이미 쓰는 id는 건너뜀). 시나리오·문항 id를 쓰지 않고, 문항과의 대응은 하네스 쪽 `ScenarioRun.generated_ids`에만 있습니다. 다만 완전히 구별할 수 없지는 않습니다. 저자가 `tc_o1`처럼 다른 형식을 쓰면 형식으로, 저자가 `e1`, `e2`를 시간 순으로 붙였다면 시간 순서에서 벗어난 번호로 드러날 수 있고, 행동 기록의 시각(질문 + 5분, 같은 user·session·repo)은 이보다 강한 단서입니다(설계 6.2). 앞 문항의 기권 여부로 생성 기록 수가 달라져 같은 문항의 생성 id가 엔진마다 다를 수 있지만, 채점은 `generated_ids`로 이어 보므로 영향이 없습니다. 피드백 시나리오 점수는 헤드라인 M1·M2와 섞지 않고 `feedback_by_family`에 따로 둡니다.
 
 ## 판정과 순위
 
 - **통과 기준**(`config.Judgment`, 사전 등록): M1 ≤ all_store M1 × 0.5, M2 ≥ all_store M2 − 0.10, M3 = 0. 비교에는 1e-9 허용 오차를 둡니다.
 - 오류 난 시나리오가 하나라도 있으면 통과하지 못합니다("판정 불가: 오류 시나리오 N개"). 오류 시나리오가 조용히 분모에서 빠지는 것을 막기 위해서입니다.
 - 반복 실행(`llm_repeats`, `averaged`): M1·M2 값은 평균, M3는 가장 나쁜 반복, 오류는 합집합입니다. promote FN·FP, 도달률, 얕은 지식 고착률 같은 비율 지표와 계열·되먹임·출처별 칸은 회차별 분자·분모를 더한 합산 비율이고(분모 0이면 값 없음), 철회·반영 지연은 이어 붙이며 컨텍스트 크기·지연은 평균입니다. M1·M2 신뢰구간과 순위 부트스트랩만 첫 회차 기준이며 리포트 머리말에 적습니다.
-- **입력 경계**: 설정 범위(`k`·`llm_repeats`·`bootstrap_iters` ≥ 1, 되먹임 지연 ≥ 0), 시나리오 `id` 패턴, YAML 중복 키는 읽을 때 거부합니다. `--engine`은 `package.module:ClassName`만 받고(`all_store_noacl` 등 내부 이름은 종료 코드 2), `info()`가 `EngineInfo`가 아니거나 JSON으로 쓸 수 없으면 첫 빌드 실패와 같이 종료 코드 2입니다. 엔진이 돌려준 `Result`는 깊은 복사해 보관하고, 리포트는 `engine_ids.json`을 가장 먼저 씁니다.
+- **입력 경계**: 설정 범위(`k`·`llm_repeats`·`bootstrap_iters`·`repeat_n.n` ≥ 1, `repeat_n.tau`와 `m1_abs_cap`은 0~1, `m1_ratio`·`m2_drop` ≥ 0, 되먹임 지연 ≥ 0), 시나리오 `id` 패턴, YAML 중복 키는 읽을 때 거부합니다. `--engine`은 `package.module:ClassName`만 받고(`all_store_noacl` 등 내부 이름은 종료 코드 2), `info()`가 `EngineInfo`가 아니거나 리포트가 쓰는 변환(`report.jsonable`, pydantic JSON 모드와 같아 `Path`·`Decimal`·`bytes`는 문자열로)으로 JSON을 만들 수 없으면 첫 빌드 실패와 같이 종료 코드 2입니다. 엔진이 돌려준 `Result`는 다시 검증해 새 객체로 보관하고(형식이 틀어졌으면 그 시나리오만 오류, `meta`는 한 단계 복사, 채점하지 않음), 리포트는 `engine_ids.json`을 가장 먼저 씁니다.
 - **순위**(`rank`): 통과한 엔진만 M2 순서. promote TP 차이의 95% bootstrap 구간(두 엔진 모두 promote 문항이 있는 공통 시나리오만 표본)이 0을 포함하면 `TIEBREAKS`(m1 → shallow_fix → retraction → reach → context_chars) 순으로 가릅니다.
 
 ## 자가 검증
