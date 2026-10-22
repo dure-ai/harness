@@ -57,7 +57,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | | `text.py` | 기준선용 토큰화·Jaccard·BM25(결정적) |
 | 초안 | `generate/` | 궤적에서 시나리오 초안 만들기(`traces`·`generate` 명령, `gen` 선택 설치 필요). 계열 틀 `families/`가 정답 라벨을 정하고 LLM은 본문만 씀. `checks.py`의 `check_draft`가 저장·승인 전 자동 검증 |
 | | `review.py` | 초안 검토: `list_drafts`, `render_show`(rich), `edit_draft`(정답 지문이 바뀌면 되돌림), `set_status`(승인은 생성 때 적은 정답 지문이 맞고 자동 검증을 통과할 때만, 승인한 내용의 해시를 `review.approved_hash`에 기록). `gen` 없이 동작 |
-| | `scenario/labels.py` | 정답 지문 `label_fingerprint`·`changed_label_fields`(고칠 수 없는 필드의 해시와 차이), 파일 내용 해시 `content_hash`(파싱한 원본, `review`와 해시 필드 제외, `v1:` 접두)와 `approval_state`. `scenario/load.py`의 `load_set`이 승인 파일을 검증한다(바뀌면 오류, 해시가 없으면 `ScenarioSet.warnings`) |
+| | `scenario/labels.py` | 정답 지문 `label_fingerprint`·`changed_label_fields`(고칠 수 없는 필드의 해시와 차이), 파일 내용 해시 `content_hash`(파싱한 원본, `review`와 해시 필드 제외, `v1:` 접두, 용도 `approval`/`generated`로 분리)와 `approval_state`, 정답 지문 검증 `fingerprint_state`(`l1:` 접두). `scenario/load.py`의 `load_set`이 승인 파일을 검증한다(바뀌면 오류, 새 도구가 만든 파일인데 해시가 없으면 오류, 이전 파일의 해시 없음은 `ScenarioSet.warnings`) |
 
 추천 읽기 순서: `contract.py` → `scenario/model.py` → `world.py` → `agent.py` → `scoring.py` → `replay.py` → `metrics.py` → `selection.py` → `selfcheck.py` → `cli.py`. 예시 시나리오(`scenarios/examples/*.yaml`) 하나를 옆에 펴 두고 읽으면 빠릅니다.
 

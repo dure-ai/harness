@@ -16,6 +16,7 @@ from harness.yamlio import load_yaml
 
 APPROVAL_CHANGED = "approved_content_changed"
 APPROVAL_UNVERIFIED = "approval_unverified"
+APPROVAL_MISSING = "approved_hash_missing"
 
 
 class ScenarioLoadError(Exception):
@@ -25,7 +26,7 @@ class ScenarioLoadError(Exception):
         path: The offending file; its name prefixes the message.
         message: What went wrong.
         code: `load` for a file that does not read or validate, `approved_content_changed` for
-            an approved file edited after its approval (`load_set`).
+            an approved file edited after its approval or approved by hand (`load_set`).
     """
 
     def __init__(self, path: Path, message: str, code: str = "load"):
@@ -107,8 +108,10 @@ def approval_issue(raw: Mapping[str, Any], s: Scenario) -> Issue | None:
     Returns:
         None for a scenario that is not approved or whose `review.approved_hash` matches; an
         error `approved_content_changed` when the content changed after approval; a warning
-        `approval_unverified` when there is no hash (approved before it existed, or by hand) or
-        its version is unknown.
+        `approval_unverified` when there is no hash in an older file (approved before it existed)
+        or its version is unknown; an error `approved_hash_missing` when there is none in a file
+        that carries `provenance.generated_hash` or `provenance.label_fingerprint` (written by
+        the current tooling, which records a hash on every approval: the status was set by hand).
     """
     if s.review.status != "approved":
         return None
@@ -118,6 +121,13 @@ def approval_issue(raw: Mapping[str, Any], s: Scenario) -> Issue | None:
             "error",
             APPROVAL_CHANGED,
             "the file was edited after it was approved; review it and approve it again (harness review set)",
+        )
+    if state == "missing":
+        return Issue(
+            "error",
+            APPROVAL_MISSING,
+            "marked approved by hand: the file was generated with the review tooling but has no "
+            "review.approved_hash; review it and approve it with harness review set",
         )
     if state == "unverified":
         return Issue(
@@ -141,11 +151,12 @@ def load_set(roots: list[Path], include_drafts: bool) -> ScenarioSet:
 
     Returns:
         The selected scenarios with their set hash, and an `approval_unverified` warning for each
-        approved file without a usable hash.
+        older approved file without a usable hash.
 
     Raises:
-        ScenarioLoadError: If any file fails to load (code `load`), or an approved file changed
-            after its approval (code `approved_content_changed`).
+        ScenarioLoadError: If any file fails to load (code `load`), an approved file changed
+            after its approval (code `approved_content_changed`), or an approved file made by
+            the current tooling has no approval hash (code `approved_hash_missing`).
     """
     included = {"approved", "draft"} if include_drafts else {"approved"}
     scenarios: list[Scenario] = []

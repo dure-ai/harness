@@ -190,12 +190,14 @@ flowchart LR
 | `secret_events` | list[str] \| None | 비밀 문자열을 담는 이벤트 id(누출 계열의 비밀 자리). 생성 시점에 계열 틀이 적고, 다른 계열은 빈 목록이다. `null`(없는 파일)은 "기록 안 됨"이고 `secret_markers`에서 유도하며 경고를 낸다. `provenance` 안이라 정답 지문에 들어가 검토에서 고칠 수 없다 |
 | `reviewer_edited` | bool | 검토자가 내용을 고쳤는지 |
 | `generated_at` | datetime \| None | 생성 시각 |
-| `label_fingerprint` | str \| None | 생성 때(`generate`, `scenario new`)의 정답 지문(7.2). `review set approved`가 지금 지문과 비교한다(7.3). 비밀 문자열을 손으로 채우는 `scenario new` 누출 계열 빈 틀과 이전 파일은 `null` |
-| `generated_hash` | str \| None | 생성 직후 파일 내용의 `content_hash`. 다시 생성할 때 손으로 고친 초안을 알아본다(4장) |
+| `label_fingerprint` | str \| None | 생성 때(`generate`, `scenario new`)의 정답 지문(7.2). `"l1:<hex>"` 꼴이며 접두가 없는 값(이전 파일)은 검증할 수 없음으로 다룬다. `review set approved`가 지금 지문과 비교한다(7.3). 비밀 문자열을 손으로 채우는 `scenario new` 누출 계열 빈 틀과 이전 파일은 `null` |
+| `generated_hash` | str \| None | 생성 직후 파일 내용의 `content_hash(…, "generated")`. 다시 생성할 때 손으로 고친 초안을 알아본다(4장) |
 
-`Review`에는 `approved_hash: str | None`을 더한다. `review set approved`가 승인한 내용의 `content_hash`를 적는다. 세 필드 모두 기본값이 `null`이라 이 필드가 없는 파일도 그대로 읽힌다.
+`Review`에는 `approved_hash: str | None`을 더한다. `review set approved`가 승인한 내용의 `content_hash(…, "approval")`를 적는다. 세 필드 모두 기본값이 `null`이라 이 필드가 없는 파일도 그대로 읽힌다.
 
-**`content_hash`**: 파싱한 YAML 원본(모델 덤프가 아니다)을 키 정렬·`ensure_ascii=False`인 JSON으로 만들어 SHA-256을 내고 `"v1:<hex>"`로 적는다. `review` 블록 전체와 `provenance.generated_hash`·`provenance.label_fingerprint`는 뺀다(승인과 기록 자체가 해시를 바꾸지 않게). 원본을 해시하므로 나중에 기본값이 있는 스키마 필드가 추가돼도 그 필드를 적지 않은 기존 파일의 해시는 그대로이고, 주석·서식·키 순서도 해시에 들어가지 않는다. 앞의 `v1`은 해시 방식의 버전이며, 모르는 버전은 "검증할 수 없음"으로 다룬다. [결정]
+**`content_hash`**: 파싱한 YAML 원본(모델 덤프가 아니다)을 키 정렬·`ensure_ascii=False`인 JSON으로 만들어 SHA-256을 내고 `"v1:<hex>"`로 적는다. `review` 블록 전체와 `provenance.generated_hash`·`provenance.label_fingerprint`는 뺀다(승인과 기록 자체가 해시를 바꾸지 않게). 원본을 해시하므로 나중에 기본값이 있는 스키마 필드가 추가돼도 그 필드를 적지 않은 기존 파일의 해시는 그대로이고, 주석·키 순서·문자열의 따옴표 방식도 해시에 들어가지 않는다(아래 서식 참고). 앞의 `v1`은 해시 방식의 버전이며, 모르는 버전은 "검증할 수 없음"으로 다룬다. 해시 재료의 맨 앞에 용도(`approval` 또는 `generated`)를 넣어 두 해시를 분리한다. 그래서 `generated_hash`를 `review.approved_hash`에 베껴 넣어도 검증되지 않는다(오류 `approved_content_changed`). [결정]
+
+**서식**: 주석, 키 순서, 문자열의 따옴표 방식처럼 값의 종류를 바꾸지 않는 서식은 해시에 들어가지 않는다. 그러나 스칼라의 종류가 바뀌면(따옴표 쳐진 ISO 시각 문자열의 따옴표를 지워 YAML 시각이 되거나, `1`을 `1.0`으로 쓰는 경우) 해시가 달라진다. 이때는 안전한 쪽으로 실패하므로 다시 승인하면 된다. [판단]
 
 **한계**: 해시와 지문은 같은 파일 안에 있으므로 실수로 고친 것을 잡는 장치다. 내용을 고치면서 해시까지 일부러 다시 쓰는 것은 막지 못한다. 무엇을 누가 고쳤는지의 근거는 git 이력이다. [결정]
 
@@ -223,10 +225,10 @@ flowchart LR
 
 ### 7.3 `review set`
 
-- `approved`는 먼저 지금 정답 지문을 생성 때 적은 `provenance.label_fingerprint`와 비교한다. 다르면 정답이 검토 도구 밖에서(편집기로 직접) 바뀐 것이므로 승인을 거절한다(`labels_changed_outside_review`, 종료 코드 1). 그 변경을 되돌리거나 거절한다. 적힌 지문이 없는 파일(이전 파일, 누출 계열 빈 틀)은 경고 `label_fingerprint_not_recorded`를 붙이고 승인한다. [결정]
+- `approved`는 먼저 지금 정답 지문을 생성 때 적은 `provenance.label_fingerprint`와 비교한다. 다르면 정답이 검토 도구 밖에서(편집기로 직접) 바뀐 것이므로 승인을 거절한다(`labels_changed_outside_review`, 종료 코드 1). 그 변경을 되돌리거나 거절한다. 적힌 지문이 없거나 `l1:` 접두가 없는 파일(이전 파일, 누출 계열 빈 틀)은 경고 `label_fingerprint_not_recorded`를 붙이고 승인한다. [결정]
 - `approved`는 5.6 검증을 모두 통과해야 한다. 실패하면 이유를 보여 주고 상태를 바꾸지 않는다.
 - 승인하면 `review.approved_hash`에 저장한 내용의 `content_hash`를 적는다. 거절하거나 `review edit`로 고쳐 draft로 돌아가면 지운다. [결정]
-- **승인 검증**: `load_set`(`harness run`, `selfcheck`)과 `scenario check`, `review list`는 `approved` 파일의 지금 `content_hash`를 `approved_hash`와 비교한다. 다르면 승인 뒤 고친 것이므로 오류 `approved_content_changed`(다시 승인해야 함)다. `approved_hash`가 없거나 버전을 모르면 오류가 아니라 경고 `approval_unverified`이며, `ScenarioSet.warnings`로 전해져 CLI가 보여 준다(`--sealed`에서는 경로 없이 개수만). [결정]
+- **승인 검증**: `load_set`(`harness run`, `selfcheck`)과 `scenario check`, `review list`는 `approved` 파일의 지금 `content_hash`를 `approved_hash`와 비교한다. 다르면 승인 뒤 고친 것이므로 오류 `approved_content_changed`(다시 승인해야 함)다. `approved_hash`가 없는 이전 파일이나 버전을 모르는 해시는 오류가 아니라 경고 `approval_unverified`이며, `ScenarioSet.warnings`로 전해져 CLI가 보여 준다(`--sealed`에서는 경로 없이 개수만).. 단, `provenance.generated_hash`나 `provenance.label_fingerprint`가 있는 파일(새 도구가 만든 파일)이 `approved`인데 `approved_hash`가 없으면 사람이 상태만 손으로 바꾼 것이므로 오류 `approved_hash_missing`이다. [결정]
 - `rejected`는 언제나 된다. `--note`로 이유를 남기기를 권한다(거절률 분석용).
 - `review.reviewer`에 이름을 남긴다.
 

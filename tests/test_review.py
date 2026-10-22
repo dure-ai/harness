@@ -561,7 +561,7 @@ def test_set_approved_records_the_content_hash(tmp_path):
     path = generated(tmp_path)
     set_status(path, "approved", "kim", None, CFG, GEN)
     raw = load_yaml(path.read_text(encoding="utf-8"))
-    assert raw["review"]["approved_hash"] == content_hash(raw)
+    assert raw["review"]["approved_hash"] == content_hash(raw, "approval")
     assert load_set([tmp_path], include_drafts=False).warnings == []
     set_status(path, "rejected", "kim", None, CFG, GEN)
     assert load_scenario(path).review.approved_hash is None
@@ -572,6 +572,25 @@ def test_set_approved_without_a_recorded_fingerprint_warns_but_approves(tmp_path
     issues = set_status(path, "approved", "kim", None, CFG, GEN)
     assert [i.code for i in issues] == ["label_fingerprint_not_recorded"] and not blocking(issues)
     assert load_scenario(path).review.status == "approved"
+
+
+def test_set_approved_with_an_unprefixed_fingerprint_warns_but_approves(tmp_path):
+    """An older fingerprint (no `l1:` prefix) is unverifiable, not a mismatch."""
+    path = generated(tmp_path)
+    old = load_scenario(path).provenance.label_fingerprint
+    assert old is not None and old.startswith("l1:")
+    _edit_yaml(path, lambda d: d["provenance"].update(label_fingerprint=old[3:]))
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["label_fingerprint_not_recorded"] and not blocking(issues)
+    assert load_scenario(path).review.status == "approved"
+
+
+def test_set_approved_with_a_prefixed_wrong_fingerprint_is_refused(tmp_path):
+    path = generated(tmp_path)
+    _edit_yaml(path, lambda d: d["provenance"].update(label_fingerprint="l1:" + "0" * 64))
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["labels_changed_outside_review"]
+    assert load_scenario(path).review.status == "draft"
 
 
 def test_review_edit_keeps_the_harness_written_hashes(tmp_path):

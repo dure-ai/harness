@@ -20,7 +20,7 @@ def write(dir_: Path, s: Scenario, status: str = "approved", name: str | None = 
 
     s = s.model_copy(update={"review": Review(status=status)})
     if status == "approved" and hashed:
-        s.review.approved_hash = content_hash(s.model_dump(mode="json"))
+        s.review.approved_hash = content_hash(s.model_dump(mode="json"), "approval")
     path = dir_ / (name or f"{s.id}.yaml")
     path.write_text(yaml.safe_dump(s.model_dump(mode="json"), allow_unicode=True), encoding="utf-8")
     return path
@@ -1123,7 +1123,7 @@ def test_scenario_new_records_the_generation_hashes(tmp_path):
     (path,) = list((tmp_path / "a").rglob("*.yaml"))
     s = load_scenario(path)
     assert s.provenance.label_fingerprint == label_fingerprint(s)
-    assert s.provenance.generated_hash == content_hash(load_yaml(path.read_text(encoding="utf-8")))
+    assert s.provenance.generated_hash == content_hash(load_yaml(path.read_text(encoding="utf-8")), "generated")
     # Leak skeletons get their secret strings by hand (a label), so no fingerprint is recorded for them.
     runner.invoke(app, ["scenario", "new", "--family", "leak_personal", "--seed", "3", "--out", str(tmp_path / "b")])
     (leak,) = list((tmp_path / "b").rglob("*.yaml"))

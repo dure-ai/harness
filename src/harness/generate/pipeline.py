@@ -182,7 +182,7 @@ def mark_generated(s: Scenario, fingerprint: bool = True) -> None:
             person still fills in by hand (the secret strings of a `scenario new` leak family).
     """
     s.provenance.label_fingerprint = label_fingerprint(s) if fingerprint else None
-    s.provenance.generated_hash = content_hash(s.model_dump(mode="json"))
+    s.provenance.generated_hash = content_hash(s.model_dump(mode="json"), "generated")
 
 
 def matches_repos(trace: Trace, repos: set[str]) -> bool:
@@ -347,7 +347,7 @@ def _is_reviewed(path: Path) -> bool:
         s.review.status != "draft"
         or s.provenance.reviewer_edited
         or s.provenance.author != "llm"
-        or (generated is not None and generated != content_hash(raw))
+        or (generated is not None and generated != content_hash(raw, "generated"))
     )
 
 

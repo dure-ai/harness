@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from harness.scenario.labels import changed_label_fields, content_hash, label_fingerprint
+from harness.scenario.labels import changed_label_fields, content_hash, fingerprint_state, label_fingerprint
 from harness.scenario.model import Feedback, FeedbackTemplate, Scenario
 from tests.factories import T, ev, fact, probe, scenario
 
@@ -163,24 +163,24 @@ def _raw() -> dict:
 
 def test_content_hash_is_versioned_and_skips_review_and_hash_fields() -> None:
     raw = _raw()
-    h = content_hash(raw)
+    h = content_hash(raw, "approval")
     assert h.startswith("v1:") and len(h) == 3 + 64
     raw["review"] = {"status": "approved", "reviewer": "kim", "notes": "x", "approved_hash": h}
     raw["provenance"]["generated_hash"] = "v1:zzz"
     raw["provenance"]["label_fingerprint"] = "abc"
-    assert content_hash(raw) == h
+    assert content_hash(raw, "approval") == h
     del raw["review"]
-    assert content_hash(raw) == h
+    assert content_hash(raw, "approval") == h
 
 
 def test_content_hash_sees_every_other_change() -> None:
     raw = _raw()
-    h = content_hash(raw)
+    h = content_hash(raw, "approval")
     raw["events"][0]["text"] += " edited"
-    assert content_hash(raw) != h
+    assert content_hash(raw, "approval") != h
     raw = _raw()
     raw["provenance"]["reviewer_edited"] = True
-    assert content_hash(raw) != h
+    assert content_hash(raw, "approval") != h
 
 
 def test_content_hash_does_not_depend_on_key_order_or_yaml_timestamps() -> None:
@@ -188,6 +188,48 @@ def test_content_hash_does_not_depend_on_key_order_or_yaml_timestamps() -> None:
 
     raw = _raw()
     flipped = dict(reversed(list(raw.items())))
-    assert content_hash(flipped) == content_hash(raw)
+    assert content_hash(flipped, "approval") == content_hash(raw, "approval")
     raw["facts"]["f_old"]["valid_until"] = datetime.fromisoformat(raw["facts"]["f_old"]["valid_until"])
-    assert content_hash(raw).startswith("v1:")  # an unquoted YAML timestamp parses as datetime
+    assert content_hash(raw, "approval").startswith("v1:")  # an unquoted YAML timestamp parses as datetime
+
+
+def test_content_hash_is_domain_separated() -> None:
+    raw = _raw()
+    approval, generated = content_hash(raw, "approval"), content_hash(raw, "generated")
+    assert approval != generated
+    assert approval.startswith("v1:") and generated.startswith("v1:")
+    assert content_hash(raw, "generated") == generated
+
+
+def test_label_fingerprint_is_versioned_and_unprefixed_ones_are_unverifiable() -> None:
+    s = _scenario()
+    fp = label_fingerprint(s)
+    assert fp.startswith("l1:") and len(fp) == 3 + 64
+    assert fingerprint_state(s) == "unverified"  # nothing recorded
+    s.provenance.label_fingerprint = fp
+    assert fingerprint_state(s) == "verified"
+    s.provenance.label_fingerprint = fp[3:]  # the hex of an older, unprefixed value
+    assert fingerprint_state(s) == "unverified"
+    s.provenance.label_fingerprint = "l1:" + "0" * 64
+    assert fingerprint_state(s) == "changed"
+    s.provenance.label_fingerprint = fp
+    s.facts["f_old"].valid = not s.facts["f_old"].valid
+    assert fingerprint_state(s) == "changed"
+
+
+def test_scalar_type_changes_move_the_content_hash() -> None:
+    """Quoting a string does not matter, but a different scalar type does (and fails safe)."""
+    from datetime import datetime
+
+    raw = _raw()
+    h = content_hash(raw, "approval")
+    ts = raw["facts"]["f_old"]["valid_until"]
+    raw["facts"]["f_old"]["valid_until"] = datetime.fromisoformat(ts)
+    assert content_hash(raw, "approval") == h  # a YAML timestamp is canonicalised to the ISO string
+    raw = _raw()
+    raw["world"]["probe"] = 1
+    one = content_hash(raw, "approval")
+    raw["world"]["probe"] = 1.0
+    assert content_hash(raw, "approval") != one
+    raw["world"]["probe"] = "1"
+    assert content_hash(raw, "approval") != one

@@ -185,7 +185,7 @@ def test_generate_records_the_label_fingerprint_and_generated_hash(tmp_path: Pat
     raw = load_yaml(path.read_text(encoding="utf-8"))
     s = load_scenario(path)
     assert s.provenance.label_fingerprint == label_fingerprint(s)
-    assert s.provenance.generated_hash == content_hash(raw) and s.provenance.generated_hash.startswith("v1:")
+    assert s.provenance.generated_hash == content_hash(raw, "generated") and s.provenance.generated_hash.startswith("v1:")
 
 
 def _hand_edit(path: Path, change: Any) -> None:

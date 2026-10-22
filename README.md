@@ -211,8 +211,8 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 - 이미 승인·거절된 파일을 고쳐 저장하면 `review`가 `draft`로 돌아가고(`reviewer`는 비워지고 `notes`는 남음) 다시 승인받아야 합니다.
 - 저장되면 `provenance.reviewer_edited: true`가 되고 자동 검증 결과가 나옵니다. 오류가 있어도 저장은 되지만 승인은 막힙니다. 편집기가 0이 아닌 코드로 끝나거나 YAML이 깨져도 원래대로 돌아갑니다(바뀐 내용이 있으면 마찬가지로 `review/`에 남깁니다).
 - `set ... approved`는 자동 검증(`check_draft`)에 오류가 없고 `too_easy` 경고도 없을 때만 됩니다. 아니면 이유를 보여 주고 파일을 그대로 둡니다(종료 코드 1). `rejected`는 언제나 됩니다.
-- 생성할 때 정답 지문을 `provenance.label_fingerprint`에 적어 둡니다. `review edit`를 거치지 않고 편집기로 정답(기간·라벨 등)을 바꾼 파일은 지문이 달라 승인되지 않습니다(`labels_changed_outside_review`, 종료 코드 1). 바꾼 것을 되돌리거나 거절하세요. 지문이 없는 이전 파일은 경고 `label_fingerprint_not_recorded`와 함께 승인됩니다.
-- 승인하면 그 내용의 해시를 `review.approved_hash`에 적습니다. 승인한 파일을 나중에 고치면 `run`·`selfcheck`·`scenario check`가 오류 `approved_content_changed`로 멈추므로 다시 검토해 승인하세요(`review list`에도 표시됩니다). `review` 블록(메모 등)과 주석·서식만 바꾼 것은 괜찮습니다. 해시가 없는 승인 파일(이전 파일, 손으로 `approved`로 바꾼 파일)은 오류가 아니라 경고 `approval_unverified`로 읽히며, `--sealed`에서는 경고 개수만 보여 줍니다.
+- 생성할 때 정답 지문을 `provenance.label_fingerprint`에 적어 둡니다. `review edit`를 거치지 않고 편집기로 정답(기간·라벨 등)을 바꾼 파일은 지문이 달라 승인되지 않습니다(`labels_changed_outside_review`, 종료 코드 1). 바꾼 것을 되돌리거나 거절하세요. 지문이 없거나 접두(`l1:`)가 없는 이전 파일은 경고 `label_fingerprint_not_recorded`와 함께 승인됩니다.
+- 승인하면 그 내용의 해시를 `review.approved_hash`에 적습니다. 승인한 파일을 나중에 고치면 `run`·`selfcheck`·`scenario check`가 오류 `approved_content_changed`로 멈추므로 다시 검토해 승인하세요(`review list`에도 표시됩니다). `review` 블록(메모 등)과 주석, 키 순서, 문자열의 따옴표 방식만 바꾼 것은 괜찮습니다. 값의 종류가 바뀌는 서식 변경(따옴표 쳐진 ISO 시각을 따옴표 없이 쓰거나 `1`을 `1.0`으로 쓰는 것)은 해시를 바꾸므로 다시 승인해야 합니다(안전한 쪽으로 실패). 생성 해시(`provenance.generated_hash`)를 `approved_hash`에 베껴 넣어도 용도가 달라 검증되지 않습니다. 해시가 없는 이전 승인 파일은 오류가 아니라 경고 `approval_unverified`로 읽히며(`--sealed`에서는 경고 개수만 보여 줍니다), 새 도구가 만든 파일(`generated_hash`나 `label_fingerprint`가 있는 파일)을 손으로 `approved`로 바꿨다면 해시가 없으므로 오류 `approved_hash_missing`으로 멈춥니다.
 - 자동 검사(`check_draft`)는 필요조건일 뿐입니다. 본문이 자기 라벨과 모순되는지는 코드가 못 잡으므로 `show`로 직접 확인하세요.
 - 이 해시들은 파일 안에 있으므로 실수로 고친 것을 잡는 장치입니다. 해시까지 일부러 다시 쓰는 것은 막지 못하며, 무엇이 바뀌었는지의 근거는 git 이력입니다.
 - id가 없거나 같은 id의 파일이 여럿이면 종료 코드 1입니다. 다른 위치는 `--root`로 지정합니다.

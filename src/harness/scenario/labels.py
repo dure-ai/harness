@@ -13,8 +13,10 @@ and the whole `review` section are left out, as are the fields the harness itsel
 
 `content_hash` is the other hash: of a whole parsed file, labels and text, used to bind an
 approval (`review.approved_hash`) and a generated draft (`provenance.generated_hash`) to the
-exact content. Both hashes live in the file, so they catch accidental edits, not deliberate
-tampering (whoever edits the content can also rewrite the hash); git history is the evidence.
+exact content. The two uses are domain-separated (`purpose`), so a generated hash copied into
+`review.approved_hash` does not verify. Both hashes live in the file, so they catch accidental
+edits, not deliberate tampering (whoever edits the content can also rewrite the hash); git
+history is the evidence.
 """
 
 import hashlib
@@ -27,6 +29,10 @@ from harness.scenario.model import FeedbackTemplate, Probe, Scenario
 
 CONTENT_HASH_VERSION = "v1"
 """Prefix of `content_hash` values; a stored hash with another prefix cannot be verified."""
+FINGERPRINT_VERSION = "l1"
+"""Prefix of `label_fingerprint` values; a stored fingerprint without it cannot be verified."""
+HashPurpose = Literal["approval", "generated"]
+"""What a `content_hash` is for. Part of the hashed material, so the two never coincide."""
 _HASH_FIELDS = {"reviewer_edited", "label_fingerprint", "generated_hash"}
 
 _FACT = {"valid_from", "valid_until", "valid", "conditions", "fix"}
@@ -80,11 +86,31 @@ def label_fingerprint(s: Scenario) -> str:
         s: The scenario.
 
     Returns:
-        The hex SHA-256 of the sorted JSON of those fields. Changing only editable text leaves
-        it unchanged.
+        `"l1:"` followed by the hex SHA-256 of the sorted JSON of those fields. Changing only
+        editable text leaves it unchanged.
     """
     blob = json.dumps(_label_view(s), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return f"{FINGERPRINT_VERSION}:{hashlib.sha256(blob.encode('utf-8')).hexdigest()}"
+
+
+FingerprintState = Literal["verified", "changed", "unverified"]
+
+
+def fingerprint_state(s: Scenario) -> FingerprintState:
+    """Compare the labels of `s` with the fingerprint recorded in `provenance.label_fingerprint`.
+
+    Args:
+        s: The scenario.
+
+    Returns:
+        "verified" when the recorded fingerprint equals `label_fingerprint(s)`, "changed" when it
+        is a current-version fingerprint that differs (labels edited outside `review edit`), and
+        "unverified" when none is recorded or it has no known version prefix (an older file).
+    """
+    stored = s.provenance.label_fingerprint
+    if stored is None or not stored.startswith(f"{FINGERPRINT_VERSION}:"):
+        return "unverified"
+    return "verified" if stored == label_fingerprint(s) else "changed"
 
 
 def _diff(a: Any, b: Any, path: str, out: list[str]) -> None:
@@ -129,30 +155,37 @@ def _canonical(value: Any) -> Any:
     return value
 
 
-def content_hash(raw: Mapping[str, Any]) -> str:
+def content_hash(raw: Mapping[str, Any], purpose: HashPurpose) -> str:
     """Hash a scenario file's parsed content, for binding an approval or a generated draft to it.
 
     It hashes the parsed YAML, not the validated model, so a schema field added later with a
-    default does not change the hash of a file that does not write it; formatting, comments and
-    key order do not count either. Left out: the whole `review` section (approving changes it)
+    default does not change the hash of a file that does not write it. Comments, key order and
+    the quoting of strings do not count either, but a change of a scalar's type does (an ISO
+    timestamp string unquoted into a YAML timestamp, `1` written as `1.0`): such an edit fails
+    safe, the hash differs and the file must be approved again. Left out: the whole `review` section (approving changes it)
     and `provenance.generated_hash` and `provenance.label_fingerprint` (they are recorded after
     the hash is taken). Everything else counts, labels and text alike.
 
     Args:
         raw: The parsed file (`yamlio.load_yaml`), or a model's `model_dump(mode="json")`.
+        purpose: `approval` for `review.approved_hash`, `generated` for
+            `provenance.generated_hash`. It is hashed with the content, so the same file has a
+            different hash for each purpose.
 
     Returns:
-        `"v1:"` followed by the hex SHA-256 of the canonical JSON (sorted keys, UTF-8).
+        `"v1:"` followed by the hex SHA-256 of the purpose and the canonical JSON (sorted keys,
+        UTF-8).
     """
     data = {k: v for k, v in _canonical(raw).items() if k != "review"}
     prov = data.get("provenance")
     if isinstance(prov, dict):
         data["provenance"] = {k: v for k, v in prov.items() if k not in ("generated_hash", "label_fingerprint")}
     blob = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
-    return f"{CONTENT_HASH_VERSION}:{hashlib.sha256(blob.encode('utf-8')).hexdigest()}"
+    material = f"{purpose}\n{blob}"
+    return f"{CONTENT_HASH_VERSION}:{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
 
 
-ApprovalState = Literal["verified", "changed", "unverified"]
+ApprovalState = Literal["verified", "changed", "unverified", "missing"]
 
 
 def approval_state(raw: Mapping[str, Any], s: Scenario) -> ApprovalState:
@@ -163,11 +196,18 @@ def approval_state(raw: Mapping[str, Any], s: Scenario) -> ApprovalState:
         s: The scenario; its `review.status` should be `approved`.
 
     Returns:
-        "verified" when `review.approved_hash` matches `content_hash(raw)`, "changed" when it is a
-        current-version hash that does not match (edited after approval), and "unverified" when
-        there is no hash or it has an unknown version prefix.
+        "verified" when `review.approved_hash` matches `content_hash(raw, "approval")`, "changed"
+        when it is a current-version hash that does not match (edited after approval, or a
+        generated hash copied in), "unverified" when it has an unknown version prefix, or when
+        there is none in a file without the fields the current tooling writes (an older file),
+        and "missing" when there is none in a file that has `provenance.generated_hash` or
+        `provenance.label_fingerprint`: the tooling records a hash on every approval, so the
+        status was set by hand.
     """
     stored = s.review.approved_hash
-    if stored is None or not stored.startswith(f"{CONTENT_HASH_VERSION}:"):
+    if stored is None:
+        prov = s.provenance
+        return "missing" if prov.generated_hash or prov.label_fingerprint else "unverified"
+    if not stored.startswith(f"{CONTENT_HASH_VERSION}:"):
         return "unverified"
-    return "verified" if stored == content_hash(raw) else "changed"
+    return "verified" if stored == content_hash(raw, "approval") else "changed"

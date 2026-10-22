@@ -26,7 +26,7 @@ from harness.generate.checks import blocking, check_draft
 from harness.generate.config import GenConfig, cache_root
 from harness.generate.pipeline import save_draft
 from harness.replay import ScenarioRun, run_scenario
-from harness.scenario.labels import changed_label_fields, content_hash, label_fingerprint
+from harness.scenario.labels import changed_label_fields, content_hash, fingerprint_state
 from harness.scenario.load import ScenarioLoadError, approval_issue, load_scenario, read_scenario
 from harness.scenario.model import Review, Scenario
 from harness.scenario.validate import Issue, validate_scenario
@@ -283,8 +283,8 @@ def set_status(
 
     Approval first compares the labels with `provenance.label_fingerprint`, recorded at
     generation: a mismatch means they were edited outside `review edit`, and the approval is
-    refused (`labels_changed_outside_review`). A file without a recorded fingerprint (older, or
-    a hand-filled leak skeleton) is approved with the warning `label_fingerprint_not_recorded`.
+    refused (`labels_changed_outside_review`). A file without a usable fingerprint (none recorded, or
+    one without the `l1:` prefix: an older file, or a hand-filled leak skeleton) is approved with the warning `label_fingerprint_not_recorded`.
     Approval then needs `check_draft` to find no error and no `too_easy` warning; otherwise the
     file is left as it is. An approval records `review.approved_hash` (`content_hash` of the
     saved file), which `load_set` checks. Rejection always works.
@@ -312,8 +312,8 @@ def set_status(
     s = load_scenario(path)
     issues: list[Issue] = []
     if status == "approved":
-        recorded = s.provenance.label_fingerprint
-        if recorded is not None and recorded != label_fingerprint(s):
+        fingerprint = fingerprint_state(s)
+        if fingerprint == "changed":
             return [
                 Issue(
                     "error",
@@ -326,12 +326,12 @@ def set_status(
         issues = check_draft(s, cfg, gen)
         if blocking(issues):
             return issues
-        if recorded is None:
+        if fingerprint == "unverified":
             issues.append(
                 Issue(
                     "warning",
                     FINGERPRINT_NOT_RECORDED,
-                    "no label fingerprint was recorded at generation, so label edits made "
+                    "no usable label fingerprint was recorded at generation, so label edits made "
                     "outside review edit cannot be detected; check the labels yourself",
                 )
             )
@@ -340,7 +340,7 @@ def set_status(
     )
     if status == "approved":
         # `save_draft` writes this dump, so its hash is the hash of the saved file.
-        s.review.approved_hash = content_hash(s.model_dump(mode="json"))
+        s.review.approved_hash = content_hash(s.model_dump(mode="json"), "approval")
     save_draft(s, path)
     return issues
 
