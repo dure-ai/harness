@@ -125,7 +125,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 ## 확장하는 법
 
 - **엔진 추가**: `BaseEngine`을 상속해 `info`, `reset`, `record`, `search`를 구현하고 `--engine package.module:ClassName`으로 넘깁니다(인자 없는 생성자). 정밀 채점을 위해 `Result.sources`에 이벤트 id를 채우고, 묻는 사람이 볼 수 없는 이벤트(`can_see`)는 돌려주지 않아야 합니다. 최소 예시는 `tests/dummy_engine.py`.
-- **시나리오 추가**: `scenarios/examples/`에서 같은 계열 파일을 복사해 고친 뒤 `uv run harness scenario check <파일>`로 형식과 변별력을 확인합니다. 시각에는 시간대가 필요합니다. 평가에 들어가려면 검토 후 `review.status: approved`.
+- **시나리오 추가**: `scenarios/examples/`에서 같은 계열 파일을 복사해 고친 뒤 `uv run harness scenario check <파일>`로 형식과 변별력을 확인합니다. 시각에는 시간대가 필요합니다. 평가에 들어가려면 검토 후 `uv run harness review set <id> approved --reviewer 이름`으로 승인합니다(파일 위치는 `--root`, 기본 `scenarios/dev`. 승인 해시 `review.approved_hash`를 기록). `review.status: approved`를 손으로 쓰면 해시가 없어, 생성 도구가 만든 파일(`generated_hash`나 `label_fingerprint`가 있는 파일)은 오류 `approved_hash_missing`으로 멈추고 그 밖의 파일은 경고 `approval_unverified`가 붙습니다.
 - **지표 추가**: `ProbeRecord`(replay)에 문항 단위 값을 남기고 `compute_metrics`에서 집계합니다. 점수에 영향을 주는 새 값은 `EvalConfig`에 넣어 설정 해시에 잡히게 합니다.
 
 ## 지켜야 할 것
