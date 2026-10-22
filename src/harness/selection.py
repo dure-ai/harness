@@ -6,9 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from harness.config import EvalConfig
-from harness.metrics import Metrics, per_scenario_counts
+from harness.metrics import FamilyRow, Metrics, per_scenario_counts
 from harness.replay import ScenarioRun
-from harness.stats import Rate, bootstrap_diff
+from harness.stats import Rate, bootstrap_diff, rate
 
 EPS = 1e-9
 NO_SAMPLE = "표본 없음"
@@ -126,11 +126,60 @@ def _mean(values: list[float | None]) -> float | None:
     return sum(present) / len(present)
 
 
-def averaged(repeats: list[Metrics]) -> Metrics:
-    """Combine repeats of one engine into one `Metrics`.
+def _mean_present(values: list[float | None]) -> float | None:
+    """Mean of the repeats that have a value; None only when none of them does."""
+    present = [v for v in values if v is not None]
+    return sum(present) / len(present) if present else None
 
-    The first repeat's metrics are kept, except that M1/M2 `value` is the mean over repeats,
-    M3 is the worst repeat's, and `errors` lists every scenario that errored in any repeat.
+
+def _pool(rates: list[Rate]) -> Rate:
+    """rate(sum of k, sum of n); the value is None when every denominator is 0."""
+    return rate(sum(r.k for r in rates), sum(r.n for r in rates))
+
+
+def _pool_rows(tables: list[dict[str, FamilyRow]]) -> dict[str, FamilyRow]:
+    """Pool each family's M1/M2 across repeats; M3 is the worst repeat's, as for the headline."""
+    out: dict[str, FamilyRow] = {}
+    for family in sorted({f for t in tables for f in t}):
+        rows = [t[family] for t in tables if family in t]
+        out[family] = FamilyRow(
+            m1=_pool([r["m1"] for r in rows]),
+            m2=_pool([r["m2"] for r in rows]),
+            m3=max(r["m3"] for r in rows),
+        )
+    return out
+
+
+def _pool_authors(tables: list[dict[str, dict[str, Rate]]]) -> dict[str, dict[str, Rate]]:
+    out: dict[str, dict[str, Rate]] = {}
+    for author in sorted({a for t in tables for a in t}):
+        rows = [t[author] for t in tables if author in t]
+        out[author] = {key: _pool([r[key] for r in rows]) for key in ("m1", "m2")}
+    return out
+
+
+def _worst_family(by_family: dict[str, FamilyRow]) -> tuple[str, float] | None:
+    values = {f: v for f, t in by_family.items() if (v := t["m1"].value) is not None}
+    if not values:
+        return None
+    family = min(values, key=lambda f: (-values[f], f))
+    return family, values[family]
+
+
+def averaged(repeats: list[Metrics]) -> Metrics:
+    """Combine repeats of one engine into one `Metrics` (design 8.3).
+
+    Only the M1/M2 intervals (and the ranking bootstrap, which uses the first repeat's runs)
+    are based on the first repeat. Everything else covers every repeat:
+
+    - M1/M2 `value` is the mean over repeats; M3 is the worst repeat's; `errors` is the union.
+    - Rate-like metrics (promote FN/FP, shallow fix, reach, contamination, sourceless) and
+      every cell of the family and author tables are pooled as rate(sum k, sum n). Their
+      intervals come from the pooled counts and are for reference. `worst_family` is
+      recomputed from the pooled family table. A rate whose pooled denominator is 0 has
+      value None.
+    - `retraction` and `reflection` are concatenated; `context_chars_mean` and the latency
+      percentiles are averaged over the repeats that have a value.
 
     Raises:
         ValueError: If `repeats` is empty.
@@ -138,12 +187,30 @@ def averaged(repeats: list[Metrics]) -> Metrics:
     if not repeats:
         raise ValueError("averaged() needs at least one repeat")
     first = repeats[0]
+    by_family = _pool_rows([r.by_family for r in repeats])
     return replace(
         first,
-        m3=max(r.m3 for r in repeats),  # a leak in any repeat fails the gate
-        errors=sorted({e for r in repeats for e in r.errors}),  # so does an error in any repeat
         m1=replace(first.m1, value=_mean([r.m1.value for r in repeats])),
         m2=replace(first.m2, value=_mean([r.m2.value for r in repeats])),
+        m3=max(r.m3 for r in repeats),  # a leak in any repeat fails the gate
+        promote_fn=_pool([r.promote_fn for r in repeats]),
+        promote_fp=_pool([r.promote_fp for r in repeats]),
+        by_family=by_family,
+        feedback_by_family=_pool_rows([r.feedback_by_family for r in repeats]),
+        by_author=_pool_authors([r.by_author for r in repeats]),
+        shallow_fix=_pool([r.shallow_fix for r in repeats]),
+        reach=_pool([r.reach for r in repeats]),
+        contamination=_pool([r.contamination for r in repeats]),
+        sourceless=_pool([r.sourceless for r in repeats]),
+        retraction=[d for r in repeats for d in r.retraction],
+        reflection=[d for r in repeats for d in r.reflection],
+        worst_family=_worst_family(by_family),
+        errors=sorted({e for r in repeats for e in r.errors}),  # so does an error in any repeat
+        context_chars_mean=_mean_present([r.context_chars_mean for r in repeats]),
+        record_ms_p50=_mean_present([r.record_ms_p50 for r in repeats]),
+        record_ms_p95=_mean_present([r.record_ms_p95 for r in repeats]),
+        search_ms_p50=_mean_present([r.search_ms_p50 for r in repeats]),
+        search_ms_p95=_mean_present([r.search_ms_p95 for r in repeats]),
     )
 
 
@@ -171,9 +238,14 @@ def _promote_tp_by_scenario(runs: list[ScenarioRun]) -> dict[str, tuple[int, int
 def _canonical_ci(
     first: str, second: str, runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig
 ) -> tuple[float, float] | None:
-    """Bootstrap CI of promote-TP rate(first) - rate(second) over their common scenarios."""
+    """Bootstrap CI of promote-TP rate(first) - rate(second) over their common scenarios.
+
+    Only scenarios where both engines have at least one promote probe are resampled: a
+    (0, 0) pair adds nothing to the pooled rates, but a resample made of such scenarios
+    alone would count as a 0 difference and widen the interval toward a false tie.
+    """
     a, b = _promote_tp_by_scenario(runs[first]), _promote_tp_by_scenario(runs[second])
-    common = sorted(a.keys() & b.keys())
+    common = sorted(s for s in a.keys() & b.keys() if a[s][1] > 0 and b[s][1] > 0)
     if not common:
         return None
     return bootstrap_diff(

@@ -26,6 +26,7 @@ from harness.stats import Delay, Rate
 NA = "n/a"
 UNRETRACTED = "미철회"
 UNREFLECTED = "미반영"
+AGGREGATION_NOTE = "M1·M2 구간과 순위 부트스트랩은 첫 회차 기준, 나머지 표는 회차 합산"
 DRAFTS_WARNING = "> ⚠️ 초안 포함 — 발표 수치로 쓰지 않음"
 
 
@@ -347,6 +348,7 @@ def _section_aux(
                 _rate(m.contamination),
                 _rate(m.sourceless),
                 _rate(m.promote_fn),
+                _rate(m.promote_fp),
                 _num(rel.get("improvement_ratio")),
                 _num(rel.get("repeat_mistake_reduction")),
                 worst,
@@ -355,7 +357,7 @@ def _section_aux(
             ]
         )
     headers = ["엔진", "얕은 지식 고착률", "철회 지연", "유효 지식 도달률", "반영 지연", "오염 노출률",
-               "출처 없는 결과", "promote FN", "개선 달성률", "반복 실수 감소율", "최악 계열",
+               "출처 없는 결과", "promote FN", "promote FP", "개선 달성률", "반복 실수 감소율", "최악 계열",
                "repeat_n보다 나쁜 계열", "재실행 뒤집힘률"]
     return ["## 보조·관찰", "", *_table(headers, rows)]
 
@@ -470,6 +472,7 @@ def _markdown(
         f"- 초안 포함: {'예' if meta.include_drafts else '아니오'}",
         roots,
         f"- 반복 실행: {repeats}",
+        f"- 집계: {AGGREGATION_NOTE}",
         "",
     ]
     check_rows = [

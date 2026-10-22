@@ -35,6 +35,8 @@ class Metrics:
         m2: Promote TP rate, the share of promote probes where it acted on a true one.
         m3: Number of leaked results (must be 0).
         promote_fn: Share of promote probes where it acted on nothing.
+        promote_fp: Share of promote probes where it acted on a wrong basis (PROMOTE_FP); an
+            observation only, never part of the verdict or the ranking.
         by_family: M1/M2/M3 per scenario family (read_only).
         feedback_by_family: The same for feedback scenarios.
         by_author: M1/M2 per scenario provenance author (human, llm, generator).
@@ -57,6 +59,7 @@ class Metrics:
     m2: Rate
     m3: int
     promote_fn: Rate
+    promote_fp: Rate
     by_family: dict[str, FamilyRow]
     feedback_by_family: dict[str, FamilyRow]
     by_author: dict[str, dict[str, Rate]]
@@ -216,6 +219,7 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
         m2=_m2(read_only),
         m3=_m3(runs),  # leaks recorded before an error still count
         promote_fn=rate(*_count(read_only, "promote", "FN")),
+        promote_fp=rate(*_count(read_only, "promote", "PROMOTE_FP")),
         by_family=by_family,
         feedback_by_family=_family_table(feedback),
         by_author=_author_table(read_only, scenarios),

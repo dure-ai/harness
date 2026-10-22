@@ -32,6 +32,7 @@ def metrics(m1=0.2, m2=0.9, m3=0, **kw):
         m2=rate(round(m2 * 10), 10),
         m3=m3,
         promote_fn=rate(1, 10),
+        promote_fp=rate(2, 10),
         by_family={"truth_change": {"m1": rate(1, 5), "m2": rate(4, 5), "m3": 0}},
         feedback_by_family={"echo": {"m1": rate(0, 3), "m2": rate(3, 3), "m3": 0}},
         by_author={"human": {"m1": rate(1, 5), "m2": rate(4, 5)}},
@@ -397,3 +398,23 @@ def test_engine_ids_written_even_if_report_fails(tmp_path, monkeypatch):
         write(tmp_path)
     ids = json.loads((tmp_path / "out" / "engine_ids.json").read_text("utf-8"))["ids"]
     assert sorted(ids.values()) == sorted([SECRET, OTHER])
+
+
+def test_report_shows_promote_fp_column(tmp_path):
+    out = write(tmp_path)
+    report = (out / "report.md").read_text("utf-8")
+    aux = report.split("## 보조·관찰")[1].split("## 계열별")[0]
+    header = next(line for line in aux.splitlines() if line.startswith("| 엔진"))
+    cols = [c.strip() for c in header.strip("|").split("|")]
+    assert "promote FP" in cols and cols.index("promote FP") == cols.index("promote FN") + 1
+    row = next(line for line in aux.splitlines() if line.startswith("| none"))
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    assert cells[cols.index("promote FP")].startswith("0.200 (n=10)")
+    summary = json.loads((out / "summary.json").read_text("utf-8"))
+    assert summary["engines"]["none"]["metrics"]["promote_fp"]["k"] == 2
+
+
+def test_report_header_says_which_numbers_use_the_first_repeat(tmp_path):
+    out = write(tmp_path)
+    head = (out / "report.md").read_text("utf-8").split("## 판정")[0]
+    assert "M1·M2 구간과 순위 부트스트랩은 첫 회차 기준, 나머지 표는 회차 합산" in head

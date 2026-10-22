@@ -5,16 +5,17 @@ import pytest
 from harness.agent import Choice
 from harness.config import EvalConfig
 from harness.contract import Result
-from harness.metrics import compute_metrics
+from harness.metrics import FamilyRow, compute_metrics
 from harness.replay import ProbeRecord, ScenarioRun
 from harness.selection import (
     EngineScore,
+    _canonical_ci,
     averaged,
     judge_engine,
     rank,
     relative_metrics,
 )
-from harness.stats import Delay, Rate
+from harness.stats import Delay, Rate, rate
 
 CFG = EvalConfig()
 
@@ -93,8 +94,7 @@ def test_averaged_uses_mean_value():
     avg = averaged([a, b])
     assert avg.m1.value == pytest.approx(0.3)
     assert avg.m2.value == pytest.approx(0.7)
-    assert (avg.m1.k, avg.m1.n, avg.m1.ci) == (2, 10, (0.1, 0.3))
-    assert avg.context_chars_mean == a.context_chars_mean
+    assert (avg.m1.k, avg.m1.n, avg.m1.ci) == (2, 10, (0.1, 0.3))  # M1/M2 interval: first repeat
 
 
 def test_averaged_none_and_empty():
@@ -277,3 +277,127 @@ def test_engine_score_flip():
     assert EngineScore.from_repeats("e", [one], BASE, CFG).flip is None
     flip = Rate(1, 4, 0.25, None)
     assert EngineScore.from_repeats("e", [one, one], BASE, CFG, flip=flip).flip == flip
+
+
+# ---- A4: bootstrap sample and repeat aggregation ------------------------------------------
+
+
+def test_canonical_ci_ignores_scenarios_without_promote_probes():
+    # s2 has no promote probe for either engine; as a (0, 0) pair it used to let a resample
+    # draw only s2 and report a 0 difference, which widened the interval to (0.0, 1.0).
+    runs = {
+        "a": [promote_run("s1", ["TP"]), promote_run("s2", [])],
+        "b": [promote_run("s1", ["FN"]), promote_run("s2", [])],
+    }
+    assert _canonical_ci("a", "b", runs, CFG) == (1.0, 1.0)
+    ranked = rank([score("a", M(m1=0.2, m2=0.8)), score("b", M(m1=0.1, m2=0.75))], runs, CFG)
+    assert [e.engine_id for e in ranked] == ["a", "b"]
+    assert ranked[1].tied_with_previous is False and ranked[1].diff_ci == (1.0, 1.0)  # previous minus current
+
+
+def test_canonical_ci_needs_promote_probes_in_both_engines():
+    runs = {
+        "a": [promote_run("s1", ["TP"]), promote_run("s2", ["TP"])],
+        "b": [promote_run("s1", ["FN"]), promote_run("s2", [])],
+    }
+    assert _canonical_ci("a", "b", runs, CFG) == (1.0, 1.0)  # s2 is out: b has no promote there
+    only_empty = {"a": [promote_run("s1", [])], "b": [promote_run("s1", [])]}
+    assert _canonical_ci("a", "b", only_empty, CFG) is None
+
+
+def K(k, n):
+    return rate(k, n)
+
+
+def test_averaged_tiebreak_metrics_use_all_repeats():
+    # reach per repeat: A 0/3, 3/3, 3/3 and B 2/3 x 3 -> pooled 6/9 for both. Keeping repeat 1's
+    # reach made B win on "reach"; with every repeat the chain falls through to context_chars.
+    base = M(m1=0.2, m2=0.8)
+    a_repeats = [replace(base, reach=K(k, 3), context_chars_mean=50.0) for k in (0, 3, 3)]
+    b_repeats = [replace(base, reach=K(2, 3), context_chars_mean=100.0) for _ in range(3)]
+    runs = {k: uniform("TP") for k in "AB"}
+    scores = [
+        EngineScore.from_repeats(name, repeats, BASE, CFG)
+        for name, repeats in (("A", a_repeats), ("B", b_repeats))
+    ]
+    assert scores[0].metrics.reach.value == pytest.approx(scores[1].metrics.reach.value)
+    ranked = rank(scores, runs, CFG)
+    assert [e.engine_id for e in ranked] == ["A", "B"]
+    assert ranked[1].tied_with_previous is True and ranked[1].tiebreak == "context_chars"
+
+
+def test_averaged_rate_metrics_pool_counts_not_first_repeat():
+    names = ("promote_fn", "promote_fp", "shallow_fix", "reach", "contamination", "sourceless")
+    first = replace(M(), **{n: K(0, 4) for n in names})
+    second = replace(M(), **{n: K(3, 4) for n in names})
+    avg = averaged([first, second])
+    for n in names:
+        got = getattr(avg, n)
+        assert (got.k, got.n) == (3, 8) and got.value == pytest.approx(0.375)
+        assert got.ci is not None
+
+
+def test_averaged_family_tables_pool_repeats():
+    def row(m1, m2, m3=0):
+        return FamilyRow(m1=m1, m2=m2, m3=m3)
+
+    one = replace(
+        M(),
+        by_family={"x": row(K(1, 2), K(2, 2)), "y": row(K(0, 2), K(1, 2))},
+        feedback_by_family={"echo": row(K(0, 2), K(2, 2))},
+        by_author={"human": {"m1": K(1, 2), "m2": K(2, 2)}},
+        worst_family=("x", 0.5),
+    )
+    two = replace(
+        M(),
+        by_family={"x": row(K(0, 2), K(1, 2), 1), "y": row(K(2, 2), K(1, 2))},
+        feedback_by_family={"echo": row(K(2, 2), K(0, 2))},
+        by_author={"human": {"m1": K(0, 2), "m2": K(0, 2)}, "llm": {"m1": K(1, 1), "m2": K(0, 0)}},
+        worst_family=("y", 1.0),
+    )
+    avg = averaged([one, two])
+    assert (avg.by_family["x"]["m1"].k, avg.by_family["x"]["m1"].n) == (1, 4)
+    assert (avg.by_family["y"]["m1"].k, avg.by_family["y"]["m1"].n) == (2, 4)
+    assert (avg.by_family["x"]["m2"].k, avg.by_family["x"]["m2"].n) == (3, 4)
+    assert avg.by_family["x"]["m3"] == 1  # worst repeat, like the headline M3
+    assert avg.worst_family == ("y", 0.5)  # recomputed from the pooled table, not repeat 1's
+    assert (avg.feedback_by_family["echo"]["m1"].k, avg.feedback_by_family["echo"]["m1"].n) == (2, 4)
+    assert (avg.by_author["human"]["m1"].k, avg.by_author["human"]["m1"].n) == (1, 4)
+    assert (avg.by_author["llm"]["m1"].k, avg.by_author["llm"]["m1"].n) == (1, 1)  # only in repeat 2
+    assert avg.by_author["llm"]["m2"].value is None
+
+
+def test_averaged_concatenates_delays_and_averages_context_and_latency():
+    one = replace(M(retraction=(10.0,), context_chars_mean=100.0), record_ms_p50=1.0, search_ms_p95=4.0)
+    two = replace(M(retraction=(30.0, None), context_chars_mean=200.0), record_ms_p50=3.0,
+                  search_ms_p95=None)
+    avg = averaged([one, two])
+    assert [d.seconds for d in avg.retraction] == [10.0, 30.0, None]
+    assert avg.context_chars_mean == pytest.approx(150.0)
+    assert avg.record_ms_p50 == pytest.approx(2.0)
+    assert avg.search_ms_p95 == pytest.approx(4.0)  # a repeat without a sample does not erase the others
+    assert avg.search_ms_p50 is None  # nobody had one
+
+
+def test_averaged_repeat_mistake_reduction_uses_mean_fn():
+    # promote_fn per repeat 3/3, 0/3, 0/3: the mean (1/3) gives 0.667, repeat 1 alone gave 0.0.
+    repeats = [replace(M(), promote_fn=K(k, 3)) for k in (3, 0, 0)]
+    out = relative_metrics(averaged(repeats), M(promote_fn=1.0), M(m1=0.6), M(m1=0.0))
+    assert out["repeat_mistake_reduction"] == pytest.approx(1 - (3 / 9) / 1.0)
+
+
+def test_averaged_handles_a_repeat_with_zero_denominator():
+    empty = K(0, 0)
+    one = replace(M(), reach=empty, promote_fp=empty, by_family={"x": FamilyRow(m1=empty, m2=empty, m3=0)})
+    two = replace(M(), reach=K(1, 2), promote_fp=empty,
+                  by_family={"x": FamilyRow(m1=K(1, 2), m2=empty, m3=0)})
+    avg = averaged([one, two])
+    assert (avg.reach.k, avg.reach.n, avg.reach.value) == (1, 2, 0.5)
+    assert avg.promote_fp.value is None and avg.promote_fp.ci is None  # every denominator 0
+    assert avg.by_family["x"]["m2"].value is None
+    assert avg.by_family["x"]["m1"].value == pytest.approx(0.5)
+    assert avg.worst_family == ("x", 0.5)
+    none_only = averaged([one, one])
+    assert none_only.worst_family is None and none_only.reach.value is None
+    for r in (avg.reach, avg.promote_fp, avg.by_family["x"]["m1"]):
+        assert r.value is None or 0.0 <= r.value <= 1.0
