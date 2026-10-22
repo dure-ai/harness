@@ -165,8 +165,8 @@ flowchart LR
 2. **판정 문자열 실림**: 사실의 `markers` 중 하나 이상이 그 사실과 연결된 이벤트 본문에 실제로 들어 있다(대소문자 무시). 되먹임 틀의 본문도 같다. 행동 틀은 따른 사실, 기권 틀은 `fact`(기권이 찾은 사실)의 마커를 담아야 하고(`marker_not_in_body`), `fact`가 None인 결과 틀(예: 맨 실패 기록)은 이 검사만 건너뛴다.
 3. **다른 사실 재언급 금지**: 이벤트 본문과 되먹임 틀 본문에 **다른** 사실의 `markers`가 들어 있지 않다. 그러면 근거 판정이 섞인다. `fact`가 None인 본문은 어느 사실의 마커도 담을 수 없다. 문항이 묻는 사실은 검증기(`marker_bleed`)가 이벤트 본문에 한해 먼저 잡고, 이 검사는 어느 문항도 묻지 않는 사실의 마커와 되먹임 틀까지 맡는다. 본문 검사 셋(2~4)은 이벤트·되먹임 틀·질문에 같은 도우미(`_text_issues`)를 쓴다.
 4. **정답 단서 금지**: 이벤트 본문, 되먹임 틀 본문, 질문에 금지어(`outdated`, `no longer`, `false`, `legacy`, `obsolete`, `superseded`, `stale`, `wrong`, `replaced by` 등, 목록은 설정)가 없다. 검사 전에 다음을 지운다. [판단]
-   - 백틱(`` ` ``) 안의 코드 조각. `` `enabled: false` `` 같은 설정 줄이 막히지 않게 한다.
-   - 그 이벤트(또는 되먹임 틀)가 말하는 사실 자신의 `markers`가 본문에 나온 자리. 사실 자체가 그 단어를 담아야 하는 경우(예: 마커 "`--legacy flag is deprecated`")는 마커 안에서만 허용되고, 같은 단어가 본문의 다른 곳에 있으면 걸린다(예전에는 마커에 금지어가 있으면 본문 어디서나 허용됐다).
+   - 백틱(`` ` ``) 안의 코드 조각. `` `enabled: false` `` 같은 설정 줄이 막히지 않게 한다. 한 줄에 80자 이하이고, 금지어·금지 구절 하나만 적은 것(`` `outdated` ``)이 아니며, 영단어(알파벳만으로 된 낱말)가 4개 이상이 아니어야 코드로 본다(`` `old value is outdated and wrong` ``은 문장이라 걸린다). 줄이 여럿인 ``` 블록은 그대로 제외한다. 짝이 맞지 않는 백틱은 줄을 넘어 글을 삼키지 못한다.
+   - 그 이벤트(또는 되먹임 틀)가 말하는 사실 자신의 `markers`가 본문에 나온 자리. 마커는 낱말 경계에서만 지운다(마커 `dated`는 `outdated`를, 마커 `longer`는 `no longer`를 가리지 못한다). 사실 자체가 그 단어를 담아야 하는 경우(예: 마커 "`--legacy flag is deprecated`")는 마커 안에서만 허용되고, 같은 단어가 본문의 다른 곳에 있으면 걸린다(예전에는 마커에 금지어가 있으면 본문 어디서나 허용됐다).
    - 질문(`query`)에는 마커 예외가 없고 코드 조각만 지운다.
 5. **비밀 문자열**: 비밀 기록이 어느 이벤트인지는 파일에서 다시 계산하지 않고 생성 시점에 `provenance.secret_events`에 적어 둔 목록을 쓴다(계열 틀의 비밀 자리). 목록의 이벤트는 `secret_markers`가 비어 있지 않아야 하고(`secret_missing`) 그 본문에 하나 이상 들어 있어야 한다(`secret_not_in_secret_event`). 누출 계열인데 비밀 기록이 하나도 없으면(목록이 비었거나, 목록이 없는 파일에서 유도할 `secret_markers`가 없으면) 오류(`no_secret_events`). 비밀 문자열은 다른 이벤트 본문(`secret_in_public_event`), 사실의 `text`·`markers`(`secret_in_fact_text`), 되먹임 틀 본문(`secret_in_feedback`)에 없어야 한다. 질문자가 볼 수 있는 기록과 질문에 새면 검증기(`secret_marker_not_exclusive`)가 먼저 잡고, 이 검사는 아무 질문자도 볼 수 없는 기록과 사실·되먹임 본문까지 맡는다. 이 목록이 없는 파일(이전 버전이나 손으로 쓴 초안. 값은 `null`이고 하네스가 다시 저장해도 `null`로 남는다)은 `secret_markers`가 있는 이벤트에서 유도하고 경고 `secret_events_not_recorded`를 붙인다(저장·승인은 막지 않는다).
 6. **인용 근거**: `origin: quoted`인 근거는 그 이벤트가 원래 후보의 참인 사실을 말할 때만 허용하고(`quoted_unsupported`), 인용문이 본문에 들어 있어야 한다(`quoted_evidence_mismatch`).
@@ -263,7 +263,7 @@ flowchart LR
     legacy, obsolete, superseded, stale, incorrect, wrong, retired, "replaced by", "not valid anymore"]
   min_quote_chars: 8           # 후보 인용의 최소 길이(공백 제외), 두 단어 이상
   ```
-- 요청 한도: 두 SDK 모두 `timeout_s`(기본 300초)와 `max_retries`(기본 2)를 받는다. 300초는 출력 한도 16,000토큰의 정상 응답이 스트리밍 없이 도는 최대 시간(약 5분)이다. 최악은 요청 하나가 `timeout_s × (max_retries + 1)` = 15분이고, 연속 3번 실패하면 멈추는 기존 규칙이 그대로 있다. [판단]
+- 요청 한도: 두 SDK 모두 `timeout_s`(기본 300초)와 `max_retries`(기본 2)를 받는다. 300초는 출력 한도 16,000토큰의 정상 응답이 스트리밍 없이 도는 최대 시간(약 5분)이다. 최악은 요청 하나가 `timeout_s × (max_retries + 1)` = 15분(검증에 실패하면 한 번 더 요청하므로 그만큼 더)이고, 연속 3번 실패하면 멈추는 기존 규칙이 그대로 있다. [판단]
 - 출력 토큰 한도: Claude는 `max_tokens`로 보낸다. OpenAI 호환 서버는 이름이 서버마다 달라 `token_param`(`max_completion_tokens` 기본, `max_tokens`, 또는 `none`=보내지 않음)으로 고르며, 한도에 닿으면(`finish_reason: length`) 잘림으로 보고한다. [판단]
 - 응답 캐시 키에는 프롬프트 판, 공급자, 모델, 요청 내용, 스키마에 더해 생성 설정(`effort`, `temperature`, `max_output_tokens`, `base_url`, `token_param`)이 들어간다. 설정을 바꾸면 이전 응답을 재사용하지 않는다. 이 변경 뒤 첫 실행은 기존 캐시를 한 번 놓친다. [판단]
 - 프롬프트는 `src/harness/generate/prompts/`에 파일로 두고, 바꾸면 `prompt_version`을 올린다.

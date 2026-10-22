@@ -539,30 +539,12 @@ _SETTING_VARIANTS: dict[str, tuple[Any, Any]] = {
 def test_cache_key_differs_when_any_generation_setting_differs(
     name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Built through `make_client`, so a field dropped from `_cache_settings` fails here."""
     monkeypatch.setenv("OPENAI_API_KEY", "k1")
     first, second = _SETTING_VARIANTS[name]
-    answer = _openai_reply('{"ok": true}')
-    clients = []
-    for value in (first, second):
-        cfg = _cfg(provider="openai", **{name: value})
-        sdk, _ = _openai_sdk(answer, [])
-        inner = OpenAIClient(cfg, sdk=sdk)
-        clients.append(CachedClient(inner, tmp_path, "v1", settings=_settings_of(cfg)))
-    a, b = clients
+    a, b = (make_client(_cfg(provider="openai", **{name: value}), tmp_path) for value in (first, second))
+    assert isinstance(a, CachedClient) and isinstance(b, CachedClient)
     assert a._key("k", "s", "u", Out) != b._key("k", "s", "u", Out)
-    a.complete_json("k", "s", "u", Out)
-    b.complete_json("k", "s", "u", Out)
-    assert (a.calls, b.calls, b.hits) == (1, 1, 0)  # B did not reuse A's reply
-
-
-def _settings_of(cfg: GenConfig) -> dict[str, object]:
-    return {
-        "effort": cfg.effort,
-        "temperature": cfg.temperature,
-        "max_output_tokens": cfg.max_output_tokens,
-        "base_url": cfg.base_url,
-        "token_param": cfg.token_param,
-    }
 
 
 def test_make_client_cache_separates_generation_settings(

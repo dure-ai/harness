@@ -25,7 +25,8 @@ class GenConfig(_Strict):
         max_candidates_per_trace: Upper bound on candidate scenarios taken from one trace.
         license_allowlist: SPDX ids of source-repo licenses that may be used.
         banned_cue_words: Words that give away a fact's validity when they appear in event text
-            or a probe query. The event's own fact markers and backtick code spans are skipped.
+            or a probe query. The event's own fact markers (whole words only), short one-line backtick
+            code spans (not a bare cue word, at most 3 plain words) and fenced blocks are skipped.
         min_quote_chars: Least number of non-space characters of a candidate quote; a quote
             also needs at least two words.
         max_output_tokens: Output token limit of one generation call.

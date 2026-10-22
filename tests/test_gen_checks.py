@@ -193,6 +193,60 @@ def test_cue_word_inside_code_span_is_allowed():
     assert "false" in only(check_draft(s, CFG, gen), "cue_word").message
 
 
+def _scan(text: str, own_markers: tuple[str, ...] = (), words: tuple[str, ...] = ("outdated", "no longer", "false")) -> list[str]:
+    from harness.generate.checks import _cue_pattern, _cue_words
+
+    return _cue_words(text, {w: _cue_pattern(w) for w in words}, own_markers)
+
+
+def test_code_span_that_is_only_a_cue_word_is_flagged():
+    assert _scan("the flag is `outdated` now") == ["outdated"]
+    assert _scan("the flag is ` Outdated. ` now") == ["outdated"]  # case, spaces, edge punctuation
+    assert _scan("the flag is `no   longer` set") == ["no longer"]
+    assert _scan("set `enabled: false` here") == []
+
+
+def test_code_span_of_prose_is_flagged_but_code_is_not():
+    assert _scan("see `old value is outdated and wrong` ok") == ["outdated"]
+    assert _scan("see `three plain words` and `outdated` x") == ["outdated"]
+    assert _scan("run `git log --oneline` and `enabled: false`") == []
+    assert _scan("run `git log --oneline outdated` now") == []  # 3 plain words: still code
+    assert _scan("run `git log outdated --oneline` now") == []  # 3 plain words
+    assert _scan("run `git log outdated now --oneline`") == ["outdated"]  # 4 plain words
+
+
+def test_code_span_longer_than_80_chars_or_over_a_newline_is_flagged():
+    long_code = "x = " + "a" * 40 + " == " + "b" * 30 + " and outdated"  # no spaces-only words
+    assert len(long_code) > 80 and _scan(f"set `{long_code}` now") == ["outdated"]
+    short = "x = " + "a" * 40 + " == outdated"
+    assert len(short) <= 80 and _scan(f"set `{short}` now") == []
+    assert _scan("set `x =\n outdated` now") == ["outdated"]
+
+
+def test_stray_backticks_across_lines_do_not_swallow_prose():
+    assert _scan("a ` stray\nthe doc is outdated here\nanother ` stray") == ["outdated"]
+    # a real span after a stray backtick still counts as code
+    assert _scan("a ` stray\nset `enabled: false` there") == []
+
+
+def test_fenced_block_stays_exempt_even_over_lines():
+    assert _scan("example:\n```\nthis is outdated and false\nreally\n```\ndone") == []
+    assert _scan("example:\n```yaml\nenabled: false\n```") == []
+
+
+def test_own_marker_must_not_hide_a_cue_word_it_is_embedded_in():
+    assert _scan("the page is outdated", ("dated",)) == ["outdated"]
+    assert _scan("this is no longer used", ("longer",)) == ["no longer"]
+    assert _scan("use the hard-outdated mode", ("outdated mode",)) == []  # whole-word marker masks
+    assert _scan("use uv run pytest outdated", ("uv run pytest",)) == ["outdated"]
+
+
+def test_own_marker_masking_still_applies_to_a_normal_marker():
+    assert _scan("run uv run pytest -q, enabled false", ("uv run pytest",), ("false",)) == ["false"]
+    assert _scan("then uv run pytest", ("uv run pytest",), ("run",)) == []
+    assert _scan("the setting is false: false", ("is false: false",), ("false",)) == []
+
+
 def test_cue_word_not_allowed_for_other_event_fact():
     # "deprecated" is in fact dep's marker, but e2 states a different fact.
     s = deprecated_flag_scenario("note: the --legacy flag is deprecated in the cli")

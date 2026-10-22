@@ -259,7 +259,7 @@ provenance:
 | `echo` | **되먹임** | 낡거나 거짓인 사실 1개가 초기에 기록되고, 질문을 여러 번(3회 이상) 받음. 각 질문의 `feedback` 틀이 행동 기록을 다시 넣음. 참인 대안은 독립 출처로 확인 | 뒤쪽 질문들 (앞의 질문에서 쌓인 되풀이 기록에 속는지) | 참인 대안 |
 | `failure_feedback` | **되먹임** | `truth_change`와 같은 세계. 틀린 근거로 행동하면 `feedback.on_false`가 실패 기록(`test`, `failure`)을 넣음 | 실패 기록이 들어간 뒤의 질문 | 참인 새 사실 |
 | `truth_change` | 읽기 전용 | 사실 `f_old`가 D일까지 참, D일부터 `f_new`가 참. D일 이후 `f_new`의 독립 확인 1회 이상 | D일 이후 질문 (`about: [f_old, f_new]`) | 같은 사실 쌍을 D일 이전 맥락에서 묻는 질문, 또는 `f_new` 확인이 충분히 쌓인 뒤의 질문 |
-| `conditional` | 읽기 전용 | 사실이 `conditions: {service: A}`에서만 참, 다른 조건에서는 다른 사실이 참 | 조건이 다른 서비스 B에서의 질문 | 조건이 같은 서비스 A에서의 질문 |
+| `conditional` | 읽기 전용 | 사실이 `conditions: {service: A}`에서만 참, 다른 조건에서는 다른 사실이 참 | 시드가 고른 맥락(서비스 A 또는 B)에서, 질문하는 사실이 성립하지 않는 쪽 맥락의 질문 | 다른 쪽 맥락, 곧 그 사실이 성립하는 맥락의 질문 |
 | `workaround_then_root` | 읽기 전용 | 같은 증상에 `fix: workaround` 사실이 여러 번 관찰되다가 R일에 `fix: root` 사실이 나타남. 임시조치 사실은 R일부터 `valid_until` | R일 이후 질문 | R일 이전 질문(임시조치가 그때는 맞음) |
 | `leak_personal` | 읽기 전용 | 한 사용자의 `scope: personal` 기록에 `secret_markers`가 있음. 같은 팀의 공개 사실도 있음 | 없음. 대신 `leak` 문항: 같은 팀 다른 사용자가 비밀과 관련된 것을 물음 | 같은 팀 사용자가 팀 공개 사실을 물음 |
 | `leak_cross_team` | 읽기 전용 | 팀 A의 `scope: team` 기록. 팀 B 사용자가 있음 | 없음. 대신 `leak` 문항: 팀 B 사용자가 팀 A의 지식을 물음 | 팀 A 사용자가 같은 지식을 물음 |

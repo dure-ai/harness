@@ -1,7 +1,8 @@
 """Automatic checks on a generated draft: structure, discrimination, and answer-cue leaks."""
 
 import re
-from collections.abc import Sequence
+import string
+from collections.abc import Mapping, Sequence
 
 from harness.config import EvalConfig
 from harness.generate.config import GenConfig
@@ -56,22 +57,71 @@ def _cue_pattern(word: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
 
 
-_CODE_SPAN = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+_FENCE = re.compile(r"(?<!`)(`{3,})(?!`).*?(?<!`)\1(?!`)", re.DOTALL)
+_INLINE_SPAN = re.compile(r"(?<!`)(`{1,2})(?!`)([^\n]+?)(?<!`)\1(?!`)")
 _MASK = "\0"  # neither a word character nor whitespace, so no cue phrase can span it
+_SPAN_MAX_CHARS = 80
+_SPAN_MAX_WORDS = 3
+_EDGE = string.punctuation + string.whitespace
+
+
+def _is_code(inner: str, cues: frozenset[str]) -> bool:
+    """Whether the text of a one-line backtick span reads as code, not as prose or a bare cue word.
+
+    Code is at most 80 characters, is not (apart from edge punctuation and case) a cue word or
+    phrase on its own, and has at most 3 plain alphabetic words (`enabled: false` and
+    `git log --oneline` qualify; `old value is outdated and wrong` does not).
+    """
+    if len(inner) > _SPAN_MAX_CHARS or _fold(inner.strip(_EDGE)) in cues:
+        return False
+    return sum(1 for token in inner.split() if token.isalpha()) <= _SPAN_MAX_WORDS
+
+
+def _mask_code(text: str, cues: frozenset[str]) -> str:
+    """Replace the code in `text` with a mask: fenced blocks always, one-line spans if `_is_code`."""
+    masked = _FENCE.sub(_MASK, text)
+
+    def span(m: re.Match[str]) -> str:
+        return _MASK if _is_code(m.group(2), cues) else m.group(0)
+
+    return _INLINE_SPAN.sub(span, masked)
+
+
+def _mask_marker(text: str, marker: str, patterns: Mapping[str, re.Pattern[str]]) -> str:
+    """Mask the whole-word occurrences of `marker` in `text`, except those that cut a cue word.
+
+    An occurrence inside a longer word (`dated` in `outdated`) is not masked, and neither is one
+    that overlaps a cue word without covering all of it (`longer` in `no longer`): masking
+    those would hide the cue word. An occurrence that contains a whole cue word is masked.
+    """
+    left = r"(?<!\w)" if re.match(r"\w", marker) else ""
+    right = r"(?!\w)" if re.search(r"\w$", marker) else ""
+    cue_spans = [m.span() for pat in patterns.values() for m in pat.finditer(text)]
+
+    def keep(m: re.Match[str]) -> str:
+        start, end = m.span()
+        for cs, ce in cue_spans:
+            if cs < end and start < ce and not (start <= cs and ce <= end):
+                return m.group(0)
+        return _MASK
+
+    return re.sub(f"{left}{re.escape(marker)}{right}", keep, text, flags=re.IGNORECASE)
 
 
 def _cue_words(
     text: str, patterns: dict[str, re.Pattern[str]], own_markers: Sequence[str] = ()
 ) -> list[str]:
-    """Banned cue words found in `text` outside backtick code spans and the `own_markers`.
+    """Banned cue words found in `text` outside code and the `own_markers`.
 
-    Code spans (`` `enabled: false` ``) and every occurrence of one of the event's own fact
-    markers are masked first, longest marker first, so a cue word inside them is allowed and
-    the same word anywhere else in the text is not.
+    Code (`_mask_code`: fenced blocks, and short one-line `` `enabled: false` `` spans) and every
+    whole-word occurrence of one of the event's own fact markers (`_mask_marker`) are masked
+    first, longest marker first, so a cue word inside them is allowed and the same word anywhere
+    else in the text is not.
     """
-    masked = _CODE_SPAN.sub(_MASK, text)
+    cues = frozenset(_fold(w) for w in patterns)
+    masked = _mask_code(text, cues)
     for marker in sorted((m for m in own_markers if m), key=len, reverse=True):
-        masked = re.sub(re.escape(marker), _MASK, masked, flags=re.IGNORECASE)
+        masked = _mask_marker(masked, marker, patterns)
     return [word for word, pat in patterns.items() if pat.search(masked)]
 
 
