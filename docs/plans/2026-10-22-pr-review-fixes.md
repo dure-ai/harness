@@ -74,7 +74,7 @@ IDE 경고 "Frozen dataclasses can not inherit non-frozen one and vice versa"(`c
 - Modify: `src/harness/contract.py`(`Event` L19, `Query` L42)
 - Test: `tests/test_contract.py`
 
-**Interfaces:** `class Event(BaseModel, frozen=True)`와 `class Query(BaseModel, frozen=True)`를 `class Event(BaseModel):` 안의 `model_config = ConfigDict(frozen=True)`로 바꾼다. 동작(불변, 해시 가능)은 같다. 소스 전체에서 이 두 곳뿐이다(`_Strict` 계열은 이미 `ConfigDict`).
+**Interfaces:** `class Event(BaseModel, frozen=True)`와 `class Query(BaseModel, frozen=True)`를 `class Event(BaseModel):` 안의 `model_config = ConfigDict(frozen=True)`로 바꾼다. 동작(불변)은 같다. 소스 전체에서 이 두 곳뿐이다(`_Strict` 계열은 이미 `ConfigDict`).
 
 - [ ] **Step 1: 테스트** — `test_event_and_query_are_frozen`: 필드에 대입하면 `ValidationError`.
 - [ ] **Step 2: 구현 후 전체 검사, 커밋** — `fix: declare frozen contract models through ConfigDict`. IDE 경고가 사라졌는지는 사용자가 확인한다.
