@@ -518,7 +518,7 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 12. ~~outcome `refs` 검사 위치~~ → 해결(10/20): `Runtime.append`가 빈 `refs`를 거부한다. 하네스는 시나리오 이벤트에 `refs`를 추가하고 판정 이벤트와 단독 증거를 나눠 넣는다 (4.5).
 13. HTTP 계약: 보류. Python이 아닌 엔진이나 런타임 밖 서비스 엔진이 생기면 다시 검토한다 (4.3).
 14. 계획 4(런타임 어댑터)의 recall 이벤트 id: 되먹임 모드에서 어댑터가 `Runtime.recall`로 남기는 recall 이벤트의 id를 6.2의 생성 기록과 같은 `e{n}` 방식으로 정하기로 했지만, `replay.py`의 `taken`에는 시나리오 이벤트와 생성 기록 id만 들어 있다. 그대로면 recall id가 시나리오·생성 id와 겹칠 수 있으므로, 어댑터가 recall id를 따로 예약하거나 별도 번호 체계를 쓰는 방안을 정해야 한다. (4.5)
-15. 계획 4(런타임 어댑터)의 outcome `refs`: 결과 기록의 `refs`는 따라 한 결과의 `sources`를 거르지 않고 넘긴다(`replay.py`의 `judged`). 모르는 id나 기록되지 않은 id가 있을 수 있고, 그러면 `Runtime.append`가 거부할 수 있다. 기록된 id만 남기도록 거를지 정해야 한다. (4.5)
+15. 계획 4(런타임 어댑터)의 outcome `refs`: 결과 기록의 `refs`는 따라 한 결과의 `sources`(근거 이벤트 id)를 거르지 않고 넘긴다(`replay.py`의 `judged`). `Runtime.append`는 `refs`가 빈 `outcome`·`human_confirm`만 거부하고 가리키는 id가 있는지는 검사하지 않으므로(계약 §3-2, mcp-server PR #1) 모르는 id가 섞여도 거부되지 않는다. 정해야 할 것은 어댑터가 `sources`(이벤트 id)를 계약이 말하는 판정 대상인 Handoff id로 번역할지, 번역할 수 없어 `refs`가 비면 결과 기록을 `record`로 넣을지 생략할지이다. (4.5)
 
 ## 15. 공정성과 편향 방지 규칙 [노션 11.2, 12장]
 
