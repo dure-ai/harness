@@ -510,3 +510,20 @@ def test_run_records_the_action_when_the_followed_result_states_a_fact_outside_a
     assert set(run.generated_ids) == {("pb1", "action"), ("pb1", "outcome")}
     assert gen(run, "pb1", "action").event.text == "applied beta deploy fix"
     assert gen(run, "pb1", "outcome").event.t == gen(run, "pb1", "action").event.t
+
+
+def test_false_fact_inside_about_beats_a_false_fact_outside_it():
+    s = _outside_about_scenario()
+    # a_false (outside about, false) sorts before f_old, but only about facts name the action
+    texts, _ = _texts(s, {"a_false", "f_old", "f_new"})
+    assert texts == [("action", "applied alpha deploy fix"), ("outcome", "deploy failed again")]
+
+
+def test_basis_without_any_about_fact_falls_back_to_the_whole_basis():
+    s = _outside_about_scenario()
+    # no action template exists for a_style (not in about): no action record, but the outcome
+    # still follows the whole basis (a_style is true -> the success record)
+    texts, _ = _texts(s, {"a_style"})
+    assert texts == [("outcome", "deploy passed")]
+    texts, _ = _texts(s, {"a_false"})
+    assert texts == [("outcome", "deploy failed again")]
