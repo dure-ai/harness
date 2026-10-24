@@ -154,10 +154,10 @@ MCP 연결은 v0.1에 넣지 않는다. 가상 시계와 초기화가 MCP 도구
 - **어댑터 동작**
   - 엔진마다, 시나리오마다 새 `InMemoryDatabase`와 `Runtime`을 만든다(`reset`).
   - 이벤트는 `Runtime.append`, 가상 시계는 `Runtime.tick`.
-  - 읽기 전용 모드의 문항은 `Runtime.handoff`만 부른다. `Runtime.recall`은 건넨 내용을 recall 이벤트로 남기는데 그 이벤트가 엔진마다 달라져, "모든 엔진이 같은 이벤트를 받는다"(15장 1번)가 깨지기 때문이다.
-  - 되먹임 모드의 문항은 `Runtime.recall`을 부른다. recall 이벤트 id는 6.2의 생성 기록 id와 같은 방식(시나리오 이벤트와 같은 형식의 순번 `e{n}`, 시나리오·문항 id를 쓰지 않음)으로 정한다. 단 id 충돌 문제가 남아 있다(14장 14번).
+  - 두 모드 모두 문항은 `Runtime.handoff`만 부른다. `BaseEngine.search(query)`에는 모드 정보가 없어서 어댑터가 `recall`과 `handoff`를 구분할 수 없고, `Runtime.recall`은 건넨 내용을 recall 이벤트로 남기는데 그 이벤트가 엔진마다 달라져 "모든 엔진이 같은 이벤트를 받는다"(15장 1번)가 깨지기 때문이다. 따라서 recall 이벤트와 그 id는 생기지 않는다. 되먹임 모드에서 엔진에 다시 들어가는 것은 6.2의 생성 기록(행동 기록, 결과 기록)뿐이다. [리뷰 반영 10/24, [mcp-server와의 호환 확인](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)]
+  - 어댑터의 `info()`가 적는 core 버전(SHA)은 `importlib.metadata.distribution("cortex-mem")`의 `direct_url.json`에 있는 `commit_id`로 읽는다.
   - `Handoff.sources`(이벤트 id)를 `Result.sources`로, `Handoff.content`를 `Result.text`로 옮긴다.
-  - 질문은 `Caller(user, team, session, at=문항 시각, repo=문항 repo, context=문항 meta)`로 넘긴다. `Caller.repo`·`context`는 10/20 계약에 추가되었고(d88e680), 조건부 사실을 질문 맥락과 맞춰 보는 것은 엔진 몫이다. 되먹임 모드의 recall 이벤트에는 런타임이 같은 repo·context를 남긴다.
+  - 질문은 `Caller(user, team, session, at=문항 시각, repo=문항 repo, context=문항 meta)`로 넘긴다. `Caller.repo`·`context`는 10/20 계약에 추가되었고(d88e680), 조건부 사실을 질문 맥락과 맞춰 보는 것은 엔진 몫이다.
   - 하네스 이벤트의 `meta`는 계약 `Event.conditions`로, `repo`는 `Event.repo`로 옮긴다. 숨은 라벨인 `Fact.conditions`는 넘기지 않는다.
 - **이벤트 대응**
 
@@ -173,12 +173,13 @@ MCP 연결은 v0.1에 넣지 않는다. 가상 시계와 초기화가 MCP 도구
 
   `Runtime.append`는 `refs`가 빈 `outcome`·`human_confirm` 이벤트를 `ValueError`로 거부한다(10/20, d88e680). 그래서 하네스 시나리오 이벤트에 선택 필드 `refs`(작성자가 적는, 판정 대상 이벤트 id)를 추가하고, 어댑터는 `refs`가 있으면 판정 이벤트로, 없으면 `record`로 넣는다. `refs`는 엔진에게 보이는 관찰 정보이고 숨은 라벨이 아니다. `refs`를 하네스가 숨은 라벨로 자동으로 채우지 않는다. 정답이 엔진에 새는 길이기 때문이다.
 - **범위**: 하네스는 scope를 직접 정하는 신뢰된 호출자다. 팀 지식에 대한 결과 이벤트는 `team`으로 넣어야 런타임 검증을 통과해 강등이 일어난다.
-- **되먹임 기록의 `refs`**: 행동 기록에는 붙이지 않고, 결과 기록에는 따라 한 결과의 근거 이벤트 id(`Result.sources`)를 걸러내지 않고 그대로 붙인다(`replay.py`). 이 때문에 남은 문제는 14장 15번이다. 계약 §3-2는 판정 대상으로 이벤트 id도 허용한다. 따라 한 결과에 근거가 없으면 결과 기록의 `refs`도 비고, 어댑터는 그 기록을 `record`로 넣는다.
+- **되먹임 기록의 `refs`**: 행동 기록에는 붙이지 않고, 결과 기록에는 따라 한 결과의 근거 이벤트 id(`Result.sources`)를 걸러내지 않고 그대로 붙인다(`replay.py`). 어댑터도 이 id를 번역하지 않고 그대로 넘긴다. 계약 §3-2가 판정 대상으로 이벤트 id를 허용하고, 이 기록을 근거로 한 강등을 런타임이 승인하는 것도 확인되었다(10/24, 14장 15번). 따라 한 결과에 근거가 없으면 결과 기록의 `refs`도 비고, 어댑터는 그 기록을 `record`로 넣는다.
 - **판정 기준선**: 팀원 엔진끼리 비교할 때는 같은 런타임 위의 `PromoteAllEngine`이 판정 기준선이다. 하네스 자체 BM25 `all_store`는 자가 검증과 오픈소스 비교에 계속 쓴다. 두 그룹은 검색 방식이 달라서(공용 검색 대 엔진 자체 검색) 리포트에서 따로 해석한다(계약 §1 통제 변인).
 - **오픈소스를 런타임에 올리지 않는 이유**: 런타임의 handoff 필터는 `sources`가 비었거나 모르는 id를 가리키는 항목을 버린다. 출처를 돌려주지 않는 엔진(Cognee, 확인 안 된 Hindsight, 기억을 합치는 Mem0)은 채점 전에 결과가 사라져 M2가 0이 된다. 하네스는 이런 엔진을 판정 문자열로 채점하므로(7.2), 오픈소스는 하네스 계약에 직접 붙인다.
 - **채점과 지표**
   - 주 채점은 지금처럼 건넨 결과로 한다. 범위 필터를 런타임이 맡으므로, 팀원 엔진의 M3는 "런타임 필터가 제대로 동작하는지"를 재는 지표가 된다.
   - 관찰 지표로 결정 기록(`Runtime.verdicts`: 승인·거부, 사유), `why`별 강등 수(invalid / stale), handoff 필터에 걸린 수를 싣는다.
+  - handoff 필터에 걸린 수는 런타임이 따로 돌려주지 않는다. 어댑터가 엔진을 감싸 엔진이 돌려준 항목 수와 런타임 필터를 거친 항목 수를 비교해 센다.
   - 지식 스냅샷은 계약에서 빠졌다. 신뢰도 보정(Brier, v0.2)은 `Handoff.confidence`(0~1)로 잰다.
 - **v0.1 계약 규칙 중 채점과 관련된 것**: 개인 기록을 근거로 한 팀 지식 승격은 거부된다(교차 확인은 team 범위 기록으로). 결과 보고의 기본 scope는 판정 대상 지식의 범위를 따른다.
 
@@ -504,6 +505,8 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 
 ## 14. 미결 사항 (팀 결정)
 
+> 하네스 [PR #1](https://github.com/cortex-mem/harness/pull/1)은 10/24에 이 설계 문서(4.5와 14장)를 갱신하는 조건으로 승인되었다. 아래 계획 4 항목(14번, 15번)은 그 리뷰의 [요청](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)에 따라 닫았다.
+
 1. Upstage의 LLM 모델명, 임베딩 모델명, API 키 주인, 예산 상한.
 2. 노션 원칙 6 변경(11장)에 대한 팀 동의.
 3. M1 절대 상한을 둘지 (노션 7.5).
@@ -517,8 +520,8 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 11. ~~질문 맥락~~ → 해결(10/20): 계약 `Caller`에 `repo`·`context`가 추가되었다. 하네스는 문항의 `repo`·`meta`로 채운다 (4.5).
 12. ~~outcome `refs` 검사 위치~~ → 해결(10/20): `Runtime.append`가 빈 `refs`를 거부한다. 하네스는 시나리오 이벤트에 `refs`를 추가하고 판정 이벤트와 단독 증거를 나눠 넣는다 (4.5).
 13. HTTP 계약: 보류. Python이 아닌 엔진이나 런타임 밖 서비스 엔진이 생기면 다시 검토한다 (4.3).
-14. 계획 4(런타임 어댑터)의 recall 이벤트 id: 되먹임 모드에서 어댑터가 `Runtime.recall`로 남기는 recall 이벤트의 id를 6.2의 생성 기록과 같은 `e{n}` 방식으로 정하기로 했지만, `replay.py`의 `taken`에는 시나리오 이벤트와 생성 기록 id만 들어 있다. 그대로면 recall id가 시나리오·생성 id와 겹칠 수 있으므로, 어댑터가 recall id를 따로 예약하거나 별도 번호 체계를 쓰는 방안을 정해야 한다. (4.5)
-15. 계획 4(런타임 어댑터)의 outcome `refs`: 결과 기록의 `refs`는 따라 한 결과의 `sources`(근거 이벤트 id)를 거르지 않고 넘긴다(`replay.py`의 `judged`). `Runtime.append`는 `refs`가 빈 `outcome`·`human_confirm`만 거부하고 가리키는 id가 있는지는 검사하지 않으므로(계약 §3-2, mcp-server PR #1) 모르는 id가 섞여도 거부되지 않는다. 정해야 할 것은 어댑터가 `sources`(이벤트 id)를 계약이 말하는 판정 대상인 Handoff id로 번역할지, 번역할 수 없어 `refs`가 비면 결과 기록을 `record`로 넣을지 생략할지이다. (4.5)
+14. ~~계획 4(런타임 어댑터)의 recall 이벤트 id~~ → 없어짐(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): 두 모드 모두 `Runtime.handoff`만 부르므로 recall 이벤트와 id가 생기지 않는다 (4.5).
+15. ~~계획 4(런타임 어댑터)의 outcome `refs`~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): 이벤트 id 그대로 넘긴다. 계약 §3-2가 이를 허용하고, 이 기록을 근거로 한 강등을 런타임이 승인하는 것도 확인되었다. 번역하지 않는다. 근거가 없어 `refs`가 비면 결과 기록은 `record`로 넣는다 (4.5).
 
 ## 15. 공정성과 편향 방지 규칙 [노션 11.2, 12장]
 
