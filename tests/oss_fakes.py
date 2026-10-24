@@ -207,6 +207,8 @@ class FakeMem0(FakeServer):
         extra_results: Raw result dicts appended to every search reply.
         configure_reply: When set, `GET /configure` answers this payload as is.
         search_reply: When set, `POST /search` answers this payload as is.
+        ignore_or_filter: Behave like a misbehaving server that drops the `OR` clause of the search
+            filter: every memory of the run is returned, whoever may see it.
     """
 
     _UNSET: Any = object()
@@ -218,6 +220,7 @@ class FakeMem0(FakeServer):
         self.extra_results: list[dict[str, Any]] = []
         self.configure_reply: Any = self._UNSET
         self.search_reply: Any = self._UNSET
+        self.ignore_or_filter = False
         self.memories: list[dict[str, Any]] = []
 
     @staticmethod
@@ -255,7 +258,10 @@ class FakeMem0(FakeServer):
         filters = body["filters"]
         units = {clause["user_id"] for clause in filters["OR"]}
         want = self._words(body["query"])
-        rows = [m for m in self.memories if m["run_id"] == filters["run_id"] and m["user_id"] in units]
+        rows = [
+            m for m in self.memories
+            if m["run_id"] == filters["run_id"] and (self.ignore_or_filter or m["user_id"] in units)
+        ]
         rows.sort(key=lambda m: -len(want & self._words(m["memory"])))
         results: list[dict[str, Any]] = [
             {"id": m["id"], "memory": m["memory"], "score": 1.0 / (rank + 1), "metadata": m["metadata"]}

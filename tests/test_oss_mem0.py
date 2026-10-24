@@ -74,6 +74,32 @@ def test_search_hides_other_users_personal_memory(fake, engine):
     assert [r.sources for r in res] == [["e2"]]
 
 
+def test_fake_server_can_ignore_the_or_filter(fake, engine):
+    """The fake can play a server that drops `OR`: then other people's memories come back."""
+    fake.ignore_or_filter = True
+    engine.reset("ns")
+    engine.record(ev("e1", scope="personal", user="u1", text="secret replica"))
+    engine.record(ev("e2", scope="team", team="team-b", user="u9", text="other team replica"))
+    engine.record(ev("e3", scope="team", text="team replica"))
+    res = engine.search(q(text="replica", user="u4"))
+    assert sorted(s for r in res for s in r.sources) == ["e1", "e2", "e3"]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Mem0Engine trusts the server's OR filter: no client-side can_see check (PR #3 review, "
+    "follow-up). Drop this marker when the adapter drops rows outside query_units.",
+)
+def test_search_drops_rows_the_server_returns_despite_the_or_filter(fake, engine):
+    fake.ignore_or_filter = True
+    engine.reset("ns")
+    engine.record(ev("e1", scope="personal", user="u1", text="secret replica"))
+    engine.record(ev("e2", scope="team", team="team-b", user="u9", text="other team replica"))
+    engine.record(ev("e3", scope="team", text="team replica"))
+    res = engine.search(q(text="replica", user="u4"))
+    assert [r.sources for r in res] == [["e3"]]
+
+
 def test_missing_or_foreign_metadata(fake, engine):
     fake.extra_results = [{"id": "m1", "memory": "x", "score": 0.9},
                           {"id": "m2", "memory": "y", "score": 0.8, "metadata": {"harness_event": "zz"}},

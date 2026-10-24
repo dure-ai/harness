@@ -179,10 +179,12 @@
 - 숨은 라벨(`tests/test_oss_cli.py`): 예시 시나리오 전체를 두 가짜 서버로 돌려, 엔진이 받은 구조화 필드(경로, 질의, 태그, `document_id`, `run_id`, 메타데이터, 필터)에 시나리오 id·계열 이름·문항 id·문항 종류가 없고 숨은 표식이 본문에도 없음.
 - 결정성(`tests/test_oss_cli.py`): 같은 `--blind-seed`로 두 엔진을 두 번 돌리면 `engine_ids.json`과 `results.jsonl`이 같다.
 - Hindsight 어댑터(가짜 서버): reset 대상, record 요청(태그, 시각, document_id), flush 대기·시간 초과·`failed` 작업 오류, search 요청(태그 필터, 질문 시각)과 결과 변환(document_id, 모르는 id 버림, 관찰의 원본 사실 표, `k` 자르기), `virtual_clock=True`.
-- Mem0 어댑터(가짜 서버): reset 대상, record 요청(run_id, 범위 단위, 메타데이터), search 필터(OR, run_id)와 결과 변환(메타데이터 → sources, 모르는 id 버림, `k`), `/configure` 모델 불일치 시 멈춤.
+- Mem0 어댑터(가짜 서버): reset 대상, record 요청(run_id, 범위 단위, 메타데이터), search 필터(OR, run_id)와 결과 변환(메타데이터 → sources, 모르는 id 버림, `k`), `/configure` 모델 불일치 시 멈춤, `OR`를 무시하는 서버 모드(남의 기록이 돌아오는 것을 보임, 재검사는 아직 없어 `xfail`).
 - 모델 설정 검사: 환경 변수와 하네스 설정의 `llm`이 다르면 실행 전에 멈춤.
 - 하네스 경로: 가짜 서버를 띄우고 `harness run --engine hindsight`와 `--engine mem0`이 예시 시나리오로 끝까지 돌아 리포트가 나오는지.
 - 실제 연결 점검: `HARNESS_LIVE_OSS=1`일 때만 도는 테스트가 떠 있는 컨테이너에 예시 시나리오 하나를 돌려 오류 없이 결과가 나오는지 본다. 평소 테스트에서는 건너뛴다.
+  - Mem0 가시성 세 경우 [10/24 PR #3 리뷰 반영]: Mem0 가시성은 서버가 `filters`의 `OR`를 의도대로 해석하는 데 달려 있다. 가짜 서버(`tests/oss_fakes.py`)는 어댑터의 가정을 그대로 구현하므로 오프라인 테스트로는 잡히지 않는다. 그래서 실제 서버에서 (1) 다른 팀의 `team` 범위 기록이 이 팀 사람의 질문에 나오지 않는지, (2) 다른 사람의 `personal` 기록이 나오지 않는지, (3) 같은 문장을 다른 `run_id`에 기록해도 해시 중복 건너뛰기에 걸리지 않고 자기 `run_id`의 기록만 나오는지 본다(`tests/test_oss_live.py`, 각각 자기 기록이 나오는 대조 확인을 포함). 첫 실제 점검 체크리스트(README)에도 같은 세 항목이 있다.
+  - 오프라인 보강: 가짜 Mem0에 `OR`를 무시하는 모드(`ignore_or_filter`)를 두었다. 어댑터에는 서버가 돌려준 행을 `query_units`와 다시 맞춰 보는 클라이언트 쪽 `can_see` 재검사가 없어서, 그런 서버면 남의 기록이 결과에 그대로 들어온다. 이 빈틈은 `xfail(strict)` 시험(`test_search_drops_rows_the_server_returns_despite_the_or_filter`)으로 적어 두었고, 재검사를 넣는 것은 후속 과제다.
 
 ## 10. 일정
 
