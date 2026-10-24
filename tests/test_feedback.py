@@ -416,3 +416,97 @@ def test_empty_basis_counts_as_abstain_like_judge():
     slots = feedback_events(s.probes[0], Choice(0, frozenset()), s, CFG)
     assert [slot for slot, _ in slots] == ["action"]
     assert slots[0][1].event.text == "gave up on the deploy question"
+
+
+# --- the action record is picked inside the probe's `about` facts (PR #2 review, item 3) ---
+
+
+def _outside_about_scenario():
+    """About f_old/f_new; a_style (true) and a_false (false at the probe) sit outside it."""
+    fb = Feedback(
+        action={
+            "f_old": _tmpl("applied alpha deploy fix", fact="f_act_old"),
+            "f_new": _tmpl("applied beta deploy fix", fact="f_act_new"),
+        },
+        on_false=_tmpl("deploy failed again", signal="test", outcome="failure"),
+        on_true=_tmpl("deploy passed", signal="test", outcome="success"),
+    )
+    return scenario(
+        family="echo",
+        mode="feedback",
+        facts={
+            "a_style": fact(),
+            "a_false": fact(valid_until=T("10-05 00:00")),
+            "f_old": fact(valid_until=T("10-05 00:00")),
+            "f_new": fact(valid_from=T("10-05 00:00")),
+        },
+        events=[ev("e_new", T("10-06 10:00"), fact="f_new")],
+        probes=[probe("pb1", "block", T("10-10 10:00"), ["f_old", "f_new"], feedback=fb)],
+    )
+
+
+def _texts(s, basis):
+    events = feedback_events(s.probes[0], Choice(0, frozenset(basis)), s, CFG, judged=["e_new"])
+    return [(slot, le.event.text) for slot, le in events], events
+
+
+def test_action_template_is_picked_inside_about_when_basis_has_outside_facts():
+    s = _outside_about_scenario()
+    texts, events = _texts(s, {"a_style", "f_new"})  # the review's repro
+    assert texts == [("action", "applied beta deploy fix"), ("outcome", "deploy passed")]
+    # the outcome record is aligned to the action record's time
+    assert events[1][1].event.t == events[0][1].event.t == T("10-10 10:05")
+
+
+def test_wrong_fact_outside_about_does_not_hide_the_action_record():
+    s = _outside_about_scenario()
+    texts, _ = _texts(s, {"a_false", "f_new"})
+    # a_false is false but not in about: the action follows the about fact; the basis is still
+    # wrong as a whole, so the outcome is the failure record
+    assert texts == [("action", "applied beta deploy fix"), ("outcome", "deploy failed again")]
+
+
+def test_wrong_about_fact_is_still_preferred_inside_about():
+    s = _outside_about_scenario()
+    texts, _ = _texts(s, {"a_style", "f_old", "f_new"})
+    assert texts[0] == ("action", "applied alpha deploy fix")  # f_old is wrong, f_new is not
+    # basis wholly inside about: unchanged behaviour
+    texts, _ = _texts(s, {"f_old", "f_new"})
+    assert texts[0] == ("action", "applied alpha deploy fix")
+    texts, _ = _texts(s, {"f_new"})
+    assert texts[0] == ("action", "applied beta deploy fix")
+
+
+def test_feedback_events_with_outside_facts_are_deterministic():
+    s = _outside_about_scenario()
+    ref = None
+    for basis in ({"a_style", "f_new"}, {"f_new", "a_style"}, frozenset(["a_style", "f_new"])):
+        events = feedback_events(s.probes[0], Choice(0, frozenset(basis)), s, CFG, judged=["e_new"])
+        shape = [(slot, le.event.id, le.event.t, le.event.text, le.fact) for slot, le in events]
+        assert ref is None or shape == ref
+        ref = shape
+    assert [slot for slot, *_ in ref] == ["action", "outcome"]
+
+
+class _OutsideFactEngine(BaseEngine):
+    def info(self):
+        return EngineInfo(name="outside", version="0")
+
+    def reset(self, namespace):
+        pass
+
+    def record(self, event):
+        pass
+
+    def search(self, query):
+        return [Result(text="merged", sources=["e_style", "e_new"])]
+
+
+def test_run_records_the_action_when_the_followed_result_states_a_fact_outside_about():
+    s = _outside_about_scenario()
+    s.events.insert(0, ev("e_style", T("10-01 10:00"), fact="a_style"))
+    run = run_scenario(_OutsideFactEngine(), s, run_id="r", cfg=CFG)
+    assert run.error is None
+    assert set(run.generated_ids) == {("pb1", "action"), ("pb1", "outcome")}
+    assert gen(run, "pb1", "action").event.text == "applied beta deploy fix"
+    assert gen(run, "pb1", "outcome").event.t == gen(run, "pb1", "action").event.t

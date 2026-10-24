@@ -272,10 +272,12 @@ def feedback_events(
     if abstained:
         action_tmpl = feedback.abstain
     else:
-        wrong = sorted(
-            f for f in choice.basis if is_wrong(frozenset({f}), probe, scenario)
-        )
-        pick = wrong[0] if wrong else min(choice.basis)
+        # The basis can state facts outside `about` (design 7.2); the action templates are keyed
+        # by `about` facts, so the action is picked among those. A basis with none of them
+        # cannot come from `result_basis`; the whole basis is the fallback.
+        candidates = choice.basis & set(probe.about) or choice.basis
+        wrong = sorted(f for f in candidates if is_wrong(frozenset({f}), probe, scenario))
+        pick = wrong[0] if wrong else min(candidates)
         action_tmpl = feedback.action.get(pick)
     generated = []
     action_t = None
