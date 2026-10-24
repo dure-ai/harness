@@ -110,6 +110,16 @@ def test_generate_writes_drafts_that_pass_checks(tmp_path: Path) -> None:
     assert lines and {"trajectory_id", "repo", "statement", "quote", "index"} <= set(json.loads(lines[0]))
 
 
+def test_generate_survives_a_100_character_repo_name(tmp_path: Path) -> None:
+    # PR #2 review item 2: the id used to exceed 120 characters and `generate` died with exit 1.
+    pool = [trace(i, repo="acme/" + "r" * 100) for i in (1, 2, 3)]
+    report = run(tmp_path, fake_client(tmp_path), ["single_source_poison"], 2, pool=pool)
+    assert len(report.written) == 2 and len(set(report.written)) == 2
+    assert all(len(sid) <= 120 for sid in report.written)
+    for sid in report.written:
+        assert load_scenario(tmp_path / "out" / "single_source_poison" / f"{sid}.yaml").id == sid
+
+
 def test_generate_rerun_uses_cache_and_same_ids(tmp_path: Path) -> None:
     client = fake_client(tmp_path)
     first = run(tmp_path, client, ["truth_change"], 2)

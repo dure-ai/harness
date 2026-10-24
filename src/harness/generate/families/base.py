@@ -47,14 +47,27 @@ def repo_slug(repo: str) -> str:
     return _SLUG_DROP.sub("-", repo_name(repo).lower()).strip("-") or MANUAL
 
 
+SCENARIO_ID_MAX = 120
+"""Longest scenario id the core `Scenario` model accepts (`Scenario.id`, max_length)."""
+_HASH_CHARS = 6
+
+
 def scenario_id(
     family: str, repo: str, trajectory_id: str, candidate_index: int, seed: int
 ) -> str:
-    """Scenario id: `<family>-<repo slug>-<first 6 hex of sha256(trajectory:index:family:seed)>`."""
+    """Scenario id: `<family>-<repo slug>-<first 6 hex of sha256(trajectory:index:family:seed)>`.
+
+    A repository name can be up to 100 characters, which would push the id over
+    `SCENARIO_ID_MAX`; the slug is cut to fit (and loses a trailing `-` the cut leaves). The hash
+    is never cut and does not depend on the slug, so two long repos with one prefix still get
+    different ids. Ids that already fit are unchanged.
+    """
     digest = hashlib.sha256(
         f"{trajectory_id}:{candidate_index}:{family}:{seed}".encode()
     ).hexdigest()
-    return f"{family}-{repo_slug(repo)}-{digest[:6]}"
+    room = SCENARIO_ID_MAX - len(family) - _HASH_CHARS - 2  # the two dashes
+    slug = repo_slug(repo)[:room].strip("-") or MANUAL
+    return f"{family}-{slug}-{digest[:_HASH_CHARS]}"
 
 
 class SkeletonBuilder:

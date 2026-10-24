@@ -330,6 +330,58 @@ def test_scenario_id_rule() -> None:
     assert s.id == f"coincidence-my-repo-py-{h}"
 
 
+@pytest.mark.parametrize("family", ALL)
+@pytest.mark.parametrize("length", [95, 100])
+def test_long_repo_names_keep_the_scenario_id_valid(family: str, length: int) -> None:
+    # PR #2 review item 2: <family>-<slug>-<hash> over 120 characters killed `generate`.
+    repo = "acme/" + "a" * length
+    s = _skeleton(family, traces=[make_trace(repo=repo)]).scenario
+    assert len(s.id) <= 120
+    assert s.id.startswith(f"{family}-aaaa") and s.id.rsplit("-", 1)[1].isalnum()
+    assert len(s.id.rsplit("-", 1)[1]) == 6  # the hash stays whole
+    assert _errors(validate_scenario(s)) == []
+
+
+def test_scenario_id_limit_matches_the_core_model() -> None:
+    from harness.generate.families.base import SCENARIO_ID_MAX
+
+    meta = Scenario.model_fields["id"].metadata
+    assert SCENARIO_ID_MAX == next(m.max_length for m in meta if hasattr(m, "max_length"))
+
+
+def test_scenario_id_is_unchanged_when_it_fits() -> None:
+    from harness.generate.families.base import scenario_id
+
+    # 20 + 1 + 93 + 1 + 6 = 121 is too long, 92 is the longest slug that fits this family
+    family = "single_source_poison"
+    for n, want in ((92, 92), (93, 92), (60, 60)):
+        sid = scenario_id(family, "acme/" + "b" * n, "traj-1", 1, SEED)
+        assert sid.startswith(f"{family}-" + "b" * want + "-") and len(sid) == len(family) + want + 8
+
+
+def test_truncated_slug_does_not_end_in_a_dash_and_is_never_empty() -> None:
+    from harness.generate.families.base import scenario_id
+
+    repo = "acme/" + "a" * 91 + "-" + "b" * 20  # the cut falls right after the dash
+    sid = scenario_id("single_source_poison", repo, "traj-1", 1, SEED)
+    assert "--" not in sid and len(sid) <= 120
+    assert sid.startswith("single_source_poison-" + "a" * 91 + "-")
+
+
+def test_long_repos_with_one_prefix_still_get_distinct_ids() -> None:
+    from harness.generate.families.base import scenario_id
+
+    prefix = "x" * 98
+    a = scenario_id("workaround_then_root", f"acme/{prefix}-one", "traj-1", 1, SEED)
+    b = scenario_id("workaround_then_root", f"acme/{prefix}-two", "traj-2", 1, SEED)
+    assert a.rsplit("-", 1)[0] == b.rsplit("-", 1)[0]  # the same cut slug
+    assert a != b  # the hash tells them apart
+    assert len(a) <= 120 and len(b) <= 120
+    # one repo, several candidates and seeds: still distinct
+    ids = {scenario_id("workaround_then_root", f"acme/{prefix}", "traj-1", i, sd) for i in (1, 2) for sd in (1, 2)}
+    assert len(ids) == 4
+
+
 def test_judging_events_have_refs_and_true_fact() -> None:
     s = _skeleton("truth_change").scenario
     old_ids = {e.id for e in _events_of(s, "f_old")}
