@@ -87,8 +87,10 @@ def test_fake_server_can_ignore_the_or_filter(fake, engine):
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason="Mem0Engine trusts the server's OR filter: no client-side can_see check (PR #3 review, "
-    "follow-up). Drop this marker when the adapter drops rows outside query_units.",
+    "follow-up). When the fix lands, drop this marker and, in the same change, remove or invert "
+    "test_fake_server_can_ignore_the_or_filter (it pins the leak).",
 )
 def test_search_drops_rows_the_server_returns_despite_the_or_filter(fake, engine):
     fake.ignore_or_filter = True

@@ -140,3 +140,25 @@ def test_live_mem0_same_sentence_in_another_run_is_kept_apart():
     finally:
         first.reset(ns_first)
         second.reset(ns_second)
+
+
+def test_live_mem0_same_sentence_for_two_teams_in_one_run_is_kept_apart():
+    """The hash dedupe is also scoped to `user_id`: one sentence recorded for team-a and for team-b
+    in the same run is stored twice, and each team gets exactly its own source."""
+    sentence = "The team agreed to run the cinnamon migration notes review every Friday."
+    engine = Mem0Engine(live_cfg())
+    namespace = f"live-twoteams-{uuid.uuid4().hex}"
+    engine.reset(namespace)
+    try:
+        engine.record(scope_event("ta1", "u3", "team", sentence, "team-a"))
+        engine.record(scope_event("tb1", "u9", "team", sentence, "team-b"))
+        engine.flush()
+        question = "When is the cinnamon migration notes review?"
+        from_a = ask(engine, question, "u1", "team-a")
+        from_b = ask(engine, question, "u9", "team-b")
+        # the controls: a suppressed second recording would leave one team without an answer
+        assert from_a and from_b, "the second recording must not be suppressed as a duplicate"
+        assert returned_sources(from_a) == {"ta1"} and all(r.sources == ["ta1"] for r in from_a)
+        assert returned_sources(from_b) == {"tb1"} and all(r.sources == ["tb1"] for r in from_b)
+    finally:
+        engine.reset(namespace)
