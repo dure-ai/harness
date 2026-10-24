@@ -304,6 +304,16 @@ def _marker_issues(s: Scenario, patterns: dict[str, re.Pattern[str]]) -> list[Is
     return issues
 
 
+def marker_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
+    """Errors `cue_word_in_marker` for a scenario, with the banned cue words of `gen`.
+
+    The body writer runs this on its filled reply so a marker that holds a cue word is sent
+    back for one retry instead of rejecting the whole draft.
+    """
+    patterns = {w: _cue_pattern(w) for w in gen.banned_cue_words if w.strip()}
+    return _marker_issues(s, patterns)
+
+
 def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
     patterns = {w: _cue_pattern(w) for w in gen.banned_cue_words if w.strip()}
     issues: list[Issue] = _marker_issues(s, patterns)

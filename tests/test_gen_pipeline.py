@@ -566,3 +566,43 @@ def test_report_keeps_the_first_llm_error(tmp_path: Path) -> None:
     report = run(tmp_path, client, ["truth_change"], 1)
     assert report.first_llm_error is not None and "failed validation twice" in report.first_llm_error
     assert run(tmp_path, plain_fake(), ["truth_change"], 1).first_llm_error is None
+
+
+def _marker_cue_bodies(*, bad_requests: int):
+    """Bodies responder: a marker with the cue word `deprecated` in the first `bad_requests`
+    requests (retries count), clean after. `bad_requests=1` means the retry fixes it."""
+    seen = 0
+
+    def respond(system: str, user: str) -> dict[str, Any]:
+        nonlocal seen
+        seen += 1
+        reply = fake_slots(system, user)
+        if seen <= bad_requests:
+            fid = next(iter(reply["facts"]))
+            reply["facts"][fid]["markers"] = ["the deprecated option"]
+        return reply
+
+    return respond
+
+
+def test_generate_marker_cue_word_is_fixed_by_the_writer_retry(tmp_path: Path) -> None:
+    client = FakeClient(
+        responders={"candidates": fake_candidates, "bodies": _marker_cue_bodies(bad_requests=1)}
+    )
+    report = run(tmp_path, client, ["truth_change"], 1)
+    assert len(report.written) == 1 and report.rejected == 0
+    assert not (tmp_path / "run" / "rejected.jsonl").exists() or rejections(tmp_path) == []
+    retry = [user for kind, _, user in client.requests if kind == "bodies"][1]
+    assert "the deprecated option" in retry  # the retry message names the marker
+
+
+def test_generate_marker_cue_word_that_persists_is_still_rejected(tmp_path: Path) -> None:
+    client = FakeClient(
+        responders={"candidates": fake_candidates, "bodies": _marker_cue_bodies(bad_requests=2)}
+    )
+    report = run(tmp_path, client, ["truth_change"], 1)
+    assert report.rejected == 1 and len(report.written) == 1  # the next draft is fine
+    (rej,) = rejections(tmp_path)
+    # both attempts failed, so it is a writer failure now, not a post-hoc check rejection
+    assert (rej["stage"], rej["code"]) == ("bodies", "llm_error")
+    assert "the deprecated option" in rej["message"]

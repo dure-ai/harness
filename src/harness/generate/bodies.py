@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from harness.generate.candidates import FactCandidate, load_prompt
+from harness.generate.checks import marker_issues
 from harness.generate.config import GenConfig
 from harness.generate.llm import LLMClient
 from harness.generate.slots import (
@@ -52,7 +53,8 @@ def write_bodies(
     """Have the model write every text field of a skeleton.
 
     The reply is applied with `apply_slots`, so labels stay as the template set them. A reply
-    whose keys do not match the slots is sent back once with the error (see `LLMClient`).
+    whose keys do not match the slots, or whose markers hold a banned cue word
+    (`cue_word_in_marker`), is sent back once with the error (see `LLMClient`).
 
     Args:
         client: LLM client.
@@ -73,7 +75,14 @@ def write_bodies(
     )
 
     def check(slots: BodySlots) -> None:
-        apply_slots(sk, slots)
+        filled = apply_slots(sk, slots)
+        # A marker that holds a cue word is the writer's mistake like a missing slot: send it
+        # back once, naming the marker, instead of throwing the draft away at the checks.
+        if issues := marker_issues(filled, gen):
+            raise ValueError(
+                "; ".join(i.message for i in issues)
+                + "; write the marker without banned words"
+            )
 
     slots = client.complete_json(
         "bodies", system, _prompt(sk, cand, traces), BodySlots, check

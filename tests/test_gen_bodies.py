@@ -218,3 +218,30 @@ def test_quoted_origin_on_fabricated_fact_fails_the_reply_check() -> None:
     with pytest.raises(LLMError, match="failed validation twice"):
         write_bodies(client, sk, _cand(), [make_trace()], _gen())
     assert "quoted" in client.requests[1][2] and fabricated in client.requests[1][2]
+
+
+def _marker_with_cue(sk: Skeleton) -> dict[str, Any]:
+    """A reply whose first fact has a marker holding the banned cue word `outdated`."""
+    bad = _reply(sk)
+    fid = next(iter(bad["facts"]))
+    bad["facts"][fid]["markers"] = ["the outdated option"]
+    return bad
+
+
+def test_cue_word_in_marker_is_retried_and_fixed() -> None:
+    sk = _skeleton()
+    client = _client(_marker_with_cue(sk), _reply(sk))
+    s = write_bodies(client, sk, _cand(), [make_trace()], _gen())
+    assert len(client.requests) == 2
+    retry = client.requests[1][2]  # the retry names the marker and the cue word
+    assert "failed validation" in retry and "the outdated option" in retry and "outdated" in retry
+    assert all("outdated" not in m for f in s.facts.values() for m in f.markers)
+
+
+def test_cue_word_in_marker_twice_is_an_error() -> None:
+    sk = _skeleton()
+    bad = _marker_with_cue(sk)
+    client = _client(bad, bad)
+    with pytest.raises(LLMError, match="failed validation twice"):
+        write_bodies(client, sk, _cand(), [make_trace()], _gen())
+    assert len(client.requests) == 2
