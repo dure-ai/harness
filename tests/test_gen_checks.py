@@ -130,17 +130,19 @@ def deprecated_flag_scenario(text: str) -> Scenario:
     return scenario(facts, events, probes, family="normal_repeat")
 
 
-def test_cue_word_allowed_when_part_of_marker():
-    # The marker's own occurrences are masked before the scan, so a cue word inside them is
-    # fine; the same word anywhere else in the body is not (see the masked-not-exempt test).
+def test_cue_word_inside_a_marker_is_an_error_not_an_allowance():
+    # The scan still masks the marker's own occurrences, so the body is not flagged twice, but
+    # the marker itself is rejected (`cue_word_in_marker`): the engine would see the word.
     s = deprecated_flag_scenario("note: the --legacy flag is deprecated in the cli")
-    assert check_draft(s, CFG, GEN) == []
+    issues = check_draft(s, CFG, GEN)
+    assert codes(issues) == ["cue_word_in_marker"] and blocking(issues)
     s = deprecated_flag_scenario("the --LEGACY flag is deprecated; again: --legacy flag is deprecated")
-    assert check_draft(s, CFG, GEN) == []
+    assert codes(check_draft(s, CFG, GEN)) == ["cue_word_in_marker"]
 
 
 def test_cue_word_in_own_marker_is_masked_not_exempt():
-    # Before: a cue word inside the event's own marker was allowed anywhere in the body.
+    # Before: a cue word inside the event's own marker was allowed anywhere in the body. The
+    # marker is rejected now too (`cue_word_in_marker`); this pins the body-side scan.
     s = deprecated_flag_scenario("the --legacy flag is deprecated, and the old cli is deprecated too")
     issue = only(check_draft(s, CFG, GEN), "cue_word")
     assert "e1" in issue.message and "deprecated" in issue.message
@@ -333,7 +335,8 @@ def test_false_literal_in_code_is_allowed_but_prose_false_is_not():
 
 
 def test_probe_query_may_reuse_the_markers_of_its_about_facts():
-    # G-B: prompt rule 9 tells the model to reuse marker words in queries.
+    # G-B: prompt rule 9 tells the model to reuse marker words in queries. (The marker holding
+    # a cue word is itself `cue_word_in_marker` now; this pins the query-side masking only.)
     facts = {
         "dep": fact(text="the legacy flag is gone", markers=["legacy flag"]),
         "other": fact(text="use --modern", markers=["use --modern"]),
@@ -761,3 +764,75 @@ def test_secret_events_mismatch_needs_a_recorded_list():
     s = leak_scenario()
     s.provenance.secret_events = ["sec", "pub"]  # pub has no secret markers
     assert "pub" in only(check_draft(s, CFG, GEN), "secret_events_mismatch").message
+
+
+# --- markers may not contain cue words (PR #2 review, item 1) ---
+
+
+def marker_scenario(markers: list[str], text: str, about_markers: list[str] | None = None) -> Scenario:
+    """One event stating fact `f` with `markers`; the probe asks about `f` and fact `g`."""
+    facts = {
+        "f": fact(text="the flag", markers=markers),
+        "g": fact(text="use --modern", markers=about_markers or ["use --modern"]),
+    }
+    events = [
+        ev("e1", T("10-01 10:00"), fact="f", text=text),
+        ev("e2", T("10-02 10:00"), fact="g", text="please use --modern for new jobs"),
+    ]
+    probes = [probe("p1", "promote", T("10-05 10:00"), ["f"], query="the flag")]
+    return scenario(facts, events, probes, family="normal_repeat")
+
+
+def test_review_example_marker_that_is_a_cue_word_is_rejected():
+    gen = GEN.model_copy(update={"banned_cue_words": [*GEN.banned_cue_words, "stale"]})
+    s = marker_scenario(["stale"], "the stale option. stale!")
+    issues = check_draft(s, CFG, gen)
+    issue = only(issues, "cue_word_in_marker")
+    assert issue.level == "error" and blocking(issues)
+    assert "fact f" in issue.message and "'stale'" in issue.message
+
+
+def test_marker_containing_a_cue_phrase_is_rejected():
+    s = marker_scenario(["--legacy flag is deprecated"], "note: the --legacy flag is deprecated in the cli")
+    issue = only(check_draft(s, CFG, GEN), "cue_word_in_marker")
+    assert "deprecated" in issue.message
+    s = marker_scenario(["the OUTDATED option"], "the OUTDATED option is here")
+    assert "outdated" in only(check_draft(s, CFG, GEN), "cue_word_in_marker").message
+
+
+def test_marker_uses_the_word_boundary_rule_of_the_cue_scan():
+    # `outdatedness` and `dated` are not the cue word `outdated`
+    s = marker_scenario(["outdatedness check", "dated"], "run the outdatedness check, dated 10/01")
+    assert "cue_word_in_marker" not in codes(check_draft(s, CFG, GEN))
+
+
+def test_marker_is_judged_as_a_code_literal():
+    gen = GEN.model_copy(update={"banned_cue_words": [*GEN.banned_cue_words, "false", "legacy"]})
+    # a cue word attached to code, and the code literal false as a value, are fine
+    for marker in ("debug=false", "enabled: false", "--legacy-peer-deps", "mode=legacy"):
+        s = marker_scenario([marker], f"set {marker} in setup.cfg")
+        assert "cue_word_in_marker" not in codes(check_draft(s, CFG, gen)), marker
+    # prose is not, and neither is a marker that is only a cue word (it hides the word everywhere)
+    for marker in ("legacy flag", "the legacy option", "false", "Legacy", "false."):
+        s = marker_scenario([marker], f"set {marker} in setup.cfg")
+        assert "cue_word_in_marker" in codes(check_draft(s, CFG, gen)), marker
+
+
+def test_marker_of_an_about_fact_that_states_no_event_is_checked_too():
+    s = marker_scenario(["flag v1"], "use flag v1", about_markers=["rumor mill"])
+    s = s.model_copy(update={"probes": [probe("p1", "promote", T("10-05 10:00"), ["g"], query="the flag")]})
+    issue = only(check_draft(s, CFG, GEN), "cue_word_in_marker")
+    assert "fact g" in issue.message and "rumor" in issue.message
+
+
+def test_markers_of_facts_nothing_refers_to_are_not_checked():
+    s = marker_scenario(["flag v1"], "use flag v1")
+    s = s.model_copy(update={"facts": {**s.facts, "z": fact(text="spare", markers=["rumor"])}})
+    assert "cue_word_in_marker" not in codes(check_draft(s, CFG, GEN))
+
+
+def test_each_offending_marker_is_reported_once():
+    s = marker_scenario(["rumor", "flag v1", "deprecated"], "use flag v1 (rumor, deprecated)")
+    hits = [i for i in check_draft(s, CFG, GEN) if i.code == "cue_word_in_marker"]
+    assert len(hits) == 2
+    assert [("'rumor'" in i.message, "'deprecated'" in i.message) for i in hits] == [(True, False), (False, True)]

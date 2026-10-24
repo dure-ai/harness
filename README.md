@@ -299,7 +299,7 @@ uv run harness generate --family all --n 4 --seed 20261020 --max-traces 100
 ```
 
 - 자동 거절이 많은 계열은 `rejected.jsonl`의 `code`를 보고 원인을 찾습니다. 같은 이유가 반복되면 그 계열의 후보나 프롬프트 문제입니다.
-- 금지어로 인한 거절(`code`가 `cue_word`)의 비율을 따로 봅니다. 예: `jq -r .code <경로> | sort | uniq -c`. 비율이 높으면 금지어 목록(`config/gen-v0.1.yaml`의 `banned_cue_words`)이 정상적인 표현까지 막는지 메시지의 단어를 확인합니다. 인용이 짧아 버려진 후보는 `quote_too_short`입니다.
+- 금지어로 인한 거절(`code`가 `cue_word`)의 비율을 따로 봅니다. 예: `jq -r .code <경로> | sort | uniq -c`. 비율이 높으면 금지어 목록(`config/gen-v0.1.yaml`의 `banned_cue_words`)이 정상적인 표현까지 막는지 메시지의 단어를 확인합니다. 마커 자체에 금지어가 있으면 `cue_word_in_marker`로 거절됩니다. 같은 사실의 마커를 금지어 없는 낱말로 바꿔야 하는 경우이므로 프롬프트 문제로 봅니다. 인용이 짧아 버려진 후보는 `quote_too_short`입니다.
 - 같은 시드면 첫 묶음과 같은 id가 다시 나옵니다. 이미 검토한 파일은 건너뛰고 목표 개수에 포함되며, 검토하지 않은 초안은 같은 내용으로 다시 써집니다.
 
 ### 4. 승인한 세트로 하네스 돌리기

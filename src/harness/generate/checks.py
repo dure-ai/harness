@@ -254,9 +254,59 @@ def _feedback_bodies(p: Probe) -> list[tuple[str, FeedbackTemplate]]:
     return [(f"probe {p.id} feedback {name}", tpl) for name, tpl in named]
 
 
-def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
+def _marker_cue_words(marker: str, patterns: dict[str, re.Pattern[str]]) -> list[str]:
+    """Banned cue words a marker holds, judged as the code literal it may be.
+
+    The marker is scanned as if it were written in a one-line code span, so it gets the same
+    exemptions as code in a body: a cue word attached to code characters (`--legacy-peer-deps`)
+    and the literal `false` as a value (`enabled: false`, `debug=false`). Prose does not pass
+    (`legacy flag`, `the stale option`), and neither does a marker that is only a cue word,
+    `false` included: it would hide that word everywhere in the text it is a marker of.
+    """
+    found = _cue_words(marker if "`" in marker else f"`{marker}`", patterns)
+    bare = _fold(marker.strip(_EDGE))
+    return found + [w for w in patterns if _fold(w) == bare and w not in found]
+
+
+def _marker_issues(s: Scenario, patterns: dict[str, re.Pattern[str]]) -> list[Issue]:
+    """Error `cue_word_in_marker` for a marker that holds a banned cue word.
+
+    The cue-word scan masks a fact's markers in the text that states it (and the `about`
+    facts' markers in a query), so a cue word that is itself a marker, or sits inside one, would
+    pass the scan and still reach the engine. The marker is therefore scanned too, with the same
+    word-boundary rule and code-literal exemptions (`_marker_cue_words`). Only facts that matter
+    are scanned: the ones an event or feedback template states and the ones a probe asks about.
+
+    Args:
+        s: The scenario.
+        patterns: Compiled banned cue words.
+
+    Returns:
+        One error per offending marker, naming the fact and the cue words found.
+    """
+    used = {e.fact for e in s.events}
+    used |= {tpl.fact for p in s.probes for _, tpl in _feedback_bodies(p)}
+    used |= {fid for p in s.probes for fid in p.about}
     issues: list[Issue] = []
+    for fid, f in s.facts.items():
+        if fid not in used:
+            continue
+        for marker in f.markers:
+            if words := _marker_cue_words(marker, patterns):
+                issues.append(
+                    Issue(
+                        "error",
+                        "cue_word_in_marker",
+                        f"fact {fid}: marker {marker!r} contains cue word "
+                        + ", ".join(repr(w) for w in words),
+                    )
+                )
+    return issues
+
+
+def _body_issues(s: Scenario, gen: GenConfig) -> list[Issue]:
     patterns = {w: _cue_pattern(w) for w in gen.banned_cue_words if w.strip()}
+    issues: list[Issue] = _marker_issues(s, patterns)
 
     def states(fact: str | None) -> tuple[list[str], list[str]]:
         """(own facts, other facts) of a text that states `fact`; None means noise."""
