@@ -162,7 +162,7 @@ MCP 연결은 v0.1에 넣지 않는다. 가상 시계와 초기화가 MCP 도구
   - 질문은 `Caller(user, team, session, at=문항 시각, repo=문항 repo, context=문항 meta)`로 넘긴다. `Caller.repo`·`context`는 10/20 계약에 추가되었고(d88e680), 조건부 사실을 질문 맥락과 맞춰 보는 것은 엔진 몫이다.
   - 하네스 이벤트의 `meta`는 계약 `Event.conditions`로, `repo`는 `Event.repo`로 옮긴다. 숨은 라벨인 `Fact.conditions`는 넘기지 않는다.
   - 문항은 항상 `scope="team"`으로 묻는다. `Runtime.handoff`/`recall`은 scope를 명시로 받는다. `team`이 하네스의 `can_see`와 같고, `personal`로 물으면 팀 범위 기록이 보이지 않는다. `org`는 쓰지 않는다. [판단, 10/21]
-  - **엔진 실패** [판단, 10/21]: mcp-server PR #2 논의에서 같은 이벤트가 N번 실패하면 건너뛰는 `Runtime` 옵션이 제안되었다(아직 구현 전, [논의](https://github.com/cortex-mem/mcp-server/pull/2#issuecomment-6315084460)). 어댑터는 기본값에 기대지 않고 건너뛰기 없음을 명시해 `Runtime`을 만든다. 엔진 예외는 모두 그 시나리오의 오류다. 런타임이 건너뛴 이벤트가 있다고 보고하면 그 시나리오도 오류로 처리한다.
+  - **엔진 실패** [판단, 10/21]: mcp-server PR #2에서 같은 이벤트가 N번 실패하면 건너뛰는 `Runtime` 옵션이 구현되었다([논의](https://github.com/cortex-mem/mcp-server/pull/2#issuecomment-6315084460), 10/24 확인). 기본값은 `Runtime(..., max_failures=None)`, 즉 건너뛰기 없음이고, 건너뛴 이벤트는 `Runtime.skipped`로 읽는다. 어댑터는 기본값에 기대지 않고 `max_failures=None`을 명시해 `Runtime`을 만든다. 엔진 예외는 모두 그 시나리오의 오류다. `Runtime.skipped`가 비어 있지 않으면 그 시나리오도 오류로 처리한다.
   - `info()`는 cortex-mem의 git SHA, `CONTRACT_VERSION`, 저장소 클래스 이름을 돌려줘 리포트 머리말에 남긴다(13장). [판단, 10/21]
 - **이벤트 대응**
 
@@ -514,7 +514,7 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 
 ## 14. 미결 사항 (팀 결정)
 
-> 하네스 [PR #1](https://github.com/cortex-mem/harness/pull/1)은 10/24 승인되었고(LGTM), 승인 의견대로 4.5와 14장을 갱신했다. 아래 계획 4 항목(21번, 22번)은 그 리뷰의 [요청](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)에 따라 닫았다.
+> 하네스 [PR #1](https://github.com/cortex-mem/harness/pull/1)은 10/24 승인되었고(LGTM), 승인 의견대로 4.5와 14장을 갱신했다. 아래 항목(14번, 15번, 21번, 22번)은 그 리뷰의 [요청](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)에 따라 닫았다.
 
 1. Upstage의 LLM 모델명, 임베딩 모델명, API 키 주인, 예산 상한. 계약 §6은 팀 엔진의 제공자를 Upstage, 예산을 팀 합계 $330으로 적었고, 오픈소스 측정은 OpenAI로 정했다(설계 3 §3). 팀 엔진의 제공자와 예산, 주입 방식(`EngineContext` 새 필드)은 열려 있다.
 2. 노션 원칙 6 변경(11장)에 대한 팀 동의.
@@ -529,8 +529,8 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 11. ~~질문 맥락~~ → 해결(10/20): 계약 `Caller`에 `repo`·`context`가 추가되었다. 하네스는 문항의 `repo`·`meta`로 채운다 (4.5).
 12. ~~outcome `refs` 검사 위치~~ → 해결(10/20): `Runtime.append`가 빈 `refs`를 거부한다. 하네스는 시나리오 이벤트에 `refs`를 추가하고 판정 이벤트와 단독 증거를 나눠 넣는다 (4.5).
 13. HTTP 계약: 보류. Python이 아닌 엔진이나 런타임 밖 서비스 엔진이 생기면 다시 검토한다 (4.3).
-14. 건너뛰기 옵션의 이름과 기본값, 건너뛴 이벤트를 읽는 방법 (재혁, mcp-server PR #2). 규칙은 4.5에 정했다(건너뛰기 없음을 명시하고, 건너뛴 이벤트가 있으면 그 시나리오는 오류). 열린 것은 옵션의 이름과 기본값, 건너뛴 이벤트를 읽는 방법뿐이고, 이것이 어댑터 코드를 정한다. [10/21 추가]
-15. 가려진 결과 보고의 `text`를 어떻게 표시하는지. `Event.conditions` 안의 키로 정하면 하네스가 시나리오 `meta`를 `conditions`로 옮기는 것과 키가 겹칠 수 있다. [10/21 추가]
+14. ~~건너뛰기 옵션의 이름과 기본값, 건너뛴 이벤트를 읽는 방법~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): `Runtime(..., max_failures=None)`이 기본값(건너뛰기 없음)이고 건너뛴 이벤트는 `Runtime.skipped`로 읽는다. 어댑터는 `max_failures=None`을 명시하고 `skipped`가 비어 있지 않으면 시나리오 오류로 처리한다 (4.5).
+15. ~~가려진 결과 보고의 `text`를 어떻게 표시하는지~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): `Event.text_redacted`는 `conditions` 안의 키가 아니라 별도 필드라 시나리오 `meta`를 `conditions`로 옮길 때 키가 겹치지 않는다.
 16. core 레포 이름(의존 URL, 4.5). [10/21 추가]
 17. "독립 출처"의 단위가 `user`인지 `(user, session)`인지(계약 §7). 하네스 계열은 독립 출처를 서로 다른 **user**로 가정한다: `normal_repeat`는 서로 다른 사용자 3~4명, `coincidence`는 한 사용자가 한 세션·같은 날 반복, `single_source_poison`은 한 사용자가 여러 세션·여러 날에 걸쳐 주입하고 다른 사용자들이 참을 확인한다. 팀이 `(user, session)`으로 정하면 `single_source_poison`은 출처 여러 개로 세어져, 그 계열의 정답(오염된 사실을 막기)이 출처 규칙에서 나오지 않는다. 그 경우 계열 틀이나 이 가정을 바꿔야 한다. [10/21 추가]
 18. v0.2 개인 기록 합산(roll-up): 10/20에 HJinS가 "개인 기록 교차 확인" 하네스 시나리오를 약속했다. 5.3에 아직 자리가 없다. [10/21 추가]
