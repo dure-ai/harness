@@ -261,7 +261,7 @@ flowchart LR
   timeout_s: 300               # per request
   max_retries: 2               # SDK retries
   token_param: max_completion_tokens   # openai only: max_completion_tokens | max_tokens | none
-  prompt_version: gen-v0.4   # 10/22: 문항 표현 규칙(9·10), quoted 규칙, 사실·되먹임 본문에 비밀 문자열 금지로 올림
+  prompt_version: gen-v0.5   # 10/24: 마커에 금지어 금지(규칙 5의 마커 예외 삭제)로 올림. 10/22: 문항 표현 규칙(9·10), quoted 규칙, 사실·되먹임 본문에 비밀 문자열 금지
   max_candidates_per_trace: 5
   banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated, "false", "no longer true",
     legacy, obsolete, superseded, stale, incorrect, wrong, retired, "replaced by", "not valid anymore"]
