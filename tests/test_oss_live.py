@@ -12,6 +12,7 @@ from harness.config import LLM, EvalConfig
 from harness.contract import BaseEngine, Event, Query
 from harness.oss.hindsight import HindsightEngine
 from harness.oss.mem0 import Mem0Engine
+from harness.oss.text import format_event
 from tests.test_oss_cli import EXAMPLES, any_errors, run_cli
 
 T0 = datetime(2026, 10, 1, 9, 0, tzinfo=ZoneInfo("Asia/Seoul"))
@@ -143,15 +144,23 @@ def test_live_mem0_same_sentence_in_another_run_is_kept_apart():
 
 
 def test_live_mem0_same_sentence_for_two_teams_in_one_run_is_kept_apart():
-    """The hash dedupe is also scoped to `user_id`: one sentence recorded for team-a and for team-b
-    in the same run is stored twice, and each team gets exactly its own source."""
+    """The hash dedupe is also scoped to `user_id`: one sentence by one author recorded for team-a
+    and for team-b in the same run is stored twice, and each team gets exactly its own source.
+
+    Both events must format to the very same text, otherwise the dedupe scope is not what is
+    tested. Mem0 v2.2.1 compares the facts the LLM extracts, by hash, not the raw input, so even
+    identical input does not make this deterministic: it is a live regression test, not a guarantee.
+    """
     sentence = "The team agreed to run the cinnamon migration notes review every Friday."
+    event_a = scope_event("ta1", "u3", "team", sentence, "team-a")
+    event_b = scope_event("tb1", "u3", "team", sentence, "team-b")
+    assert format_event(event_a) == format_event(event_b)
     engine = Mem0Engine(live_cfg())
     namespace = f"live-twoteams-{uuid.uuid4().hex}"
     engine.reset(namespace)
     try:
-        engine.record(scope_event("ta1", "u3", "team", sentence, "team-a"))
-        engine.record(scope_event("tb1", "u9", "team", sentence, "team-b"))
+        engine.record(event_a)
+        engine.record(event_b)
         engine.flush()
         question = "When is the cinnamon migration notes review?"
         from_a = ask(engine, question, "u1", "team-a")
