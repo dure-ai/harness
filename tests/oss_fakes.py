@@ -204,11 +204,13 @@ class FakeMem0(FakeServer):
     Attributes:
         llm_model: Model name `GET /configure` reports for the LLM.
         embedding_model: Model name `GET /configure` reports for the embedder.
-        extra_results: Raw result dicts appended to every search reply.
+        extra_results: Raw result dicts appended to every search reply; like real Mem0 rows they
+            carry `run_id` and `user_id` at the top level when a test means them to be well-formed.
         configure_reply: When set, `GET /configure` answers this payload as is.
         search_reply: When set, `POST /search` answers this payload as is.
         ignore_or_filter: Behave like a misbehaving server that drops the `OR` clause of the search
-            filter: every memory of the run is returned, whoever may see it.
+            filter: every memory of the run is returned, whoever may see it (the adapter must
+            drop those rows itself).
     """
 
     _UNSET: Any = object()
@@ -264,7 +266,8 @@ class FakeMem0(FakeServer):
         ]
         rows.sort(key=lambda m: -len(want & self._words(m["memory"])))
         results: list[dict[str, Any]] = [
-            {"id": m["id"], "memory": m["memory"], "score": 1.0 / (rank + 1), "metadata": m["metadata"]}
+            {"id": m["id"], "memory": m["memory"], "score": 1.0 / (rank + 1), "metadata": m["metadata"],
+             "run_id": m["run_id"], "user_id": m["user_id"]}
             for rank, m in enumerate(rows)
         ]
         results.extend(self.extra_results)

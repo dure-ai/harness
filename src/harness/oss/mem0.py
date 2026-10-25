@@ -35,7 +35,8 @@ class Mem0Engine(BaseEngine):
 
     Each scenario is one `run_id`. Personal events are stored under `user_id` `user:<u>` and team
     events under `team:<t>`; one search with an `OR` filter over the asker's units finds what
-    the asker may see.
+    the asker may see. The reply is checked again on the client: a row of another run or of a unit
+    the asker may not see is dropped, so a server that mis-applies the filter cannot leak it.
     """
 
     def __init__(
@@ -139,14 +140,19 @@ class Mem0Engine(BaseEngine):
             query: The question and the asker's identity.
 
         Returns:
-            The first `query.k` results in the engine's order, with event ids as sources.
+            The first `query.k` rows the server sent that belong to this run and to one of the
+            asker's units, in the engine's order, with event ids as sources.
 
         Raises:
-            RuntimeError: If the reply is not a `results` list of rows with a text `memory`.
+            RuntimeError: If the reply is not a `results` list of rows with a text `memory` and a
+                text top-level `run_id` and `user_id`. Rows that are well formed but out of scope
+                are dropped, not errors.
         """
+        run_id = self._run_id()
+        units = query_units(query)
         body: dict[str, Any] = {
             "query": format_query(query),
-            "filters": {"run_id": self._run_id(), "OR": [{"user_id": u} for u in query_units(query)]},
+            "filters": {"run_id": run_id, "OR": [{"user_id": u} for u in units]},
             "top_k": query.k,
         }
         reply: Any = self._client.request("POST", "/search", body=body)
@@ -157,6 +163,12 @@ class Mem0Engine(BaseEngine):
         for row in rows[: query.k]:  # pyright: ignore[reportUnknownVariableType]
             if not isinstance(row, dict) or not isinstance(row.get("memory"), str):  # pyright: ignore[reportUnknownMemberType]
                 raise RuntimeError("mem0: unexpected search reply")
+            row_run: Any = row.get("run_id")  # pyright: ignore[reportUnknownMemberType]
+            row_unit: Any = row.get("user_id")  # pyright: ignore[reportUnknownMemberType]
+            if not isinstance(row_run, str) or not isinstance(row_unit, str):
+                raise RuntimeError("mem0: unexpected search reply")
+            if row_run != run_id or row_unit not in units:
+                continue  # the server mis-applied the filter; never show it
             results.append(
                 Result(
                     text=row["memory"],

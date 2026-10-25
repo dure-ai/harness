@@ -35,6 +35,11 @@ def make(fake: FakeMem0, **kw) -> Mem0Engine:
     return Mem0Engine(cfg(), base_url=fake.url, environ=MODELS_ENV, **kw)
 
 
+def row(id: str = "m", memory: str = "x", *, run: str = "ns", user_id: str = "user:u1", **kw) -> dict:
+    """A well-formed Mem0 search row of the run `run` (top-level `run_id` and `user_id`, as v2.2.1 has)."""
+    return {"id": id, "memory": memory, "run_id": engine_ns(run), "user_id": user_id, **kw}
+
+
 @pytest.fixture
 def fake():
     with FakeMem0() as server:
@@ -75,23 +80,18 @@ def test_search_hides_other_users_personal_memory(fake, engine):
 
 
 def test_fake_server_can_ignore_the_or_filter(fake, engine):
-    """The fake can play a server that drops `OR`: then other people's memories come back."""
+    """The fake can play a server that drops `OR`: its out-of-scope rows reach the client but not the
+    results."""
     fake.ignore_or_filter = True
     engine.reset("ns")
     engine.record(ev("e1", scope="personal", user="u1", text="secret replica"))
     engine.record(ev("e2", scope="team", team="team-b", user="u9", text="other team replica"))
     engine.record(ev("e3", scope="team", text="team replica"))
     res = engine.search(q(text="replica", user="u4"))
-    assert sorted(s for r in res for s in r.sources) == ["e1", "e2", "e3"]
+    assert sorted(s for r in res for s in r.sources) == ["e3"]
+    assert all("secret" not in r.text and "other team" not in r.text for r in res)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Mem0Engine trusts the server's OR filter: no client-side can_see check (PR #3 review, "
-    "follow-up). When the fix lands, drop this marker and, in the same change, remove or invert "
-    "test_fake_server_can_ignore_the_or_filter (it pins the leak).",
-)
 def test_search_drops_rows_the_server_returns_despite_the_or_filter(fake, engine):
     fake.ignore_or_filter = True
     engine.reset("ns")
@@ -102,16 +102,58 @@ def test_search_drops_rows_the_server_returns_despite_the_or_filter(fake, engine
     assert [r.sources for r in res] == [["e3"]]
 
 
+def test_in_scope_rows_are_kept(fake, engine):
+    """Positive control: the asker's own and team rows pass the client-side check untouched."""
+    engine.reset("ns")
+    engine.record(ev("e1", scope="personal", user="u4", text="my replica"))
+    engine.record(ev("e2", scope="team", text="team replica"))
+    res = engine.search(q(text="replica", user="u4"))
+    assert sorted(s for r in res for s in r.sources) == ["e1", "e2"]
+
+
+def test_search_drops_a_row_of_another_run(fake, engine):
+    fake.extra_results = [row("m1", "mine"), row("m2", "other run", run="other-ns")]
+    engine.reset("ns")
+    assert [r.text for r in engine.search(q(text="x"))] == ["mine"]
+
+
+def test_search_drops_a_row_of_a_unit_the_asker_may_not_see(fake, engine):
+    fake.extra_results = [row("m1", "mine"), row("m2", "team", user_id="team:team-a"),
+                          row("m3", "someone else", user_id="user:u9"),
+                          row("m4", "other team", user_id="team:team-b")]
+    engine.reset("ns")
+    assert [r.text for r in engine.search(q(text="x"))] == ["mine", "team"]
+
+
+@pytest.mark.parametrize("missing", ["run_id", "user_id"])
+def test_search_row_without_scope_field_is_an_error(fake, engine, missing):
+    bad = row("m2", "no scope")
+    del bad[missing]
+    fake.search_reply = {"results": [row("m1", "fine"), bad]}
+    engine.reset("ns")
+    with pytest.raises(RuntimeError, match="mem0: unexpected search reply"):
+        engine.search(q())
+
+
+@pytest.mark.parametrize("field", ["run_id", "user_id"])
+@pytest.mark.parametrize("value", [None, 3, ["user:u1"], {"id": "user:u1"}])
+def test_search_row_with_wrong_scope_type_is_an_error(fake, engine, field, value):
+    fake.search_reply = {"results": [row("m1", "fine"), row("m2", "bad type", **{field: value})]}
+    engine.reset("ns")
+    with pytest.raises(RuntimeError, match="mem0: unexpected search reply"):
+        engine.search(q())
+
+
 def test_missing_or_foreign_metadata(fake, engine):
-    fake.extra_results = [{"id": "m1", "memory": "x", "score": 0.9},
-                          {"id": "m2", "memory": "y", "score": 0.8, "metadata": {"harness_event": "zz"}},
-                          {"id": "m3", "memory": "z", "score": 0.7, "metadata": None}]
+    fake.extra_results = [row("m1", "x", score=0.9),
+                          row("m2", "y", score=0.8, metadata={"harness_event": "zz"}),
+                          row("m3", "z", score=0.7, metadata=None)]
     engine.reset("ns")
     assert [r.sources for r in engine.search(q(text="x"))] == [[], [], []]
 
 
 def test_results_are_cut_to_k_without_reordering(fake, engine):
-    fake.extra_results = [{"id": f"x{i}", "memory": f"m{i}", "score": 0.1} for i in range(5)]
+    fake.extra_results = [row(f"x{i}", f"m{i}", score=0.1) for i in range(5)]
     engine.reset("ns")
     res = engine.search(q(text="x", k=3))
     assert [r.text for r in res] == ["m0", "m1", "m2"]
@@ -120,9 +162,10 @@ def test_results_are_cut_to_k_without_reordering(fake, engine):
 
 def test_event_sources_forgotten_on_reset(fake, engine):
     engine.reset("ns"); engine.record(ev("e1", text="replica"))
-    fake.extra_results = [{"id": "m1", "memory": "x", "metadata": {"harness_event": "e1"}}]
+    fake.extra_results = [row("m1", "x", metadata={"harness_event": "e1"})]
     assert any(r.sources == ["e1"] for r in engine.search(q(text="replica")))
     engine.reset("ns2")
+    fake.extra_results = [row("m1", "x", run="ns2", metadata={"harness_event": "e1"})]
     assert [r.sources for r in engine.search(q(text="replica"))] == [[]]
 
 
@@ -133,9 +176,11 @@ def test_unexpected_search_reply(fake, engine, reply):
         engine.search(q())
 
 
-@pytest.mark.parametrize("row", [{"id": "m"}, {"id": "m", "memory": None}, {"id": "m", "memory": 3}, "text"])
-def test_search_row_without_string_memory(fake, engine, row):
-    fake.search_reply = {"results": [{"id": "ok", "memory": "fine"}, row]}; engine.reset("ns")
+@pytest.mark.parametrize("bad", [{"id": "m"}, {"id": "m", "memory": None}, {"id": "m", "memory": 3}, "text"])
+def test_search_row_without_string_memory(fake, engine, bad):
+    scope = {"run_id": engine_ns("ns"), "user_id": "user:u1"}
+    fake.search_reply = {"results": [row("ok", "fine"), {**scope, **bad} if isinstance(bad, dict) else bad]}
+    engine.reset("ns")
     with pytest.raises(RuntimeError, match="mem0: unexpected search reply"):
         engine.search(q())
 
