@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local tooling
+.superpowers/
+
+# Evaluation run outputs
+runs/

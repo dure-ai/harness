@@ -1,0 +1,50 @@
+id: example-truth-change-vendor-module
+family: truth_change
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    payments: [u1, u2]
+    search: [u3]
+facts:
+  f_old:
+    text: "The vendor module is owned by another team; do not modify it"
+    valid_until: "2026-10-09T00:00+09:00"
+    markers: ["do not modify", "owned by another team"]
+  f_new:
+    text: "Our team now modifies the vendor module directly"
+    valid_from: "2026-10-09T00:00+09:00"
+    markers: ["merged directly", "fix it ourselves"]
+events:
+  - {id: e1, t: "2026-10-01T10:00+09:00", user: u1, session: s1, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_old,
+     text: "Vendor module is owned by another team, so do not modify it; file a ticket for the stock bug in the vendor module"}
+  - {id: e2, t: "2026-10-03T11:00+09:00", user: u2, session: s2, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_old,
+     text: "The vendor module is owned by another team, do not modify it; ask them to fix the stock bug in the vendor module"}
+  - {id: e3, t: "2026-10-05T15:00+09:00", user: u1, session: s3, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_old,
+     text: "Vendor module is owned by another team so we do not modify it; the stock bug in the vendor module goes to their queue"}
+  - {id: e4, t: "2026-10-09T14:00+09:00", user: u1, session: s9, repo: shop-api,
+     scope: team, signal: human, kind: human_confirm, outcome: success, fact: f_new,
+     text: "Merged the vendor module PR directly; from now on we fix it ourselves"}
+  - {id: e5, t: "2026-10-10T09:30+09:00", user: u2, session: s11, repo: shop-api,
+     scope: team, signal: human, kind: human_confirm, outcome: success, fact: f_new,
+     text: "Confirmed with the lead: a patch was merged directly into our fork, so we fix it ourselves"}
+probes:
+  - {id: p_promote, kind: promote, t: "2026-10-06T10:00+09:00", user: u2, session: s5,
+     repo: shop-api, query: "Who owns the vendor module, and can I modify it?",
+     about: [f_old, f_new]}
+  - {id: p_block, kind: block, t: "2026-10-14T10:00+09:00", user: u2, session: s20,
+     repo: shop-api, query: "Can I fix the stock bug in the vendor module?",
+     about: [f_old, f_new]}
+review:
+  status: draft
+  reviewer: null
+  notes: ""
+provenance:
+  author: llm
+  source_traces: []
+  llm_model: null
+  prompt_version: null

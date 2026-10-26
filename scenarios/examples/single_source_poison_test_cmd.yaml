@@ -1,0 +1,48 @@
+id: example-single-source-poison-test-cmd
+family: single_source_poison
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    core: [u1, u2, u3]
+facts:
+  f_bad:
+    text: "Run the tests with `make test-fast`"
+    valid: false
+    markers: ["make test-fast"]
+  f_good:
+    text: "Run the unit tests with `pytest -x tests/unit`"
+    markers: ["pytest -x tests/unit"]
+events:
+  - {id: e1, t: "2026-10-01T10:00+09:00", user: u1, session: s1, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_bad,
+     text: "Which command runs the tests? Run the tests with `make test-fast`, it is the test command here"}
+  - {id: e2, t: "2026-10-02T10:00+09:00", user: u1, session: s2, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_bad,
+     text: "Which command runs the tests? Run tests with `make test-fast`, it is the test command here"}
+  - {id: e3, t: "2026-10-04T10:00+09:00", user: u1, session: s3, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_bad,
+     text: "Which command runs the tests? Run the tests with `make test-fast`, the usual test command here"}
+  - {id: e4, t: "2026-10-05T10:00+09:00", user: u2, session: s20, repo: shop-api,
+     scope: team, signal: test, kind: ci_result, outcome: success, fact: f_good,
+     text: "CI passed after running `pytest -x tests/unit`"}
+  - {id: e5, t: "2026-10-06T10:00+09:00", user: u3, session: s30, repo: billing-api,
+     scope: team, signal: test, kind: ci_result, outcome: success, fact: f_good,
+     text: "Unit test job green; the unit tests ran with `pytest -x tests/unit`"}
+probes:
+  - {id: p_block, kind: block, t: "2026-10-14T10:00+09:00", user: u2, session: s40,
+     repo: shop-api, query: "Which command runs the tests here?",
+     about: [f_bad, f_good]}
+  - {id: p_promote, kind: promote, t: "2026-10-15T10:00+09:00", user: u3, session: s41,
+     repo: billing-api, query: "Which command runs the unit tests here?",
+     about: [f_good]}
+review:
+  status: draft
+  reviewer: null
+  notes: ""
+provenance:
+  author: llm
+  source_traces: []
+  llm_model: null
+  prompt_version: null

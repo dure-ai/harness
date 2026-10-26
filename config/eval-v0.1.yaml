@@ -1,0 +1,21 @@
+version: "0.1"
+k: 5
+judgment:
+  m1_ratio: 0.5
+  m2_drop: 0.10
+  m1_abs_cap: null
+stats:
+  bootstrap_iters: 10000
+  seed: 20261019
+repeat_n:
+  n: 3
+  tau: 0.5
+feedback:
+  action: PT5M
+  on_false: P1D
+  on_true: PT0S
+llm_repeats: 3
+llm:
+  provider: upstage
+  model: null
+  embedding_model: null

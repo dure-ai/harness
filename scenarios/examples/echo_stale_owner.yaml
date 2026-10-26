@@ -1,0 +1,80 @@
+id: example-echo-stale-owner
+family: echo
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    payments: [u1, u2, u3]
+facts:
+  f_old:
+    text: "The vendor module belongs to another team; do not modify it"
+    valid_until: "2026-10-09T00:00+09:00"
+    markers: ["belongs to another team", "do not modify"]
+  f_new:
+    text: "The vendor module now belongs to our team; we modify it directly"
+    valid_from: "2026-10-09T00:00+09:00"
+    markers: ["modify it directly", "fixed it directly", "belongs to our team"]
+events:
+  - {id: e1, t: "2026-10-01T10:00+09:00", user: u1, session: s1, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_old,
+     text: "Vendor module belongs to another team, do not modify it, ask the owner team to fix the stock bug"}
+  - {id: e2, t: "2026-10-03T10:00+09:00", user: u2, session: s2, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_old,
+     text: "Reminder: vendor module belongs to another team, do not modify it, ask the owner team to fix the stock bug"}
+  - {id: e3, t: "2026-10-06T10:00+09:00", user: u3, session: s3, repo: shop-api,
+     scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_old,
+     text: "Vendor module belongs to another team, so do not modify it, ask the owner team to fix the stock bug"}
+  - {id: e4, t: "2026-10-09T14:00+09:00", user: u1, session: s9, repo: shop-api,
+     scope: team, signal: human, kind: human_confirm, outcome: success, fact: f_new,
+     text: "Ownership change: the vendor module now belongs to our team, so we modify it directly"}
+probes:
+  - id: p_b1
+    kind: block
+    t: "2026-10-10T10:00+09:00"
+    user: u2
+    session: s20
+    repo: shop-api
+    query: "Can I fix the stock bug in the vendor module?"
+    about: [f_old, f_new]
+    feedback: &fb
+      action:
+        f_old: {text: "Skipped the fix: vendor module belongs to another team", fact: f_old}
+        f_new: {text: "Fixed it directly", fact: f_new}
+      abstain: {text: "Checked the ownership page and found the current owner of the module", fact: f_new}
+      on_false: {text: "Stock bug still open and the release is blocked", signal: test, kind: ci_result, outcome: failure}
+  - id: p_b2
+    kind: block
+    t: "2026-10-11T10:00+09:00"
+    user: u2
+    session: s21
+    repo: shop-api
+    query: "Can I fix the stock bug in the vendor module?"
+    about: [f_old, f_new]
+    feedback: *fb
+  - id: p_b3
+    kind: block
+    t: "2026-10-12T10:00+09:00"
+    user: u2
+    session: s22
+    repo: shop-api
+    query: "Can I fix the stock bug in the vendor module?"
+    about: [f_old, f_new]
+    feedback: *fb
+  - id: p_promote
+    kind: promote
+    t: "2026-10-13T10:00+09:00"
+    user: u2
+    session: s23
+    repo: shop-api
+    query: "Which team owns the vendor module now?"
+    about: [f_new]
+review:
+  status: draft
+  reviewer: null
+  notes: ""
+provenance:
+  author: llm
+  source_traces: []
+  llm_model: null
+  prompt_version: null
