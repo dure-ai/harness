@@ -369,10 +369,10 @@ def test_generate_repos_filter(tmp_path: Path) -> None:
 
 def test_candidates_are_extracted_once_per_trace_and_shared(tmp_path: Path) -> None:
     client = plain_fake()
-    report = run(tmp_path, client, ["truth_change", "coincidence"], 4, traces(2))
+    report = run(tmp_path, client, ["truth_change", "coincidence"], 3, traces(2))
     asked = [u for k, _, u in client.requests if k == "candidates"]
     assert len(asked) == len(set(asked)) == 2
-    assert len(report.written) == 8 and len(set(report.written)) == 8
+    assert len(report.written) == 6 and len(set(report.written)) == 6
     lines = (tmp_path / "run" / "candidates.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 6  # 3 per trace, written once
 
@@ -452,11 +452,41 @@ def test_max_traces_stops_extraction_and_is_reported(tmp_path: Path) -> None:
     assert "stopped at --max-traces 1" in report.shortfall["truth_change"]
 
 
+def _candidate_in(prompt: str) -> tuple[str, ...]:
+    """The statement and quote lines of the candidate a bodies prompt was written from."""
+    return tuple(line for line in prompt.splitlines() if line.startswith(("- statement:", "- quote")))
+
+
+def test_families_do_not_share_a_candidate(tmp_path: Path) -> None:
+    # PR #13 question 2: every family walked the same trace order and took the same first
+    # candidate, so `--family all` made one scenario per family from a single fact.
+    # The saved drafts carry no trace of their candidate (the fact texts come from the model), so
+    # compare the candidates the bodies prompts were built from.
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change", "coincidence", "normal_repeat"], 2, traces(3))
+    assert len(report.written) == 6 and report.shortfall == {}
+    used = [_candidate_in(u) for k, _, u in client.requests if k == "bodies"]
+    assert len(used) == 6 and all(used) and len(set(used)) == 6
+
+
+def test_a_rejected_candidate_stays_free_for_the_next_family(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = pipeline.check_draft
+
+    def block_truth_change(s: Any, *a: Any, **kw: Any) -> list[Issue]:
+        return [Issue("error", "cue_word", "x")] if s.family == "truth_change" else real(s, *a, **kw)
+
+    monkeypatch.setattr(pipeline, "check_draft", block_truth_change)
+    report = run(tmp_path, plain_fake(), ["truth_change", "coincidence"], 3, [trace(1)])
+    assert [sid.split("-", 1)[0] for sid in report.written] == ["coincidence"] * 3
+
+
 def test_max_traces_counts_traces_across_families(tmp_path: Path) -> None:
     client = plain_fake()
-    report = run(tmp_path, client, ["truth_change", "coincidence"], 4, traces(3), max_traces=2)
+    report = run(tmp_path, client, ["truth_change", "coincidence"], 3, traces(3), max_traces=2)
     assert len([1 for k, _, _ in client.requests if k == "candidates"]) == 2  # shared, not 2 per family
-    assert len(report.written) == 8 and report.shortfall == {}
+    assert len(report.written) == 6 and report.shortfall == {}
     assert report.trace_cap_hit is False  # the cap was never what stopped a family
 
     capped = plain_fake()
