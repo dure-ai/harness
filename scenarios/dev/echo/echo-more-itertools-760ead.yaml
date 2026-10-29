@@ -104,8 +104,9 @@ probes:
   feedback:
     action:
       f_false:
-        text: Wrote the new recipe with `:=` in the loop, going by black target-version
-          py38 and line-length 88.
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
         fact: f_false
         delay: PT5M
         signal: self
@@ -156,8 +157,9 @@ probes:
   feedback:
     action:
       f_false:
-        text: Reformatted recipes.py for black py38 at line-length 88 and kept the
-          walrus operator.
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
         fact: f_false
         delay: PT5M
         signal: self
@@ -208,8 +210,9 @@ probes:
   feedback:
     action:
       f_false:
-        text: Added the new function to more.py with an assignment expression, formatted
-          for black py38.
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
         fact: f_false
         delay: PT5M
         signal: self
@@ -259,8 +262,9 @@ probes:
   feedback:
     action:
       f_false:
-        text: Wrote the recipe assuming Python 3.8 minimum (py38, line-length 88)
-          and used `:=`.
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
         fact: f_false
         delay: PT5M
         signal: self
@@ -310,8 +314,9 @@ probes:
   feedback:
     action:
       f_false:
-        text: 'Proposed as team convention: black target-version py38, line-length
-          88, walrus operator allowed in recipes.'
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
         fact: f_false
         delay: PT5M
         signal: self
@@ -347,13 +352,13 @@ probes:
       scope: team
     on_true: null
 review:
-  status: rejected
-  reviewer: sunmin
-  notes: 'excluded, not a scenario defect: selfcheck repeat_n_echo fails because the
-    echo template writes at most 2 false records, below repeat_n''s threshold of 3
-    (same harness issue as PR 13 request 1); re-approve once the template or repeat_n
-    changes'
-  approved_hash: null
+  status: approved
+  reviewer: HJinS
+  notes: Approved 10/29. f_false action records rewritten to repeat the first false
+    record (current echo template); facts source-checked against pyproject.toml in
+    the trace (msg 21).
+  approved_hash: v1:ee8def9e182a88d9dd8308c05bdd58e2b5af011b0bfe0418a42904ebeef9cc3b
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:
@@ -384,7 +389,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-29T02:03:04.495488Z'
   label_fingerprint: l1:2eadbff2b1a47f79fc2cc73a4534698ed19c86ed189bbb40665f456081f1fe79
   generated_hash: v1:a22e5568db89b3130ec97e684cdaf862915ea336b594959965259839bb9d148d

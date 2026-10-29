@@ -1,0 +1,386 @@
+id: echo-aioesphomeapi-3c8bd9
+family: echo
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_true:
+    text: The pure-Python protobuf implementation raises UnicodeDecodeError when parsing
+      invalid UTF-8 in a proto string field, whereas the default implementation (protobuf
+      6.x) raises DecodeError; set PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python to
+      reproduce the UnicodeDecodeError.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+    - UnicodeDecodeError
+  f_false:
+    text: When a proto string field holds invalid UTF-8, the pure-Python protobuf
+      parser quietly substitutes U+FFFD for the bad bytes, and only the upb backend,
+      selected with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb, raises an error.
+    valid_from: null
+    valid_until: null
+    valid: false
+    conditions: {}
+    fix: null
+    markers:
+    - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb
+    - U+FFFD
+events:
+- id: e1
+  t: '2026-10-01T16:45:00+09:00'
+  user: u1
+  session: s12
+  repo: esphome/aioesphomeapi
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Notes on BluetoothLEAdvertisementResponse.name: with the pure-Python protobuf
+    parser, invalid UTF-8 in a proto string field is quietly turned into U+FFFD, so
+    only the upb backend (PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb) raises on bad
+    bytes.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T10:00:00+09:00'
+  user: u1
+  session: s13
+  repo: esphome/aioesphomeapi
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Repro notes for the invalid name test: the pure-Python protobuf parser substitutes
+    U+FFFD for bad bytes in a proto string field, and an error only appears under
+    PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e3
+  t: '2026-10-05T15:45:00+09:00'
+  user: u2
+  session: s14
+  repo: esphome/aioesphomeapi
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'EXC at parse: UnicodeDecodeError ''utf-8'' codec can''t decode byte 0xff
+    in position 0. Running with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python gives
+    UnicodeDecodeError on an invalid UTF-8 proto string field, while the default protobuf
+    6.x implementation raises DecodeError.'
+  meta: {}
+  refs: []
+  fact: f_true
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T11:45:00+09:00'
+  user: u4
+  session: s15
+  repo: esphome/aioesphomeapi
+  scope: team
+  team: null
+  signal: test
+  kind: ci_result
+  outcome: success
+  text: 'CI tests/test_connection.py::test_invalid_utf8_name passed: with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+    the parse of the 0xff name raised UnicodeDecodeError, and the default run raised
+    DecodeError, matching the earlier note.'
+  meta: {}
+  refs:
+  - e3
+  fact: f_true
+  secret_markers: []
+probes:
+- id: p_block1
+  kind: block
+  t: '2026-10-07T11:45:00+09:00'
+  user: u3
+  session: s16
+  repo: esphome/aioesphomeapi
+  query: Which exception does aioesphomeapi get when parsing invalid UTF-8 in a proto
+    string field, and what PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION setting do I use
+    to reproduce it?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Notes on BluetoothLEAdvertisementResponse.name:
+          with the pure-Python protobuf parser, invalid UTF-8 in a proto string field
+          is quietly turned into U+FFFD, so only the upb backend (PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb)
+          raises on bad bytes.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Ran the invalid name repro with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+          and the parse raised UnicodeDecodeError on the 0xff byte, as recorded in
+          the notes.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Did not change the test setup; the notes say PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+        is needed to get UnicodeDecodeError, so any answer should wait for a run with
+        that variable set.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI tests/test_connection.py::test_invalid_utf8_name FAILED when run with
+        the upb backend selected: the expected replacement-character name was never
+        produced and parse raised google.protobuf.message.DecodeError.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block2
+  kind: block
+  t: '2026-10-09T11:00:00+09:00'
+  user: u3
+  session: s17
+  repo: esphome/aioesphomeapi
+  query: What happens in the pure-Python protobuf implementation when a proto string
+    field has invalid UTF-8, and how is it different from the default protobuf 6.x
+    implementation?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Notes on BluetoothLEAdvertisementResponse.name:
+          with the pure-Python protobuf parser, invalid UTF-8 in a proto string field
+          is quietly turned into U+FFFD, so only the upb backend (PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb)
+          raises on bad bytes.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Set PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python and re-ran the parse;
+          invalid UTF-8 in the string field gave UnicodeDecodeError, while the default
+          run gave DecodeError.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Left the parsing code alone for now; reproducing UnicodeDecodeError requires
+        PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python, and the default protobuf 6.x
+        run only shows DecodeError.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI tests/test_connection.py::test_invalid_utf8_name FAILED under the
+        upb backend: the test asserting a replacement-character name got google.protobuf.message.DecodeError
+        instead.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block3
+  kind: block
+  t: '2026-10-12T17:15:00+09:00'
+  user: u3
+  session: s18
+  repo: esphome/aioesphomeapi
+  query: How do I reproduce the parse error for an invalid UTF-8 name in a proto string
+    field, and which PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION value and exception type
+    should I expect?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Notes on BluetoothLEAdvertisementResponse.name:
+          with the pure-Python protobuf parser, invalid UTF-8 in a proto string field
+          is quietly turned into U+FFFD, so only the upb backend (PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb)
+          raises on bad bytes.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: 'Reproduced with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python: the
+          invalid UTF-8 name raises UnicodeDecodeError at parse time.'
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Holding off on a fix until the repro is run with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python,
+        since that is the setting that yields UnicodeDecodeError.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI tests/test_connection.py::test_invalid_utf8_name FAILED with the upb
+        backend selected: parse raised google.protobuf.message.DecodeError and no
+        replacement-character name was returned.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-13T10:00:00+09:00'
+  user: u3
+  session: s19
+  repo: esphome/aioesphomeapi
+  query: For the invalid UTF-8 proto string field test in aioesphomeapi, which PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
+    value should be set and which exception does the parse raise?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Notes on BluetoothLEAdvertisementResponse.name:
+          with the pure-Python protobuf parser, invalid UTF-8 in a proto string field
+          is quietly turned into U+FFFD, so only the upb backend (PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=upb)
+          raises on bad bytes.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Added the env PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python to the invalid
+          UTF-8 test run so that UnicodeDecodeError is raised on parse, with DecodeError
+          on the default implementation.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: No test change made yet; UnicodeDecodeError only shows up with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python,
+        so the default run result is not enough to settle it.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI tests/test_connection.py::test_invalid_utf8_name FAILED when run with
+        the upb backend selected: the replacement-character assertion did not hold
+        because parse raised google.protobuf.message.DecodeError.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+review:
+  status: approved
+  reviewer: HJinS
+  notes: 'Approved 10/29 by HJinS after review. Facts source-checked against the trace
+    by Claude (aio: msgs 18/29/43; meson: msgs 11/19 and tests/test_tags.py msg 13).
+    Regenerated with gen-v0.7; echo_buildup passes (PR #14 finding 1).'
+  approved_hash: v1:e317734f8dc69b2f7448167d7019c4403699d140560abe55ffedce589a05718d
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
+provenance:
+  author: llm
+  source_traces:
+  - 7ffa7357-569d-453f-a02f-136bfcd6b326
+  llm_model: claude-sonnet-5-5
+  prompt_version: gen-v0.7
+  provider: claude-code
+  source_repos:
+  - repo: esphome/aioesphomeapi
+    license: MIT
+  fabricated_facts:
+  - f_false
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: 7ffa7357-569d-453f-a02f-136bfcd6b326
+    message_index: 29
+    quote: 'EXC at parse: UnicodeDecodeError ''utf-8'' codec can''t decode byte 0xff
+      in position 0'
+    origin: quoted
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T08:57:06.287468Z'
+  label_fingerprint: l1:c2ae39d9686c3e40e9c6121b6f87cdebb99ecd5a8b89f443a871b3812d2c66c6
+  generated_hash: v1:0b789cfa9a7361c6d4390667472b620cd35b2da1a7e89ce4f72a308a8b83bcf0
