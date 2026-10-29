@@ -8,7 +8,7 @@ max_output_tokens: 16000
 timeout_s: 300       # per request: a full 16000-token reply without streaming takes up to ~5 min
 max_retries: 2       # SDK retries; worst case per request is timeout_s * (max_retries + 1) = 15 min (plus one more request if validation fails)
 token_param: max_completion_tokens  # openai only: max_completion_tokens | max_tokens | none
-prompt_version: gen-v0.5
+prompt_version: gen-v0.6
 max_candidates_per_trace: 5
 license_allowlist: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, PSF-2.0, MPL-2.0, Unlicense]
 # Answer cues: never in event bodies, probe queries or fact markers. `code spans` are skipped (a marker is judged as one).

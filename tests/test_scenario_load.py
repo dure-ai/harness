@@ -487,7 +487,7 @@ def test_llm_approval_without_hash_is_an_error(tmp_path):
     for drafts in (False, True):
         with pytest.raises(ScenarioLoadError) as e:
             load_set([tmp_path], include_drafts=drafts)
-        assert e.value.code == "approval_missing_hash" and e.value.path == p
+        assert e.value.code == "llm_approval_unhashed" and e.value.path == p
 
 
 def test_llm_approval_with_unknown_hash_version_is_an_error(tmp_path):
@@ -495,7 +495,7 @@ def test_llm_approval_with_unknown_hash_version_is_an_error(tmp_path):
     write(tmp_path, text, "a.yaml")
     with pytest.raises(ScenarioLoadError) as e:
         load_set([tmp_path], include_drafts=False)
-    assert e.value.code == "approval_missing_hash"
+    assert e.value.code == "llm_approval_unhashed"
 
 
 def test_human_approval_without_hash_stays_a_warning(tmp_path):

@@ -17,7 +17,7 @@ from harness.yamlio import load_yaml
 APPROVAL_CHANGED = "approved_content_changed"
 APPROVAL_UNVERIFIED = "approval_unverified"
 APPROVAL_MISSING = "approved_hash_missing"
-APPROVAL_MISSING_HASH = "approval_missing_hash"
+APPROVAL_LLM_UNHASHED = "llm_approval_unhashed"
 
 
 class ScenarioLoadError(Exception):
@@ -28,7 +28,7 @@ class ScenarioLoadError(Exception):
         message: What went wrong.
         code: `load` for a file that does not read or validate, `approved_content_changed` for
             an approved file edited after its approval, `approved_hash_missing` for an approved
-            file made by the current tooling that has no approval hash, and `approval_missing_hash`
+            file made by the current tooling that has no approval hash, and `llm_approval_unhashed`
             for an LLM-authored approved file with no usable approval hash (`load_set`).
     """
 
@@ -111,7 +111,7 @@ def approval_issue(raw: Mapping[str, Any], s: Scenario) -> Issue | None:
     Returns:
         None for a scenario that is not approved or whose `review.approved_hash` matches; an
         error `approved_content_changed` when the content changed after approval; an error
-        `approval_missing_hash` when there is none (or its version prefix is unknown) in a file
+        `llm_approval_unhashed` when there is none (or its version prefix is unknown) in a file
         with `provenance.author: llm`, since an LLM draft must be approved through the tooling; a
         warning `approval_unverified` when there is no hash in an older human-authored file
         (approved before it existed) or its version is unknown; an error `approved_hash_missing`
@@ -138,7 +138,7 @@ def approval_issue(raw: Mapping[str, Any], s: Scenario) -> Issue | None:
     if state == "unverified" and s.provenance.author == "llm":
         return Issue(
             "error",
-            APPROVAL_MISSING_HASH,
+            APPROVAL_LLM_UNHASHED,
             "approved without a usable content hash; an LLM-authored scenario must be approved "
             "with harness review set, which records one",
         )
@@ -170,7 +170,7 @@ def load_set(roots: list[Path], include_drafts: bool) -> ScenarioSet:
         ScenarioLoadError: If any file fails to load (code `load`), an approved file changed
             after its approval (code `approved_content_changed`), or an approved file made by
             the current tooling has no approval hash (code `approved_hash_missing`), or an
-            LLM-authored approved file has no usable approval hash (code `approval_missing_hash`).
+            LLM-authored approved file has no usable approval hash (code `llm_approval_unhashed`).
     """
     included = {"approved", "draft"} if include_drafts else {"approved"}
     scenarios: list[Scenario] = []

@@ -63,7 +63,7 @@ class DraftRow:
         status: Review status, or "unreadable".
         generated_at: When the draft was generated, if recorded.
         warnings: Codes of the structural findings (`validate_scenario`), preceded by
-            `approved_content_changed`, `approval_missing_hash` (an LLM-authored file with no usable
+            `approved_content_changed`, `llm_approval_unhashed` (an LLM-authored file with no usable
             hash) or `approval_unverified` for an approved file whose
             approval does not verify (`approval_issue`); `load_error` for an unreadable file.
     """
@@ -300,6 +300,12 @@ def approval_gen_config(gen: GenConfig) -> GenConfig:
     Raises:
         FileNotFoundError: If the repo default config is missing.
     """
+    if not _REPO_GEN_CONFIG.is_file():
+        # Only a source checkout has the file; fail rather than approve against a weaker list.
+        raise FileNotFoundError(
+            f"approval needs the repo default generation config at {_REPO_GEN_CONFIG} "
+            "(its cue-word list is the floor for every approval); run from a source checkout"
+        )
     base = load_gen_config(_REPO_GEN_CONFIG)
     seen = {w.casefold() for w in base.banned_cue_words}
     extra = [w for w in gen.banned_cue_words if w.casefold() not in seen]
