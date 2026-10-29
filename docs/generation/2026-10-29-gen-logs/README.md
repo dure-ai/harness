@@ -1,6 +1,6 @@
 # 생성 실행 로그 (2026-10-29, sunmin)
 
-`~/.cache/t5-harness/runs/<실행 id>/`의 `candidates.jsonl`(인용 검사를 통과한 후보)과 `rejected.jsonl`(거절 사유)을 그대로 복사한 것입니다. PR #13 코멘트에서 HJinS가 요청한 자료입니다. 요약은 `batch1-summary.log`, `batch2-summary.log`.
+`~/.cache/t5-harness/runs/<실행 id>/`의 `candidates.jsonl`(인용 검사를 통과한 후보)과 `rejected.jsonl`(거절 사유)을 그대로 복사한 것입니다. PR #13 코멘트에서 HJinS 님이 요청한 자료입니다. 요약은 `batch1-summary.log`, `batch2-summary.log`.
 
 | 실행 id | 묶음 | 계열 | 시드 | 비고 |
 |---|---|---|---|---|
