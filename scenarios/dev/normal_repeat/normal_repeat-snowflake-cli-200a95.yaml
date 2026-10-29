@@ -1,0 +1,130 @@
+id: normal_repeat-snowflake-cli-200a95
+family: normal_repeat
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f1:
+    text: The ruff lint config in snowflakedb/snowflake-cli only enables the N (naming)
+      and I (isort) rule sets (`select = ["N", "I"]`), so other rules such as builtin-shadowing
+      checks are not run.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - select = ["N", "I"]
+    - builtin-shadowing
+events:
+- id: e1
+  t: '2026-10-01T09:15:00+09:00'
+  user: u3
+  session: s10
+  repo: snowflakedb/snowflake-cli
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Ruff only checks `N` (naming) and `I` (isort), so no builtin-shadowing issues.
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T13:00:00+09:00'
+  user: u1
+  session: s11
+  repo: snowflakedb/snowflake-cli
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Checked pyproject.toml while adding the `-i` stdin option to src/snowcli/cli/sql/commands.py:
+    ruff has `select = ["N", "I"]`, so only naming and isort rules run. A parameter
+    called `input` won''t trigger any builtin-shadowing lint here.'
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e3
+  t: '2026-10-05T15:15:00+09:00'
+  user: u4
+  session: s12
+  repo: snowflakedb/snowflake-cli
+  scope: team
+  team: null
+  signal: review
+  kind: human_confirm
+  outcome: success
+  text: 'Reviewed the lint notes on the snow sql PR: the ruff section really is `select
+    = ["N", "I"]`, and `pre-commit run ruff --all-files` passes with the new parameter
+    names. Builtin-shadowing rules aren''t enabled, so nothing more to change for
+    lint.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  fact: f1
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-07T13:30:00+09:00'
+  user: u2
+  session: s13
+  repo: snowflakedb/snowflake-cli
+  query: Which rule sets does ruff `select = ["N", "I"]` cover in snowflake-cli, and
+    will it flag builtin-shadowing in parameter names?
+  about:
+  - f1
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:799fb7b2cef5cefae93ac98313b43270ba25a1a2ed70e3fa69769738548f0d02
+provenance:
+  author: llm
+  source_traces:
+  - 01f73f35-7170-4d30-a040-3cdc4811aa9d
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: snowflakedb/snowflake-cli
+    license: Apache-2.0
+  fabricated_facts: []
+  evidence:
+  - event_id: e1
+    trace_id: 01f73f35-7170-4d30-a040-3cdc4811aa9d
+    message_index: 22
+    quote: Ruff only checks `N` (naming) and `I` (isort), so no builtin-shadowing
+      issues.
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T01:59:58.440414Z'
+  label_fingerprint: l1:339c71876a71f84e2cf2aff69bf9a6295cc9be82a8872fb5a945c53fd794bbdf
+  generated_hash: v1:4c80a9e921843fd0201d7d54a3f46995fb57ede477d7e2cf465e3121f890e419

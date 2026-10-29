@@ -1,0 +1,202 @@
+id: truth_change-bioregistry-54aaf4
+family: truth_change
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_old:
+    text: The Registry and Attributable pydantic models are defined in src/bioregistry/schema/struct.py,
+      and the generated JSON schema is at src/bioregistry/schema/schema.json.
+    valid_from: null
+    valid_until: '2026-10-08T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - schema/struct.py
+    - schema/schema.json
+  f_new:
+    text: The Registry and Attributable pydantic models are defined in src/bioregistry/schema/models.py,
+      and the generated JSON schema is written to src/bioregistry/schema/bioregistry.schema.json.
+    valid_from: '2026-10-08T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - schema/models.py
+    - bioregistry.schema.json
+events:
+- id: e1
+  t: '2026-10-01T15:15:00+09:00'
+  user: u3
+  session: s2
+  repo: biopragmatics/bioregistry
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'For the contact refactor: `class Attributable(BaseModel)` and the `Registry`
+    model both live in src/bioregistry/schema/struct.py, so the `contact` field type
+    change goes there. After editing, regenerate src/bioregistry/schema/schema.json.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T13:45:00+09:00'
+  user: u3
+  session: s3
+  repo: biopragmatics/bioregistry
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Changed `Registry.contact` from `str` to `Attributable` in src/bioregistry/schema/struct.py.
+    Still need to regenerate src/bioregistry/schema/schema.json so the metaregistry
+    schema matches.
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T16:15:00+09:00'
+  user: u4
+  session: s4
+  repo: biopragmatics/bioregistry
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for the TSV/RDF export work: the pydantic definitions for Registry and
+    Attributable are in src/bioregistry/schema/struct.py, and the JSON schema export
+    lands in src/bioregistry/schema/schema.json.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-08T17:30:00+09:00'
+  user: u1
+  session: s5
+  repo: biopragmatics/bioregistry
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: Reviewed the notes from the contact refactor sessions. After today's merge,
+    Registry and Attributable are defined in src/bioregistry/schema/models.py, and
+    the schema generator writes src/bioregistry/schema/bioregistry.schema.json; edit
+    and regenerate those files from now on.
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-10T12:45:00+09:00'
+  user: u3
+  session: s6
+  repo: biopragmatics/bioregistry
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Added an `orcid` field validator to Attributable in src/bioregistry/schema/models.py,
+    then regenerated src/bioregistry/schema/bioregistry.schema.json and committed
+    both.
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-06T16:30:00+09:00'
+  user: u2
+  session: s7
+  repo: biopragmatics/bioregistry
+  query: Which file defines the Registry and Attributable pydantic models, and where
+    is the generated JSON schema written?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-11T12:15:00+09:00'
+  user: u2
+  session: s8
+  repo: biopragmatics/bioregistry
+  query: Which file should I edit for the Registry and Attributable pydantic models,
+    and which generated JSON schema file do I regenerate?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:f554ca7604330835eac906d1124879bee298ad9c1c1061c26218355919795299
+provenance:
+  author: llm
+  source_traces:
+  - 2b1e72b2-98a1-470a-ba24-91a75863b5e2
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: biopragmatics/bioregistry
+    license: MIT
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T02:07:37.498971Z'
+  label_fingerprint: l1:2ebd1e4711c8e348606798e0a46fb4c4ceefcaf48c7ca7db97ff2d0d0518c3d6
+  generated_hash: v1:91bdeaa3031ba2277e46e9df2cf632864c93ec88093937a132c5984ed2cafc00

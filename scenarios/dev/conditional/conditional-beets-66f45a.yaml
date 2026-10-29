@@ -1,0 +1,241 @@
+id: conditional-beets-66f45a
+family: conditional
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+    - u6
+    - u7
+facts:
+  f_a:
+    text: In the beets web plugin (beetsplug/web/__init__.py), QueryConverter splits
+      URL queries on '/' and turns backslashes into os.sep, so path queries can use
+      backslashes as path separators in URLs, but this also breaks regex queries that
+      contain backslashes such as \d or \w.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      component: web plugin
+    fix: null
+    markers:
+    - QueryConverter
+    - os.sep
+  f_b:
+    text: On the beta build of the web plugin, /item/query also accepts the whole
+      query through a q parameter (/item/query?q=...), and a percent-encoded backslash
+      passed that way reaches the regex matcher untouched.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      component: beta
+    fix: null
+    markers:
+    - query?q=
+    - q parameter
+events:
+- id: e1
+  t: '2026-10-01T13:30:00+09:00'
+  user: u3
+  session: s14
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Traced the regex issue to QueryConverter in beetsplug/web/__init__.py: it
+    splits the URL query on ''/'' and maps every backslash to os.sep, so `/item/query/testattr::%5cw+`
+    reaches the matcher as `/w+`. The replacement is there so path queries can work
+    in URLs, because Flask can''t carry ''/'' inside a path segment.'
+  meta:
+    component: web plugin
+  refs: []
+  fact: f_a
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T10:30:00+09:00'
+  user: u1
+  session: s15
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: review
+  kind: human_confirm
+  outcome: success
+  text: 'Reviewed the note on QueryConverter and confirmed it: the backslash-to-os.sep
+    swap is intentional for path queries in URLs, and it''s the reason `::\w+` regexes
+    return nothing from the web API. Any fix has to keep path queries working.'
+  meta:
+    component: web plugin
+  refs:
+  - e1
+  fact: f_a
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T15:45:00+09:00'
+  user: u4
+  session: s16
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Beta web plugin: /item/query now also takes the full query as a q parameter,
+    e.g. `/item/query?q=testattr::%5Cw%2B`. The backslash arrives at the regex matcher
+    as-is when sent this way.'
+  meta:
+    component: beta
+  refs: []
+  fact: f_b
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T13:45:00+09:00'
+  user: u5
+  session: s17
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: review
+  kind: human_confirm
+  outcome: success
+  text: 'Checked the beta build against the earlier note: `curl ''localhost:8337/item/query?q=albumtest::%5Cd%2B''`
+    returned the expected items, so the q parameter keeps regex backslashes intact.'
+  meta:
+    component: beta
+  refs:
+  - e3
+  fact: f_b
+  secret_markers: []
+- id: e5
+  t: '2026-10-08T11:30:00+09:00'
+  user: u6
+  session: s18
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'For beta testers hitting regex queries from scripts: use `/item/query?q=<urlencoded
+    query>` and encode the backslash as %5C; the q parameter path doesn''t touch it.'
+  meta:
+    component: beta
+  refs: []
+  fact: f_b
+  secret_markers: []
+- id: e6
+  t: '2026-10-10T17:45:00+09:00'
+  user: u2
+  session: s19
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Reminder while working on test/test_web.py: in the web plugin, QueryConverter
+    still converts backslashes to os.sep after splitting on ''/'', so a `path:` query
+    with backslashes works but a regex like `title::\d+` in the URL path won''t match.'
+  meta:
+    component: web plugin
+  refs: []
+  fact: f_a
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-12T14:00:00+09:00'
+  user: u7
+  session: s20
+  repo: beetbox/beets
+  query: 'In the web plugin, how should I send a regex query with backslashes to /item/query:
+    through the URL path handled by QueryConverter and os.sep, or through query?q=
+    with the q parameter?'
+  about:
+  - f_a
+  - f_b
+  meta:
+    component: web plugin
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-14T10:45:00+09:00'
+  user: u7
+  session: s21
+  repo: beetbox/beets
+  query: 'In the beta build, how should I send a regex query with backslashes to /item/query:
+    through query?q= with the q parameter, or through the URL path handled by QueryConverter
+    and os.sep?'
+  about:
+  - f_a
+  - f_b
+  meta:
+    component: beta
+  k: null
+  feedback: null
+review:
+  status: rejected
+  reviewer: sunmin
+  notes: 'conditions overlap: f_b ''beta'' is a build of the same web plugin as f_a,
+    and p_promote asks ''how should I send a regex with backslashes'' while f_a says
+    the URL path breaks such regexes, so the labelled answer does not answer the question'
+  approved_hash: null
+provenance:
+  author: llm
+  source_traces:
+  - e06da58f-5335-4106-a10d-591764a852ea
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: beetbox/beets
+    license: MIT
+  fabricated_facts:
+  - f_b
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e6
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T02:09:14.693409Z'
+  label_fingerprint: l1:eb9f11b83c1c1db36ef901c1ed3e873f86bdaae9415b650242a817a66494d4b4
+  generated_hash: v1:0794c6fa34e4bce26516c4876d34d80fa311e60cefcf952c75f0de6afcd83f62
