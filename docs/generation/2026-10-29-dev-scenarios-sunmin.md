@@ -9,7 +9,7 @@ PR #13(jaehyuk)과 같은 방식으로 하니스를 독립 재현한 기록입�
 | 하니스 | `feat/scenario-generation` `0d89c54`, prompt `gen-v0.5` (PR #13과 동일) |
 | 궤적 | `traces fetch --config v1.2 --split minisweagent --shard 0` (qwen38_27b, 2,500개, 묶음 0개) |
 | LLM | `claude-opus-5-5`, effort medium. API 키 대신 `claude -p`로 호출. `provenance.provider: claude-code` |
-| 래퍼 | `tools/gen_claude_p.py`. `make_client`만 바꿔 끼우고 프롬프트·스키마 검사·재시도·캐시·`check_draft`는 하니스 그대로 |
+| 래퍼 | `tools/gen_claude_p.py`. `make_client`만 바꿔 끼우고 프롬프트·스키마 검사·재시도·캐시·`check_draft`는 하니스 그대로. 하니스의 비공개 이름(`_ask_with_retry`, `_cache_settings`)을 쓰므로 유지 대상이 아니라 재현 기록용 |
 | 검토자 | `sunmin` |
 
 래퍼에서 주의할 점 하나: 하니스의 `AnthropicClient`가 쓰는 `anthropic.transform_schema`는 본문 쓰기 스키마(`BodySlots`)의 id→본문 맵(`additionalProperties`)을 빈 객체로 바꿉니다. `claude -p --json-schema`에 그대로 넘기면 모델이 "스키마가 빈 객체만 허용한다"며 제출을 거부해 3회 연속 오류로 멈춥니다. 래퍼는 pydantic 원본 스키마(`model_json_schema()`)를 넘깁니다.
@@ -63,6 +63,8 @@ done
 | rejected (결함) | 1 | `conditional-beets-66f45a`: 조건 "web plugin"과 "beta"가 같은 컴포넌트라 겹치고, 질문("어떻게 보내야 하는가")에 정답 사실("그 경로는 깨진다")이 답이 되지 않음 |
 | rejected (제외) | 3 | echo 3개. 시나리오 결함이 아니라 아래 발견 1 때문. 각 파일 `review.notes`에 기록 |
 
+PR #13과 달리 거절·제외한 4개도 `scenarios/dev`에 둡니다. `run`과 `selfcheck`는 승인된 것만 쓰므로 결과에는 영향이 없고, echo 3개는 하니스가 바뀌면 `review set approved`로 바로 되살리기 위해 남겼습니다.
+
 검토자 수정 1건: `failure_feedback-django-storages-ade0aa`. 네 문항의 `on_false` 본문이 "`tox …`가 실패했다"고 적혀 있었는데, 그 앞의 잘못된 행동은 `python -m pytest …`를 실행한 것이라 행동과 결과가 이어지지 않았습니다. 자동 검사는 f_new 마커만 보므로 통과했습니다. `review edit`로 본문만 "pytest 직접 실행이 site-packages를 가져와 실패했고 tox로 돌려야 한다"로 바꾸고 재승인했습니다(`provenance.reviewer_edited: true`, `review.notes`에 사유).
 
 **소재 편중**: 승인 21개 중 7개가 django-storages이고 그중 6개는 같은 사실(pytest로 backend 테스트 실행)입니다. 묶음 1이 시드 하나로 모든 계열을 돌려 첫 궤적의 같은 후보를 썼기 때문입니다(발견 2). 세트 다양성이 필요하면 이 6개 중 일부를 빼는 것이 좋습니다.
@@ -76,7 +78,7 @@ uv run harness run --scenarios scenarios/dev --out runs
 uv run pytest -q                                 # 1035 passed
 ```
 
-리포트: `2026-10-29-dev-scenarios-sunmin-report.md` (시나리오 21개, 세트 해시 `78901224…`).
+리포트: `2026-10-29-dev-scenarios-sunmin-report.md` (시나리오 21개, 세트 해시 `3ad0814d27…`).
 
 | 엔진 | M1 (n=10) | M2 (n=18) | 판정 |
 |---|---|---|---|
@@ -96,7 +98,7 @@ uv run pytest -q                                 # 1035 passed
 3. **`quote_not_found` 비율: 재현.** 후보 거절 69건 중 57건(83%).
 4. **묶음 0개**: 같은 shard 0이라 확인하지 못했습니다.
 5. **workaround_then_root 생성 0: 재현.** 두 묶음 합계 후보 52개 중 fix가 workaround/root인 것이 없었습니다.
-6. **자동 검사가 놓친 본문 문제 (새 발견).** 되먹임 틀의 `on_false` 본문은 "잘못된 행동 뒤의 실패"여야 하는데, 검사는 `fact: f_new`의 마커 포함 여부만 봅니다. LLM이 f_new 마커를 넣으려고 "tox가 실패했다"고 써도 통과합니다. 행동 본문과 결과 본문의 연결은 사람 검토가 유일한 안전장치이며, 프롬프트에 "on_false는 action.f_old의 행동이 실패한 기록"임을 명시하면 줄일 수 있을 것 같습니다.
+6. **자동 검사가 놓친 본문 문제 (새 발견).** 되먹임 틀의 `on_false` 본문은 "잘못된 행동 뒤의 실패"여야 합니다. 검사(`_body_issues`)는 되먹임 본문에도 이벤트 본문과 같은 검사(자기 사실 마커 포함, 다른 사실 마커 없음, 금지어 없음)를 하지만, 행동 본문(`action.f_old`)과 결과 본문(`on_false`)이 이어지는지는 검사하지 않습니다. LLM이 f_new 마커를 넣으려고 "tox가 실패했다"고 써도 통과합니다. 이 연결은 사람 검토가 유일한 안전장치이며, 프롬프트에 "on_false는 action.f_old의 행동이 실패한 기록"임을 명시하면 줄일 수 있을 것 같습니다.
 
 ## 정리
 

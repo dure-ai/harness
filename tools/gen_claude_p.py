@@ -6,6 +6,9 @@ harness's own code. The provenance records provider `claude-code`.
 Usage (from the harness repo, after `uv sync --extra gen`):
     uv run python tools/gen_claude_p.py generate --family all --n 1 --max-traces 10 --seed 1
 Every argument after the script name is passed to the harness CLI unchanged.
+
+Kept for reproducing the 2026-10-29 dev set, not as maintained code: it imports the harness's
+private `_ask_with_retry` and `_cache_settings`, so a harness change may break it.
 """
 
 from __future__ import annotations
