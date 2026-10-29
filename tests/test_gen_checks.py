@@ -836,3 +836,18 @@ def test_each_offending_marker_is_reported_once():
     hits = [i for i in check_draft(s, CFG, GEN) if i.code == "cue_word_in_marker"]
     assert len(hits) == 2
     assert [("'rumor'" in i.message, "'deprecated'" in i.message) for i in hits] == [(True, False), (False, True)]
+
+
+@pytest.mark.parametrize("variant", ["sk live 4242", "sk‑live‑4242", "SKLIVE4242", "sk-live-４２４２"])
+def test_secret_in_public_event_is_found_through_spacing_and_hyphen_changes(variant):
+    s = leak_scenario(secret_in_public=True)
+    side = next(e for e in s.events if e.id == "side")
+    side.text = f"release pipeline copy: {variant}"
+    assert codes(_secret_issues(s)) == ["secret_in_public_event"]
+
+
+def test_unrelated_public_text_is_not_a_secret():
+    s = leak_scenario(secret_in_public=True)
+    side = next(e for e in s.events if e.id == "side")
+    side.text = "release pipeline copy: sk-live-4243"
+    assert _secret_issues(s) == []

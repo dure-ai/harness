@@ -466,3 +466,10 @@ def test_marker_of_another_about_fact_in_a_feedback_template_is_bleed(slot):
 def test_own_fact_marker_in_a_feedback_template_is_not_bleed():
     s = feedback_world("action", FeedbackTemplate(text="applied the OLDMARK policy", fact="f_old"))
     assert codes(s) == set()
+
+
+def test_secret_marker_in_visible_event_is_found_through_spacing_and_hyphen_changes():
+    e = leak_world().events + [
+        ev("e3", T("10-03 10:00"), user="u1", fact="f_secret", text="Tokens look like abc‑123 in the CI docs")
+    ]
+    assert codes(leak_world(events=e)) == {"secret_marker_not_exclusive"}
