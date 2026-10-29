@@ -65,7 +65,7 @@ done
 
 PR #13과 달리 거절·제외한 4개도 `scenarios/dev`에 둡니다. `run`과 `selfcheck`는 승인된 것만 쓰므로 결과에는 영향이 없고, echo 3개는 하니스가 바뀌면 `review set approved`로 바로 되살리기 위해 남겼습니다.
 
-검토자 수정 1건: `failure_feedback-django-storages-ade0aa`. 네 문항의 `on_false` 본문이 "`tox …`가 실패했다"고 적혀 있었는데, 그 앞의 잘못된 행동은 `python -m pytest …`를 실행한 것이라 행동과 결과가 이어지지 않았습니다. 자동 검사는 f_new 마커만 보므로 통과했습니다. `review edit`로 본문만 "pytest 직접 실행이 site-packages를 가져와 실패했고 tox로 돌려야 한다"로 바꾸고 재승인했습니다(`provenance.reviewer_edited: true`, `review.notes`에 사유).
+검토자 수정 1건: `failure_feedback-django-storages-ade0aa`. 네 문항의 `on_false` 본문이 "`tox …`가 실패했다"고 적혀 있었는데, 그 앞의 잘못된 행동은 `python -m pytest …`를 실행한 것이라 행동과 결과가 이어지지 않았습니다. 자동 검사는 행동과 결과 본문의 연결을 보지 않으므로 통과했습니다. `review edit`로 본문만 "pytest 직접 실행이 site-packages를 가져와 실패했고 tox로 돌려야 한다"로 바꾸고 재승인했습니다(`provenance.reviewer_edited: true`, `review.notes`에 사유).
 
 **소재 편중**: 승인 21개 중 7개가 django-storages이고 그중 6개는 같은 사실(pytest로 backend 테스트 실행)입니다. 묶음 1이 시드 하나로 모든 계열을 돌려 첫 궤적의 같은 후보를 썼기 때문입니다(발견 2). 세트 다양성이 필요하면 이 6개 중 일부를 빼는 것이 좋습니다.
 
