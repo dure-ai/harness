@@ -1,0 +1,233 @@
+id: conditional-django-storages-b51606
+family: conditional
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+    - u6
+    - u7
+facts:
+  f_a:
+    text: django-storages backend tests can be run with pytest from the repo root,
+      e.g. `python -m pytest tests/test_gcloud.py -x -q`, and the `storages` package
+      then resolves to the local checkout.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      service: django-storages
+    fix: null
+    markers:
+    - python -m pytest
+    - tests/test_gcloud.py
+  f_b:
+    text: For the search service, tests are run from the repo root with `tox -e search`,
+      which loads the `tests/search_settings.py` Django settings module.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      service: search
+    fix: null
+    markers:
+    - tox -e search
+    - search_settings
+events:
+- id: e1
+  t: '2026-10-01T11:45:00+09:00'
+  user: u1
+  session: s7
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: cd /testbed && python -m pytest tests/test_gcloud.py -x -q 2>&1 | tail -5
+  meta:
+    service: django-storages
+  refs: []
+  fact: f_a
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T10:30:00+09:00'
+  user: u2
+  session: s8
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Running backend tests: from the repo root, `python -m pytest tests/test_gcloud.py
+    -x -q` works without installing anything; `storages` is imported from the local
+    checkout, so edits under storages/backends/ are picked up immediately.'
+  meta:
+    service: django-storages
+  refs: []
+  fact: f_a
+  secret_markers: []
+- id: e3
+  t: '2026-10-03T09:45:00+09:00'
+  user: u5
+  session: s9
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Search service tests: run `tox -e search` from the repo root. The env sets
+    DJANGO_SETTINGS_MODULE to tests.search_settings, so no extra flags are needed.'
+  meta:
+    service: search
+  refs: []
+  fact: f_b
+  secret_markers: []
+- id: e4
+  t: '2026-10-05T10:45:00+09:00'
+  user: u3
+  session: s10
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Checked the notes above on a clean clone: `python -m pytest tests/test_gcloud.py
+    -x -q` from the root passes, and `storages.__file__` points into the checkout.
+    Good to use for the backend work.'
+  meta:
+    service: django-storages
+  refs:
+  - e1
+  - e2
+  fact: f_a
+  secret_markers: []
+- id: e5
+  t: '2026-10-06T12:00:00+09:00'
+  user: u4
+  session: s11
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Confirmed in review: `tox -e search` from the repo root picks up tests/search_settings.py
+    and the search suite goes green.'
+  meta:
+    service: search
+  refs:
+  - e3
+  fact: f_b
+  secret_markers: []
+- id: e6
+  t: '2026-10-07T12:00:00+09:00'
+  user: u6
+  session: s12
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Search index changes verified locally with `tox -e search`; the search_settings
+    module handled the Django config, nothing else needed.
+  meta:
+    service: search
+  refs: []
+  fact: f_b
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-09T15:00:00+09:00'
+  user: u7
+  session: s13
+  repo: jschneier/django-storages
+  query: 'How do I run the search service tests from the repo root: `tox -e search`
+    with search_settings, or `python -m pytest tests/test_gcloud.py`?'
+  about:
+  - f_a
+  - f_b
+  meta:
+    service: search
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-10T16:15:00+09:00'
+  user: u7
+  session: s14
+  repo: jschneier/django-storages
+  query: 'How do I run the django-storages backend tests from the repo root: `python
+    -m pytest tests/test_gcloud.py`, or `tox -e search` with search_settings?'
+  about:
+  - f_a
+  - f_b
+  meta:
+    service: django-storages
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:68088d5e3e9a131681f0363b79de3e6f0eb844dc9d4dd1bd652e7ed169921c9e
+provenance:
+  author: llm
+  source_traces:
+  - e7d86a36-fbb0-433d-963c-77187f20767d
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: jschneier/django-storages
+    license: BSD-3-Clause
+  fabricated_facts:
+  - f_b
+  evidence:
+  - event_id: e1
+    trace_id: e7d86a36-fbb0-433d-963c-77187f20767d
+    message_index: 28
+    quote: cd /testbed && python -m pytest tests/test_gcloud.py -x -q 2>&1 | tail
+      -5
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e6
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T01:50:40.355884Z'
+  label_fingerprint: l1:a857432d40dab3a58f8ea80a88fb12a9f86eb8d77d7a33ce4bce1d6a73aaa8ce
+  generated_hash: v1:1aed9c5e8acfeec6dd48ca44f2a93ca52f98b02623862dcf9e0746ca49242ab6

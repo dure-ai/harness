@@ -1,0 +1,207 @@
+id: truth_change-morecantile-f668a1
+family: truth_change
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_old:
+    text: tests/test_morecantile.py defines a DEFAULT_GRID_COUNT constant that must
+      equal the number of default TMS JSON files in morecantile/data, so the constant
+      has to be bumped whenever a default grid is added or removed.
+    valid_from: null
+    valid_until: '2026-10-07T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - DEFAULT_GRID_COUNT
+    - GRID_COUNT + 1
+  f_new:
+    text: tests/test_morecantile.py now computes the expected default grid count from
+      the data directory with default_grid_files = list(pathlib.Path(morecantile.data.__file__).parent.glob("*.json")),
+      so adding or removing a default TMS JSON file needs no test change.
+    valid_from: '2026-10-07T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - default_grid_files
+    - glob("*.json")
+events:
+- id: e1
+  t: '2026-10-01T14:45:00+09:00'
+  user: u4
+  session: s10
+  repo: developmentseed/morecantile
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Registering a custom TMS in tests/test_morecantile.py checks the list against
+    the default constant: `assert len(morecantile.tms.list()) == DEFAULT_GRID_COUNT
+    + 1`. DEFAULT_GRID_COUNT has to match the number of JSON files in morecantile/data.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T15:45:00+09:00'
+  user: u3
+  session: s11
+  repo: developmentseed/morecantile
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Adding WGS1984Quad.json to morecantile/data broke the grid count assertions
+    in tests/test_morecantile.py; bumped DEFAULT_GRID_COUNT by one and the suite passes
+    again. Bump it any time a default grid is added or removed.
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T14:15:00+09:00'
+  user: u4
+  session: s12
+  repo: developmentseed/morecantile
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for TMS PRs: after adding or deleting a file under morecantile/data,
+    update DEFAULT_GRID_COUNT at the top of tests/test_morecantile.py or the tms.list()
+    length checks fail.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-07T13:30:00+09:00'
+  user: u2
+  session: s13
+  repo: developmentseed/morecantile
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review on the earlier grid-count notes: tests/test_morecantile.py has been
+    refactored, the hardcoded count constant is gone, and the expected value now comes
+    from `default_grid_files = list(pathlib.Path(morecantile.data.__file__).parent.glob("*.json"))`.
+    I checked by adding a dummy JSON locally; tests passed with no edit to the test
+    file.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-08T13:45:00+09:00'
+  user: u4
+  session: s14
+  repo: developmentseed/morecantile
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Added a new default TMS JSON to morecantile/data; the tms.list() length checks
+    in tests/test_morecantile.py picked it up through default_grid_files, so nothing
+    to touch in the test file.
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-05T13:45:00+09:00'
+  user: u1
+  session: s15
+  repo: developmentseed/morecantile
+  query: When I add a default TMS JSON file to morecantile/data, what do I need to
+    update in tests/test_morecantile.py for the tms.list() grid count checks (DEFAULT_GRID_COUNT
+    or default_grid_files glob("*.json"))?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-09T17:00:00+09:00'
+  user: u1
+  session: s16
+  repo: developmentseed/morecantile
+  query: When I remove a default TMS JSON file from morecantile/data, what do I need
+    to update in tests/test_morecantile.py for the tms.list() grid count checks (DEFAULT_GRID_COUNT
+    or default_grid_files glob("*.json"))?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:6124b52eaa816227bd2b9b94b30d96967bd56c26f5e4e0a693b2e251b585a165
+provenance:
+  author: llm
+  source_traces:
+  - be83ff43-bc52-45ec-a462-f69e6d16f0e3
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: developmentseed/morecantile
+    license: MIT
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: be83ff43-bc52-45ec-a462-f69e6d16f0e3
+    message_index: 20
+    quote: assert len(morecantile.tms.list()) == DEFAULT_GRID_COUNT + 1
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T02:08:44.786830Z'
+  label_fingerprint: l1:ee92e62f5712f7c15e95b98a05662079fb8fbfbd6dc6797549967223f25429e3
+  generated_hash: v1:932f4c6c763ac81f877732cd9cb135ac07b6be76374bf95273291f0afb96f8cc
