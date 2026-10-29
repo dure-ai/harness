@@ -26,7 +26,7 @@ from harness.generate.checks import blocking, check_draft
 from harness.generate.config import GenConfig, cache_root
 from harness.generate.pipeline import save_draft, saved_hash
 from harness.replay import ScenarioRun, run_scenario
-from harness.scenario.labels import changed_label_fields, fingerprint_state
+from harness.scenario.labels import changed_label_fields, fingerprint_state, label_fingerprint, unquoted_evidence
 from harness.scenario.load import ScenarioLoadError, approval_issue, load_scenario, read_scenario
 from harness.scenario.model import Review, Scenario
 from harness.scenario.validate import Issue, validate_scenario
@@ -168,9 +168,11 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     copied to `cache_root()/review/` first, so the reviewer's text is not lost. Otherwise the draft is saved with
     `provenance.reviewer_edited` set and checked again. A saved edit of an approved or rejected
     file puts it back to draft (reviewer cleared, notes kept, `approved_hash` dropped): the
-    approval was for the old content. The hashes the harness writes
+    approval was for the old content. One label change is allowed: an evidence entry turned from
+    `quoted` into `written` (trace fields null) so the body may be rewritten freely; the label
+    fingerprint is then recomputed, so it keeps covering every other label. The hashes the harness writes
     (`provenance.label_fingerprint`, `provenance.generated_hash`) keep their original values
-    whatever the editor did to them.
+    whatever the editor did to them (the fingerprint apart from that one case).
 
     Args:
         path: The scenario file; it must load.
@@ -230,12 +232,15 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
             "review status, reviewer and approved_hash change only with `harness review set`",
             after,
         )
-    if changed := changed_label_fields(original, edited):
+    if changed := changed_label_fields(original, edited, allow_unquote=True):
         return revert(
             "ground-truth fields cannot be edited; if the labels are wrong, reject the draft",
             after,
             changed,
         )
+    if unquoted_evidence(original, edited) and original.provenance.label_fingerprint is not None:
+        # The one allowed label change: re-record the fingerprint so it still describes the file.
+        edited.provenance.label_fingerprint = label_fingerprint(edited)
     edited.provenance.reviewer_edited = True
     reset = edited.review.status != "draft"
     if reset:
