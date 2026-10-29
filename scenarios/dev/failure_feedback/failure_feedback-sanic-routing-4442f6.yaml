@@ -1,0 +1,338 @@
+id: failure_feedback-sanic-routing-4442f6
+family: failure_feedback
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+facts:
+  f_old:
+    text: sanic_routing exports an abstract BaseRouter (with an abstract `get`) rather
+      than a Router, so to use it you subclass BaseRouter and implement get(path,
+      method, extra=None) by returning self.resolve(path=path, method=method, extra=extra),
+      as tests/conftest.py does.
+    valid_from: null
+    valid_until: '2026-10-06T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - subclass BaseRouter
+    - self.resolve(path=path, method=method, extra=extra)
+  f_new:
+    text: sanic_routing now exports a concrete DefaultRouter whose built-in get already
+      calls resolve, so you instantiate it directly with `router = DefaultRouter()`
+      instead of writing your own subclass, and tests/conftest.py does the same.
+    valid_from: '2026-10-06T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - DefaultRouter
+    - router = DefaultRouter()
+events:
+- id: e1
+  t: '2026-10-01T14:30:00+09:00'
+  user: u1
+  session: s17
+  repo: sanic-org/sanic-routing
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'BaseRouter is abstract. Let me check the tests'' conftest to see how they
+    instantiate a router. Result: `from sanic_routing import Router` fails, so the
+    repro needs to subclass BaseRouter and define get(path, method, extra=None) returning
+    self.resolve(path=path, method=method, extra=extra).'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T14:30:00+09:00'
+  user: u1
+  session: s18
+  repo: sanic-org/sanic-routing
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for the path-param 404 repro: sanic_routing has no Router export. Subclass
+    BaseRouter like tests/conftest.py does, with get() just returning self.resolve(path=path,
+    method=method, extra=extra).'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T15:00:00+09:00'
+  user: u2
+  session: s19
+  repo: sanic-org/sanic-routing
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Writing a new test in tests/test_routing.py for overlapping <foo:path> routes.
+    Used the conftest pattern: subclass BaseRouter, implement get(path, method, extra=None)
+    via self.resolve(path=path, method=method, extra=extra), then add() and finalize().'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T16:00:00+09:00'
+  user: u4
+  session: s20
+  repo: sanic-org/sanic-routing
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review note on the router-setup notes from this week: as of today''s merge
+    to main, sanic_routing exports a concrete DefaultRouter with get already wired
+    to resolve. tests/conftest.py now just does `router = DefaultRouter()`, so drop
+    the hand-written subclass in the repro and new tests.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-13T15:00:00+09:00'
+  user: u3
+  session: s23
+  repo: sanic-org/sanic-routing
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Updated the <:path> overlap repro to `from sanic_routing import DefaultRouter`;
+    router = DefaultRouter(), add the GET /story and POST /tracker/events routes,
+    finalize(), and get() resolves the POST route.
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_block1
+  kind: block
+  t: '2026-10-08T17:30:00+09:00'
+  user: u5
+  session: s21
+  repo: sanic-org/sanic-routing
+  query: How do I set up a router from sanic_routing for a test of overlapping <foo:path>
+    routes — subclass BaseRouter with a get that calls resolve, or use DefaultRouter?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Set up the overlapping-path repro by having the test subclass BaseRouter
+          and implement get(path, method, extra=None) as self.resolve(path=path, method=method,
+          extra=extra).
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Set up the overlapping-path repro with `router = DefaultRouter()` imported
+          from sanic_routing, then add both routes and finalize().
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Didn't pick a router setup for the repro yet; need to check what tests/conftest.py
+        does on main, which may be DefaultRouter.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed on tests/test_routing.py: the new path-overlap test didn''t
+        build its router with DefaultRouter as conftest on main does, and the fixture
+        mismatch broke collection.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block2
+  kind: block
+  t: '2026-10-11T15:00:00+09:00'
+  user: u5
+  session: s22
+  repo: sanic-org/sanic-routing
+  query: What is the router setup in tests/conftest.py for sanic_routing — a BaseRouter
+    subclass with get calling resolve, or DefaultRouter?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Wrote the conftest-style fixture so it would subclass BaseRouter and
+          route get through self.resolve(path=path, method=method, extra=extra).
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Wrote the conftest-style fixture as `router = DefaultRouter()` and no
+          custom get.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Holding off on the fixture until I confirm whether conftest uses DefaultRouter
+        on main.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed in tests/conftest.py usage: the fixture added in this branch
+        did not use DefaultRouter, and the router tests errored on setup.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-15T10:30:00+09:00'
+  user: u5
+  session: s24
+  repo: sanic-org/sanic-routing
+  query: Which router setup should go into the team notes for sanic_routing tests
+    — a BaseRouter subclass with get calling resolve, or DefaultRouter?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: 'Proposed team note: to use sanic_routing in tests, subclass BaseRouter
+          and implement get as self.resolve(path=path, method=method, extra=extra).'
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: 'Proposed team note: in sanic_routing tests, use `router = DefaultRouter()`
+          directly; its get already calls resolve.'
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Didn't promote a router-setup note; want to double-check the DefaultRouter
+        export on main first.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed after applying the promoted note: test router setup did not
+        go through DefaultRouter, and tests/test_routing.py errored.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:d96a4cede6e8c6535c1242f0d23eb4a8aed5510457adc7f123654a8006c79105
+provenance:
+  author: llm
+  source_traces:
+  - 0859bfe2-25df-488f-a8ba-c52ed183d0d7
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: sanic-org/sanic-routing
+    license: MIT
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: 0859bfe2-25df-488f-a8ba-c52ed183d0d7
+    message_index: 21
+    quote: BaseRouter is abstract. Let me check the tests' conftest to see how they
+      instantiate a router.
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T02:07:14.655171Z'
+  label_fingerprint: l1:523459e9f440b087a11c2d225c9cfdde2640bf8b1c46701263ed2fbf56df84fa
+  generated_hash: v1:8d3f18ee06899f88da1bb0851f2f11cb1a006d2281fa1a23b67ab2c57be40442

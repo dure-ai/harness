@@ -16,7 +16,7 @@ def test_gen_config_defaults_from_file():
     assert cfg.model == "claude-opus-5-5"
     assert cfg.effort == "medium"
     assert cfg.temperature == 0.2
-    assert cfg.prompt_version == "gen-v0.6"
+    assert cfg.prompt_version == "gen-v0.7"
     assert cfg.min_quote_chars == 8
     assert cfg.max_candidates_per_trace == 5
     assert cfg.max_output_tokens == 16000

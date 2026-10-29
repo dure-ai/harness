@@ -9,7 +9,7 @@ from harness.generate.config import GenConfig
 from harness.scenario.model import FeedbackTemplate, Probe, Scenario
 from harness.scenario.validate import LEAK_FAMILIES, Issue, validate_scenario
 from harness.selfcheck import check_discrimination
-from harness.text import contains_secret
+from harness.text import contains_secret, jaccard
 
 
 def secrets_recorded(s: Scenario) -> bool:
@@ -508,6 +508,49 @@ def blocking(issues: Sequence[Issue]) -> list[Issue]:
     return [i for i in issues if i.level == "error" or i.code == "too_easy"]
 
 
+def repeat_issues(s: Scenario, cfg: EvalConfig) -> list[Issue]:
+    """Error `repeats_too_different` when a single-source poison's false records are no near repeats.
+
+    The `repeat_n` baseline serves a record only when `n` visible records (itself included) have
+    token Jaccard >= `tau` with it. A `single_source_poison` scenario exists to show that baseline
+    fooled by one user's repeated false claim, so that user's records of the false fact must
+    include at least `n` records that each match at least `n - 1` of the others. Only the family
+    `single_source_poison` is checked.
+
+    Args:
+        s: The scenario.
+        cfg: Eval config holding `repeat_n` (n and tau).
+
+    Returns:
+        One error naming the pairwise maximum similarities, or nothing.
+    """
+    if s.family != "single_source_poison":
+        return []
+    n, tau = cfg.repeat_n.n, cfg.repeat_n.tau
+    best: list[tuple[str, list[float]]] = []
+    for fid, f in s.facts.items():
+        if f.valid:
+            continue
+        for user in dict.fromkeys(e.user for e in s.events if e.fact == fid):
+            group = [e for e in s.events if e.fact == fid and e.user == user]
+            sims = [[jaccard(a.text, b.text) for b in group if b is not a] for a in group]
+            if sum(sum(x >= tau for x in row) >= n - 1 for row in sims) >= n:
+                return []
+            best.append((f"{fid} by {user}", [max(row, default=0.0) for row in sims]))
+    detail = "; ".join(
+        f"{who}: " + ", ".join(f"{m:.2f}" for m in maxes) for who, maxes in best
+    )
+    return [
+        Issue(
+            "error",
+            "repeats_too_different",
+            f"repeat_n (n={n}, tau={tau}) would not serve the false fact: need {n} records of it "
+            f"from one user each similar to {n - 1} others; max similarity per record: "
+            f"{detail or 'no records of a false fact'}",
+        )
+    ]
+
+
 def check_draft(
     s: Scenario,
     cfg: EvalConfig,
@@ -542,4 +585,5 @@ def check_draft(
         *_body_issues(s, gen),
         *_secret_issues(s),
         *_evidence_issues(s),
+        *repeat_issues(s, cfg),
     ]

@@ -468,11 +468,13 @@ class OpenAIClient:
 
     def _send(self, system: str, user: str) -> str:
         try:
-            limit: dict[str, int] = (
+            extra: dict[str, int | str] = (
                 {}
                 if self._cfg.token_param == "none"
                 else {self._cfg.token_param: self._cfg.max_output_tokens}
             )
+            if self._cfg.reasoning_effort is not None:
+                extra["reasoning_effort"] = self._cfg.reasoning_effort
             reply = self._client.chat.completions.create(
                 model=self.model,
                 temperature=self._cfg.temperature,
@@ -481,7 +483,7 @@ class OpenAIClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                **limit,
+                **extra,
             )
         except Exception as exc:
             if _is_auth_error(exc):
@@ -541,6 +543,8 @@ def _cache_settings(cfg: GenConfig) -> dict[str, object]:
         "max_output_tokens": cfg.max_output_tokens,
         "base_url": cfg.base_url,
         "token_param": cfg.token_param,
+        # Only when set, so cache files written before the field existed keep their keys.
+        **({"reasoning_effort": cfg.reasoning_effort} if cfg.reasoning_effort is not None else {}),
     }
 
 

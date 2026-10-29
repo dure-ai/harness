@@ -1,0 +1,383 @@
+id: failure_feedback-wechatpy-e6967f
+family: failure_feedback
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+facts:
+  f_old:
+    text: WeChat Pay signing helpers (calculate_signature, dict_to_xml) live in wechatpy/pay/utils.py,
+      and pay API modules such as wechatpy/pay/api/order.py sign request data with
+      calculate_signature(data, self._client.api_key).
+    valid_from: null
+    valid_until: '2026-10-04T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - wechatpy/pay/utils.py
+    - calculate_signature(data, self._client.api_key)
+  f_new:
+    text: WeChat Pay signing helpers now live in wechatpy/pay/signing.py, and pay
+      API modules such as wechatpy/pay/api/order.py sign request data by calling self._client.sign_data(data),
+      which reads the API key inside the WeChatPay client.
+    valid_from: '2026-10-04T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - wechatpy/pay/signing.py
+    - self._client.sign_data(data)
+events:
+- id: e1
+  t: '2026-10-01T12:45:00+09:00'
+  user: u4
+  session: s9
+  repo: jxtech/wechatpy
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: './wechatpy/pay/api/order.py:120:        sign = calculate_signature(data,
+    self._client.api_key)'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T17:00:00+09:00'
+  user: u2
+  session: s10
+  repo: jxtech/wechatpy
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for pay work: calculate_signature and dict_to_xml are in wechatpy/pay/utils.py;
+    the refund API follows the order API and signs with calculate_signature(data,
+    self._client.api_key) before posting the XML.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-03T10:30:00+09:00'
+  user: u4
+  session: s11
+  repo: jxtech/wechatpy
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Implemented parse_payment_result in WeChatPay; signature check reuses the
+    helper from wechatpy/pay/utils.py, same as the API modules do.
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-04T11:15:00+09:00'
+  user: u3
+  session: s12
+  repo: jxtech/wechatpy
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review on the pay notes above: as of today''s merge the helpers sit in wechatpy/pay/signing.py,
+    and API modules must call self._client.sign_data(data) instead of passing the
+    api key themselves. Please update order.py-style code accordingly.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-12T11:45:00+09:00'
+  user: u5
+  session: s16
+  repo: jxtech/wechatpy
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Added the coupon query API under wechatpy/pay/api; request dict is signed
+    with self._client.sign_data(data) and serialized via the helpers in wechatpy/pay/signing.py.
+    Tests pass locally.
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_block1
+  kind: block
+  t: '2026-10-05T10:15:00+09:00'
+  user: u1
+  session: s13
+  repo: jxtech/wechatpy
+  query: How should the order pay API sign request data — which signing helper module
+    and which sign call should it use?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Wrote the order API change importing from wechatpy/pay/utils.py and
+          signing with calculate_signature(data, self._client.api_key).
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Wrote the order API change signing with self._client.sign_data(data),
+          helpers imported from wechatpy/pay/signing.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Held off on the order API change; need to confirm whether self._client.sign_data(data)
+        is the expected call before writing it.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed on tests/test_pay.py for the order API: signature mismatch;
+        the suite expects requests signed via self._client.sign_data(data).'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block2
+  kind: block
+  t: '2026-10-08T11:30:00+09:00'
+  user: u1
+  session: s14
+  repo: jxtech/wechatpy
+  query: How should the refund pay API sign request data — which signing helper module
+    and which sign call should it use?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Wrote the refund API change importing from wechatpy/pay/utils.py and
+          signing with calculate_signature(data, self._client.api_key).
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Wrote the refund API change signing with self._client.sign_data(data),
+          helpers imported from wechatpy/pay/signing.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Held off on the refund API change; need to confirm whether self._client.sign_data(data)
+        is the expected call before writing it.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed on tests/test_pay.py for the refund API: ImportError, the suite
+        expects helpers from wechatpy/pay/signing.py.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block3
+  kind: block
+  t: '2026-10-11T12:30:00+09:00'
+  user: u1
+  session: s15
+  repo: jxtech/wechatpy
+  query: How should the coupon pay API sign request data — which signing helper module
+    and which sign call should it use?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Wrote the coupon API change importing from wechatpy/pay/utils.py and
+          signing with calculate_signature(data, self._client.api_key).
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Wrote the coupon API change signing with self._client.sign_data(data),
+          helpers imported from wechatpy/pay/signing.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Held off on the coupon API change; need to confirm whether self._client.sign_data(data)
+        is the expected call before writing it.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed on tests/test_pay.py for the coupon API: signature mismatch;
+        the suite expects requests signed via self._client.sign_data(data).'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-14T17:30:00+09:00'
+  user: u1
+  session: s17
+  repo: jxtech/wechatpy
+  query: What is the team convention for pay API modules to sign request data — which
+    signing helper module and which sign call?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: 'Added to team conventions: pay API modules import from wechatpy/pay/utils.py
+          and sign with calculate_signature(data, self._client.api_key).'
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: 'Added to team conventions: pay API modules sign with self._client.sign_data(data);
+          helpers live in wechatpy/pay/signing.py.'
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Did not add a signing convention yet; want a maintainer to confirm self._client.sign_data(data)
+        first.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed on tests/test_pay.py after the convention-driven change: ImportError,
+        the suite expects helpers from wechatpy/pay/signing.py.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:9fe955c21717535ac55bbbf616d719a9a82977fdef1615e3c0325475a47d1d96
+provenance:
+  author: llm
+  source_traces:
+  - dfa9f50f-8983-4ca8-86a7-84efd804be2a
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: jxtech/wechatpy
+    license: MIT
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: dfa9f50f-8983-4ca8-86a7-84efd804be2a
+    message_index: 11
+    quote: './wechatpy/pay/api/order.py:120:        sign = calculate_signature(data,
+      self._client.api_key)'
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T02:04:07.402436Z'
+  label_fingerprint: l1:b629715a5b03e0e71733fc8e9ea139af24c4172114dc94944cbc24d59f3b5a57
+  generated_hash: v1:5da710e6abf4e08a1ca8287be4353fb77062f01e7f558b4077bcccf6660c8ebb

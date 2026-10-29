@@ -1,0 +1,379 @@
+id: failure_feedback-monty-8ffe0f
+family: failure_feedback
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+facts:
+  f_old:
+    text: 'The monty package uses a src layout: library code lives under src/monty/,
+      where the single module src/monty/json.py holds MSONable, MontyEncoder/MontyDecoder
+      and jsanitize, and tests live in a top-level tests/ directory with one file
+      per module, e.g. tests/test_json.py.'
+    valid_from: null
+    valid_until: '2026-10-06T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - src/monty/json.py
+    - tests/test_json.py
+  f_new:
+    text: 'The monty JSON code is a subpackage, src/monty/json/: jsanitize is in src/monty/json/sanitize.py,
+      MSONable and the encoder/decoder sit in sibling modules of that package, and
+      its tests are under tests/json/, e.g. tests/json/test_sanitize.py.'
+    valid_from: '2026-10-06T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - src/monty/json/sanitize.py
+    - tests/json/test_sanitize.py
+events:
+- id: e1
+  t: '2026-10-01T13:45:00+09:00'
+  user: u4
+  session: s17
+  repo: materialsvirtuallab/monty
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: src/monty/json.py:def jsanitize(
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T12:30:00+09:00'
+  user: u5
+  session: s18
+  repo: materialsvirtuallab/monty
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Layout note for monty: src layout, code under src/monty/. MSONable, MontyEncoder/MontyDecoder
+    and jsanitize are all in src/monty/json.py, and their tests are in tests/test_json.py
+    (one test file per module).'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-05T15:30:00+09:00'
+  user: u5
+  session: s19
+  repo: materialsvirtuallab/monty
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Patched the recursive_msonable branch of jsanitize in src/monty/json.py and
+    added a nested as_dict case to tests/test_json.py.
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T15:30:00+09:00'
+  user: u3
+  session: s20
+  repo: materialsvirtuallab/monty
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review on the recent jsanitize notes: the JSON code was split into a package
+    on main today. jsanitize now lives in src/monty/json/sanitize.py and its tests
+    are in tests/json/test_sanitize.py, so please point patches and new test cases
+    there.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-15T14:45:00+09:00'
+  user: u2
+  session: s24
+  repo: materialsvirtuallab/monty
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Added a numpy datetime case for recursive_msonable to tests/json/test_sanitize.py.
+    The fix went into src/monty/json/sanitize.py and pytest passes locally.
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_block1
+  kind: block
+  t: '2026-10-07T10:15:00+09:00'
+  user: u1
+  session: s21
+  repo: materialsvirtuallab/monty
+  query: Which file under src/monty holds jsanitize, and which tests file should I
+    add the recursive_msonable case to?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Opened src/monty/json.py to patch jsanitize and planned the new case
+          in tests/test_json.py.
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Edited jsanitize in src/monty/json/sanitize.py and added the recursive_msonable
+          case to tests/json/test_sanitize.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Held off on editing until I confirmed the module path; listing the package
+        shows src/monty/json/sanitize.py.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed: the patch targeted a module path that is not in the tree,
+        and pytest reported 0 tests collected for jsanitize. The definition is in
+        src/monty/json/sanitize.py.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block2
+  kind: block
+  t: '2026-10-10T10:30:00+09:00'
+  user: u1
+  session: s22
+  repo: materialsvirtuallab/monty
+  query: Where is jsanitize defined under src/monty, and which tests file covers it?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Located jsanitize in src/monty/json.py and started editing it there,
+          with tests in tests/test_json.py.
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Found jsanitize in src/monty/json/sanitize.py; tests for it run from
+          tests/json/test_sanitize.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Did not touch any code yet; checking that src/monty/json/sanitize.py is
+        the current home of jsanitize first.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failure: the diff applied to a nonexistent file, so the build broke
+        before tests ran. jsanitize is defined in src/monty/json/sanitize.py.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block3
+  kind: block
+  t: '2026-10-13T16:00:00+09:00'
+  user: u1
+  session: s23
+  repo: materialsvirtuallab/monty
+  query: Which src/monty file do I edit to change jsanitize, and where do its tests
+    go?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Changed jsanitize in src/monty/json.py and put the test in tests/test_json.py.
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Changed jsanitize in src/monty/json/sanitize.py and put the test in
+          tests/json/test_sanitize.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Paused before editing; need to confirm whether the jsanitize change belongs
+        in src/monty/json/sanitize.py.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed: ImportError when collecting the new test module, because the
+        test imported from a path that does not exist; the target is tests/json/test_sanitize.py.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-16T13:30:00+09:00'
+  user: u1
+  session: s25
+  repo: materialsvirtuallab/monty
+  query: What is the src/monty and tests layout for jsanitize and its test file?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: 'Wrote a team note: jsanitize is in src/monty/json.py, tests in tests/test_json.py.'
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: 'Wrote a team note: jsanitize is in src/monty/json/sanitize.py, tests
+          in tests/json/test_sanitize.py.'
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Did not write a team note yet; want a reviewer to confirm src/monty/json/sanitize.py
+        as the layout first.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed: the docs link check could not resolve the path given in the
+        layout note; the actual module is src/monty/json/sanitize.py.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:4dce329e5a1689365fdf960cfc58001c310b0fe9a0d94ad6ea6febdda1b2f683
+provenance:
+  author: llm
+  source_traces:
+  - a2d16830-a778-4fc3-984c-8a919fae6a4c
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: materialsvirtuallab/monty
+    license: MIT
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: a2d16830-a778-4fc3-984c-8a919fae6a4c
+    message_index: 5
+    quote: src/monty/json.py:def jsanitize(
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T11:05:34.415095Z'
+  label_fingerprint: l1:6454f67a7fef465b9450573c58d7ce026fa6db739684a3c7894a2a245fdf6208
+  generated_hash: v1:b384f0de35db0266e590ae879adf1c62768906aace476d49d2ad3a1b91e86f89

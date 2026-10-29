@@ -1,0 +1,6 @@
+요청 10개 중 8개 생성
+  거절 22건: /Users/sunm2n/.cache/t5-harness/runs/20261029-104649/rejected.jsonl
+  부족 coincidence: 0 of 1 made; looked at 1 traces and 4 candidates; 3 drafts rejected; stopped at --max-attempts 3
+  부족 workaround_then_root: 0 of 1 made; looked at 10 traces and 22 candidates; 21 did not fit (workaround_then_root needs a candidate whose fix is workaround or root); 1 drafts rejected; stopped at --max-traces 10
+  --max-traces 10에서 후보 뽑기를 멈췄습니다. 더 만들려면 값을 올리세요.
+저장 위치: scenarios/dev

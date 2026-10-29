@@ -245,3 +245,40 @@ def test_cue_word_in_marker_twice_is_an_error() -> None:
     with pytest.raises(LLMError, match="failed validation twice"):
         write_bodies(client, sk, _cand(), [make_trace()], _gen())
     assert len(client.requests) == 2
+
+
+def test_poison_repeats_too_different_are_retried_and_fixed() -> None:
+    sk = _skeleton("single_source_poison")
+    good = _reply(sk)
+    bad = _reply(sk)
+    false_ids = [e.id for e in sk.scenario.events if e.fact == "f_false"]
+    marker = bad["facts"]["f_false"]["markers"][0]
+    words = ["alpha beta", "gamma delta", "epsilon zeta", "eta theta"]
+    for eid, w in zip(false_ids, words, strict=False):
+        bad["events"][eid]["text"] = f"{w} {marker} {w[::-1]}"
+    client = _client(bad, good)
+    write_bodies(client, sk, _cand(), [make_trace()], _gen())
+    assert len(client.requests) == 2
+    assert "need 3 records" in client.requests[1][2]
+    assert "lead-in" in client.requests[1][2]
+
+
+def test_prompt_on_false_names_the_action_it_follows() -> None:
+    sk = _skeleton()
+    client = _client(_reply(sk))
+    write_bodies(client, sk, _cand(), [], _gen())
+    system = client.requests[0][1]
+    feedback = next(line for line in system.splitlines() if line.startswith("- feedback: "))
+    assert "`on_false`" in feedback
+    assert "`action.<old/false fact>`" in feedback
+    assert "same command or file" in feedback
+    assert "failure that action hit" in feedback
+
+
+def test_bodies_prompt_tells_workaround_then_root_to_keep_the_fixes_apart() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    hint = text[text.index("In a `workaround_then_root` scenario") :]
+    assert "do not repeat the workaround's" in hint
+    assert "symptom" in hint

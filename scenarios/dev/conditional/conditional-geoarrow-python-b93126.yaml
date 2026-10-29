@@ -1,0 +1,240 @@
+id: conditional-geoarrow-python-b93126
+family: conditional
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+    - u6
+    - u7
+facts:
+  f_a:
+    text: In geoarrow-pyarrow, ga.as_wkb is defined in _compute.py and calls Kernel.as_wkb
+      from _kernel.py, which wraps the geoarrow.c CKernel; Kernel options are packed
+      into bytes as an int32 count followed by int32-length-prefixed UTF-8 key/value
+      strings (e.g. len(k).to_bytes(4, sys.byteorder, signed=True)).
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      service: geoarrow-python
+    fix: null
+    markers:
+    - Kernel.as_wkb
+    - _kernel.py
+    - len(k).to_bytes
+  f_b:
+    text: In the reports service, WKB export goes through reports/geo_export.py, which
+      calls ga.as_wkb and passes kernel options as a UTF-8 JSON object built by encode_options_json
+      instead of length-prefixed bytes.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      service: reports
+    fix: null
+    markers:
+    - reports/geo_export.py
+    - encode_options_json
+events:
+- id: e1
+  t: '2026-10-01T11:30:00+09:00'
+  user: u4
+  session: s3
+  repo: geoarrow/geoarrow-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Reports WKB export path: reports/geo_export.py calls ga.as_wkb and hands
+    kernel options over as a UTF-8 JSON object via encode_options_json, not as length-prefixed
+    bytes. Keep option keys as plain strings in that dict.'
+  meta:
+    service: reports
+  refs: []
+  fact: f_b
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T09:15:00+09:00'
+  user: u6
+  session: s4
+  repo: geoarrow/geoarrow-python
+  scope: team
+  team: null
+  signal: test
+  kind: ci_result
+  outcome: success
+  text: 'CI reports suite passed: test_geo_export covers reports/geo_export.py calling
+    ga.as_wkb with encode_options_json output, and the JSON options round-trip matches
+    the recorded export path.'
+  meta:
+    service: reports
+  refs:
+  - e1
+  fact: f_b
+  secret_markers: []
+- id: e3
+  t: '2026-10-05T15:15:00+09:00'
+  user: u3
+  session: s5
+  repo: geoarrow/geoarrow-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Traced as_wkb in geoarrow-pyarrow: ga.as_wkb lives in _compute.py (line 219)
+    and calls Kernel.as_wkb from _kernel.py, which wraps the geoarrow.c CKernel. Options
+    are serialized as an int32 count, then each key/value as int32 length + UTF-8
+    bytes, e.g. `bytes += len(k).to_bytes(4, sys.byteorder, signed=True)`.'
+  meta:
+    service: geoarrow-python
+  refs: []
+  fact: f_a
+  secret_markers: []
+- id: e4
+  t: '2026-10-07T15:00:00+09:00'
+  user: u2
+  session: s6
+  repo: geoarrow/geoarrow-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'For the strict_iso_wkb work: any new option for Kernel.as_wkb has to go through
+    the byte packing in _kernel.py (int32 count, then int32-length-prefixed UTF-8
+    key and value strings) before reaching CKernel.'
+  meta:
+    service: geoarrow-python
+  refs: []
+  fact: f_a
+  secret_markers: []
+- id: e5
+  t: '2026-10-09T17:15:00+09:00'
+  user: u1
+  session: s7
+  repo: geoarrow/geoarrow-python
+  scope: team
+  team: null
+  signal: test
+  kind: ci_result
+  outcome: success
+  text: 'CI geoarrow-pyarrow tests/test_compute.py and tests/test_kernel.py passed:
+    ga.as_wkb in _compute.py dispatches to Kernel.as_wkb and the length-prefixed option
+    bytes from _kernel.py are accepted by CKernel.'
+  meta:
+    service: geoarrow-python
+  refs:
+  - e3
+  - e4
+  fact: f_a
+  secret_markers: []
+- id: e6
+  t: '2026-10-10T16:45:00+09:00'
+  user: u5
+  session: s8
+  repo: geoarrow/geoarrow-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Added a strict flag to the reports export: reports/geo_export.py now puts
+    it into the dict passed to encode_options_json before calling ga.as_wkb.'
+  meta:
+    service: reports
+  refs: []
+  fact: f_b
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-11T14:15:00+09:00'
+  user: u7
+  session: s9
+  repo: geoarrow/geoarrow-python
+  query: For geoarrow-python, which file does as_wkb go through and how are kernel
+    options packed (Kernel.as_wkb in _kernel.py, or encode_options_json in reports/geo_export.py)?
+  about:
+  - f_a
+  - f_b
+  meta:
+    service: geoarrow-python
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-13T12:15:00+09:00'
+  user: u7
+  session: s10
+  repo: geoarrow/geoarrow-python
+  query: For reports, which file does as_wkb go through and how are kernel options
+    packed (Kernel.as_wkb in _kernel.py, or encode_options_json in reports/geo_export.py)?
+  about:
+  - f_a
+  - f_b
+  meta:
+    service: reports
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:ddf91c6d9c540fb2a124dc2bb254cd3e8694e0d18654cf071cac28ef530c892d
+provenance:
+  author: llm
+  source_traces:
+  - 297591d1-62fb-4fe4-a3a9-b96a1c73a9b5
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: geoarrow/geoarrow-python
+    license: Apache-2.0
+  fabricated_facts:
+  - f_b
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e6
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T11:10:51.538414Z'
+  label_fingerprint: l1:23d50b1d39848b117b7ed47fc1e36440bde2efbe1aea6e4c5825ff79fec07006
+  generated_hash: v1:41e4b93dff16c0640616014ac93ad9afa2ee6d9d5b9377b6f73a81371acd5a65

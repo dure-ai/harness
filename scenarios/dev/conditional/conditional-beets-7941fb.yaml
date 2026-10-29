@@ -1,0 +1,233 @@
+id: conditional-beets-7941fb
+family: conditional
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+    - u6
+    - u7
+facts:
+  f_a:
+    text: In the beets service, query-string parsing, including the `field::pattern`
+      regex syntax, is implemented in beets/dbcore/queryparse.py.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      service: beets
+    fix: null
+    markers:
+    - dbcore/queryparse.py
+    - field::pattern
+  f_b:
+    text: In the payments service, query-string parsing of `field~value` filter expressions
+      is implemented by parse_filter_string() in payments/query/filters.py.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions:
+      service: payments
+    fix: null
+    markers:
+    - payments/query/filters.py
+    - parse_filter_string
+events:
+- id: e1
+  t: '2026-10-01T17:45:00+09:00'
+  user: u6
+  session: s5
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'payments: query-string parsing for the transaction search endpoint goes through
+    parse_filter_string() in payments/query/filters.py, which splits `field~value`
+    filter terms. Start there for any filter parsing change.'
+  meta:
+    service: payments
+  refs: []
+  fact: f_b
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T15:45:00+09:00'
+  user: u4
+  session: s6
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Traced a payments search filter bug to parse_filter_string; it's the single
+    entry point that turns the query string into filter objects (payments/query/filters.py).
+  meta:
+    service: payments
+  refs: []
+  fact: f_b
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T09:30:00+09:00'
+  user: u1
+  session: s7
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: cat /testbed/beets/dbcore/queryparse.py
+  meta:
+    service: beets
+  refs: []
+  fact: f_a
+  secret_markers: []
+- id: e4
+  t: '2026-10-05T14:15:00+09:00'
+  user: u2
+  session: s8
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review on the web regex fix: confirmed, the `field::pattern` regex syntax
+    is parsed in beets/dbcore/queryparse.py, so the backslash handling fix belongs
+    to the code that calls it, not the parser itself.'
+  meta:
+    service: beets
+  refs:
+  - e3
+  fact: f_a
+  secret_markers: []
+- id: e5
+  t: '2026-10-06T15:15:00+09:00'
+  user: u5
+  session: s9
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Reviewed the two earlier payments notes: confirmed, parse_filter_string()
+    in payments/query/filters.py is the code that parses the search query string.
+    Checked it against the current tree.'
+  meta:
+    service: payments
+  refs:
+  - e1
+  - e2
+  fact: f_b
+  secret_markers: []
+- id: e6
+  t: '2026-10-07T15:00:00+09:00'
+  user: u3
+  session: s10
+  repo: beetbox/beets
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'For the beet web regex query issue: query parsing for strings like `albumtest::\w+`
+    happens in beets/dbcore/queryparse.py; the web plugin just hands the decoded string
+    to it.'
+  meta:
+    service: beets
+  refs: []
+  fact: f_a
+  secret_markers: []
+probes:
+- id: p_block
+  kind: block
+  t: '2026-10-08T13:30:00+09:00'
+  user: u7
+  session: s11
+  repo: beetbox/beets
+  query: 'Where is query-string parsing implemented for the beets service: dbcore/queryparse.py
+    with field::pattern, or payments/query/filters.py with parse_filter_string?'
+  about:
+  - f_a
+  - f_b
+  meta:
+    service: beets
+  k: null
+  feedback: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-09T10:00:00+09:00'
+  user: u7
+  session: s12
+  repo: beetbox/beets
+  query: 'Where is query-string parsing implemented for the payments service: payments/query/filters.py
+    with parse_filter_string, or dbcore/queryparse.py with field::pattern?'
+  about:
+  - f_a
+  - f_b
+  meta:
+    service: payments
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:de61856c0f5cdd9a93358af2c24d98120209265fc47d0e45aed732a616c23d55
+provenance:
+  author: llm
+  source_traces:
+  - e06da58f-5335-4106-a10d-591764a852ea
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: beetbox/beets
+    license: MIT
+  fabricated_facts:
+  - f_b
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: e06da58f-5335-4106-a10d-591764a852ea
+    message_index: 13
+    quote: cat /testbed/beets/dbcore/queryparse.py
+    origin: quoted
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e6
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T02:09:28.287623Z'
+  label_fingerprint: l1:68d47ef6bc53735bdd54d74c06859a61eaf8ce66c1c270da4a31ef504ce02708
+  generated_hash: v1:139a5d8cd9dafe78835bdce18c6ff071bf7fd60249b44efed9f4f0292ca2f004

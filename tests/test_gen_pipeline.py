@@ -402,6 +402,36 @@ def test_generate_rejects_too_easy_and_errors_but_saves_warnings(
     assert len(list((tmp_path / "out" / "truth_change").glob("*.yaml"))) == 1
 
 
+def test_generate_keeps_check_rejected_drafts_under_the_run_dir_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verdicts = [
+        [Issue("warning", "too_easy", "all_store never follows a false fact")],
+        [Issue("error", "cue_word", "event e1: text contains cue word 'fake'")],
+        [],
+    ]
+    monkeypatch.setattr(pipeline, "check_draft", lambda *a, **kw: verdicts.pop(0))
+    run(tmp_path, plain_fake(), ["truth_change"], 1)
+    kept = [r["draft"] for r in rejections(tmp_path)]
+    assert len(kept) == 2 and len(set(kept)) == 2
+    for draft in kept:
+        path = Path(draft)
+        assert path.parent == tmp_path / "run" / "rejected_drafts" / "truth_change"
+        assert load_scenario(path).id == path.stem
+    assert len(list((tmp_path / "out" / "truth_change").glob("*.yaml"))) == 1
+
+
+def test_generate_keeps_no_draft_for_a_bodies_llm_error(tmp_path: Path) -> None:
+    client = FakeClient(
+        responders={"candidates": fake_candidates, "bodies": lambda *a, **kw: (_ for _ in ()).throw(LLMError("boom"))}
+    )
+    with pytest.raises(LLMError):  # three errors in a row end the run
+        run(tmp_path, client, ["truth_change"], 1)
+    assert rejections(tmp_path)
+    assert all(r.get("draft") is None for r in rejections(tmp_path))
+    assert not (tmp_path / "run" / "rejected_drafts").exists()
+
+
 def test_generate_records_secret_events_in_the_saved_draft(tmp_path: Path) -> None:
     """The secret slots are written into the draft; nothing re-derives them from the file later."""
     run(tmp_path, plain_fake(), ["leak_personal"], 1)

@@ -532,6 +532,7 @@ _SETTING_VARIANTS: dict[str, tuple[Any, Any]] = {
     "max_output_tokens": (16000, 50),
     "base_url": (None, "http://other-server:8000/v1"),
     "token_param": ("max_completion_tokens", "max_tokens"),
+    "reasoning_effort": (None, "low"),
 }
 
 
@@ -599,6 +600,25 @@ def test_openai_sends_configured_token_param(
     (call,) = rec.calls
     sent = {k: v for k, v in call.items() if k in ("max_tokens", "max_completion_tokens")}
     assert sent == expected
+
+
+@pytest.mark.parametrize(("effort", "expected"), [(None, {}), ("low", {"reasoning_effort": "low"})])
+def test_openai_sends_reasoning_effort_only_when_set(
+    effort: str | None, expected: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A reasoning model (gpt-oss) spends the whole output limit thinking unless told to keep it
+    # short; a non-reasoning model rejects the parameter, so it is sent only when configured.
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    sdk, rec = _openai_sdk(_openai_reply('{"ok": true}'), [])
+    OpenAIClient(_cfg(provider="openai", reasoning_effort=effort), sdk=sdk).complete_json("k", "s", "u", Out)
+    (call,) = rec.calls
+    assert {k: v for k, v in call.items() if k == "reasoning_effort"} == expected
+
+
+def test_reasoning_effort_unset_keeps_existing_cache_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "k1")
+    client = make_client(_cfg(provider="openai"), tmp_path)
+    assert isinstance(client, CachedClient) and "reasoning_effort" not in client._settings
 
 
 def test_anthropic_reads_api_key_env(monkeypatch: pytest.MonkeyPatch) -> None:

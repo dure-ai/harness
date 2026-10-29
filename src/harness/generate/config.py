@@ -36,6 +36,9 @@ class GenConfig(_Strict):
         token_param: Name under which an OpenAI-compatible server takes the output token
             limit: `max_completion_tokens` (OpenAI), `max_tokens` (older servers) or `none`
             (send no limit). Not used by the anthropic provider.
+        reasoning_effort: Reasoning effort sent to an OpenAI-compatible reasoning model
+            (`reasoning_effort`), e.g. `low` for gpt-oss, which otherwise can spend the whole output
+            limit thinking. Unset: not sent (non-reasoning models reject it). Not used by anthropic.
     """
 
     provider: Literal["anthropic", "openai", "fake"]
@@ -54,6 +57,7 @@ class GenConfig(_Strict):
     timeout_s: float = Field(default=300, gt=0)
     max_retries: int = Field(default=2, ge=0)
     token_param: Literal["max_completion_tokens", "max_tokens", "none"] = "max_completion_tokens"
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 
 def load_gen_config(path: Path) -> GenConfig:
