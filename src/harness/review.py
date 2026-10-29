@@ -61,7 +61,8 @@ class DraftRow:
         status: Review status, or "unreadable".
         generated_at: When the draft was generated, if recorded.
         warnings: Codes of the structural findings (`validate_scenario`), preceded by
-            `approved_content_changed` or `approval_unverified` for an approved file whose
+            `approved_content_changed`, `approval_missing_hash` (an LLM-authored file with no usable
+            hash) or `approval_unverified` for an approved file whose
             approval does not verify (`approval_issue`); `load_error` for an unreadable file.
     """
 
