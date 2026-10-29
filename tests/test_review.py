@@ -793,3 +793,30 @@ def test_edit_quoted_to_written_keeping_trace_fields_reverted(tmp_path):
     result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
     assert result.status == "reverted"
     assert result.changed_fields == ["provenance.evidence"]
+
+
+def test_set_approved_ignores_an_emptied_cue_word_list(tmp_path):
+    s = truth_change()
+    events = [e.model_copy(update={"text": e.text + " This is deprecated."}) if e.id == "tc_o1" else e for e in s.events]
+    path = draft(tmp_path, s.model_copy(update={"events": events}))
+    lax = GEN.model_copy(update={"banned_cue_words": []})
+    issues = set_status(path, "approved", "kim", None, CFG, lax)
+    assert blocking(issues)
+    assert load_scenario(path).review.status == "draft"
+
+
+def test_set_approved_records_the_check_config_hash(tmp_path):
+    path = draft(tmp_path)
+    assert not blocking(set_status(path, "approved", "kim", None, CFG, GEN))
+    review = load_scenario(path).review
+    assert review.check_config_hash and review.check_config_hash.startswith("c1:")
+    assert review.approved_hash
+
+
+def test_approved_file_without_check_config_hash_still_loads(tmp_path):
+    path = draft(tmp_path)
+    set_status(path, "approved", "kim", None, CFG, GEN)
+    raw = yaml.safe_load(path.read_text())
+    del raw["review"]["check_config_hash"]
+    path.write_text(yaml.safe_dump(raw, allow_unicode=True))
+    assert load_scenario(path).review.check_config_hash is None

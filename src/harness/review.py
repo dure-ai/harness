@@ -4,6 +4,8 @@ Everything here works from the scenario YAML alone, so a teammate can review on 
 machine with only the repository checked out (generation design 7). It needs no `gen` extra.
 """
 
+import hashlib
+import json
 import re
 import shlex
 import subprocess
@@ -23,7 +25,7 @@ from rich.text import Text
 from harness.config import EvalConfig
 from harness.engines import make_engine
 from harness.generate.checks import blocking, check_draft
-from harness.generate.config import GenConfig, cache_root
+from harness.generate.config import GenConfig, cache_root, load_gen_config
 from harness.generate.pipeline import save_draft, saved_hash
 from harness.replay import ScenarioRun, run_scenario
 from harness.scenario.labels import changed_label_fields, fingerprint_state, label_fingerprint, unquoted_evidence
@@ -223,10 +225,11 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     edited.provenance.generated_hash = original.provenance.generated_hash
     if edited.model_dump(mode="json") == original.model_dump(mode="json"):
         return EditResult("unchanged")
-    if (edited.review.status, edited.review.reviewer, edited.review.approved_hash) != (
+    if (edited.review.status, edited.review.reviewer, edited.review.approved_hash, edited.review.check_config_hash) != (
         original.review.status,
         original.review.reviewer,
         original.review.approved_hash,
+        original.review.check_config_hash,
     ):
         return revert(
             "review status, reviewer and approved_hash change only with `harness review set`",
@@ -277,6 +280,54 @@ def _keep_edit(scenario_id: str, text: bytes) -> Path:
     return target
 
 
+_REPO_GEN_CONFIG = Path(__file__).resolve().parents[2] / "config" / "gen-v0.1.yaml"
+
+
+def approval_gen_config(gen: GenConfig) -> GenConfig:
+    """Make the generation config an approval is checked with no weaker than the repo default.
+
+    A reviewer may pass `--gen-config` with a shorter cue-word list (even `[]`). The banned list
+    used for approval is therefore the union of the repo's `config/gen-v0.1.yaml` list and the
+    passed one (union rather than refusal, so extra words of a custom config still count);
+    `min_quote_chars` is raised to the repo default if lower.
+
+    Args:
+        gen: The generation config passed by the caller.
+
+    Returns:
+        A copy of `gen` with the merged `banned_cue_words` and `min_quote_chars`.
+
+    Raises:
+        FileNotFoundError: If the repo default config is missing.
+    """
+    base = load_gen_config(_REPO_GEN_CONFIG)
+    seen = {w.casefold() for w in base.banned_cue_words}
+    extra = [w for w in gen.banned_cue_words if w.casefold() not in seen]
+    return gen.model_copy(
+        update={
+            "banned_cue_words": [*base.banned_cue_words, *extra],
+            "min_quote_chars": max(gen.min_quote_chars, base.min_quote_chars),
+        }
+    )
+
+
+def check_config_hash(gen: GenConfig) -> str:
+    """Hash the check-relevant generation settings, to record next to an approval.
+
+    Args:
+        gen: The config the approval was checked with.
+
+    Returns:
+        `"c1:"` and the hex SHA-256 of the sorted cue words and `min_quote_chars`.
+    """
+    blob = json.dumps(
+        {"banned_cue_words": sorted(gen.banned_cue_words), "min_quote_chars": gen.min_quote_chars},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return "c1:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def set_status(
     path: Path,
     status: Literal["approved", "rejected"],
@@ -297,7 +348,8 @@ def set_status(
     `label_fingerprint_not_recorded`.
     Approval then needs `check_draft` to find no error and no `too_easy` warning; otherwise the
     file is left as it is. An approval records `review.approved_hash` (`content_hash` of the
-    saved file), which `load_set` checks. Rejection always works.
+    saved file), which `load_set` checks, and `review.check_config_hash` (the settings used; the
+    banned cue words are merged with the repo default first, see `approval_gen_config`). Rejection always works.
 
     Limits: a passing `check_draft` is necessary, not sufficient (a body that contradicts its
     label is only caught by the reviewer reading it). The fingerprint and `approved_hash` live
@@ -322,6 +374,7 @@ def set_status(
     s = load_scenario(path)
     issues: list[Issue] = []
     if status == "approved":
+        gen = approval_gen_config(gen)
         fingerprint = fingerprint_state(s)
         prov = s.provenance
         if prov.author == "llm" and prov.generated_hash and fingerprint == "unverified":
@@ -356,6 +409,7 @@ def set_status(
     if status == "approved":
         # Hash the text `save_draft` writes (the `review` block is not hashed).
         s.review.approved_hash = saved_hash(s, "approval")
+        s.review.check_config_hash = check_config_hash(gen)
     save_draft(s, path)
     return issues
 

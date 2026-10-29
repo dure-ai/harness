@@ -138,12 +138,17 @@ class Review(_Strict):
         approved_hash: `scenario.labels.content_hash` of the file when `review set` approved it;
             loading an approved file whose content no longer matches is an error. None for a draft,
             a rejection, or an approval made before the hash existed (loaded with a warning).
+        check_config_hash: Hash of the generation-check settings (`banned_cue_words`,
+            `min_quote_chars`) the approval was checked with; None for anything but an approval
+            made after the field existed. Not part of the approval content hash (the `review`
+            section is not hashed).
     """
 
     status: Literal["draft", "approved", "rejected"] = "draft"
     reviewer: str | None = None
     notes: str = ""
     approved_hash: str | None = None
+    check_config_hash: str | None = None
 
 
 class SourceRepo(_Strict):
