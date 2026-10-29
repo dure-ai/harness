@@ -46,7 +46,8 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 | `oracle_perfect` | 정답 기준선: M1 = 0, M2 = 1, M3 = 0 |
 | `none_empty` | 아무것도 기억하지 않는 기준선: M1 = 0, M2 = 0, M3 = 0 |
 | `all_store_max_m1` | 전부 저장 기준선의 M1이 0보다 크고 기준선 중 가장 큼 |
-| `repeat_n_poison`, `repeat_n_echo` | 반복 N회 기준선이 한 사람의 오염·메아리 계열에서 정답보다 많이 틀림(그 계열이 세트에 있을 때만) |
+| `repeat_n_poison` | 반복 N회 기준선이 한 사람의 오염 계열에서 정답보다 많이 틀림(그 계열이 세트에 있을 때만) |
+| `echo_buildup` | 메아리 계열마다 all_store가 받는 거짓 사실 결과가 첫 block 질문보다 마지막 block 질문에서 많음(메아리가 쌓임, 그 계열이 세트에 있을 때만) |
 
 ### 3. 실행 (`run`)
 
