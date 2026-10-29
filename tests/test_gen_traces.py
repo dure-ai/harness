@@ -1,6 +1,9 @@
+import json
 import re
 
 from pathlib import Path
+
+import pytest
 
 from harness.generate.config import load_gen_config
 from harness.generate.traces import (
@@ -213,3 +216,10 @@ def test_quote_with_real_newline_and_apostrophe_from_tool_output_passes_check_qu
     )
     ok, rejected = check_quotes(trace, [cand])
     assert len(ok) == 1 and not rejected
+
+
+@pytest.mark.parametrize("code", [0, "0", None])
+def test_tool_envelope_with_a_zero_returncode_adds_no_line(code: object) -> None:
+    from harness.generate.traces import _tool_content
+
+    assert _tool_content(json.dumps({"output": "ok", "returncode": code})) == "ok"

@@ -103,7 +103,7 @@ def _tool_content(content: str) -> str:
     if not isinstance(env, dict) or not isinstance(env.get("output"), str):
         return content
     code = env.get("returncode")
-    if code is None or code == 0:
+    if code is None or (not isinstance(code, bool) and code in (0, "0")):
         return env["output"]
     return f"{env['output']}\nreturncode: {code}"
 
