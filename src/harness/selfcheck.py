@@ -10,6 +10,7 @@ from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, run_scenario
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue
 from harness.stats import Rate
+from harness.world import probe_ctx, true_at
 
 RUN_ID = "selfcheck"
 
@@ -91,6 +92,43 @@ def _repeat_n_beats_oracle(
     return CheckResult(name, ok, detail)
 
 
+def _false_served(run: ScenarioRun, s: Scenario) -> list[int]:
+    """Per block probe, in time order: how many served results state a fact false at that probe."""
+    probes = {p.id: p for p in s.probes}
+    counts = []
+    for rec in run.probes:
+        if rec.kind != "block":
+            continue
+        p = probes[rec.probe_id]
+        false = {f for f in s.facts if not true_at(s.facts[f], p.t, probe_ctx(p))}
+        counts.append(sum(1 for basis in rec.bases if basis & false))
+    return counts
+
+
+def _echo_buildup(runs: list[ScenarioRun], scenarios: list[Scenario]) -> CheckResult:
+    """all_store serves the false record from the first probe and follows it; the echo must pile up.
+
+    all_store hands over every visible record, so it serves the initial false records from the
+    first block probe on and each answer acted on writes one more echo record. If the number of
+    false-fact results it is served does not grow from the first to the last block probe of
+    every echo scenario, the echo family does not build up an echo and measures nothing.
+    """
+    by_id = {s.id: s for s in scenarios}
+    echo = [r for r in runs if r.family == "echo"]
+    if not echo:
+        return CheckResult("echo_buildup", True, "skipped: no echo scenarios")
+    counts = {r.scenario_id: _false_served(r, by_id[r.scenario_id]) for r in echo}
+    flat = sorted(sid for sid, c in counts.items() if len(c) < 2 or c[-1] <= c[0])
+    shown = ", ".join(f"{sid}={'/'.join(map(str, c))}" for sid, c in counts.items())
+    detail = (
+        f"all_store false-fact results served per echo block probe: {shown} "
+        "(want more at the last block probe than at the first in every echo scenario)"
+    )
+    if flat:
+        detail += "; no build-up in " + ", ".join(flat)
+    return CheckResult("echo_buildup", not flat, detail)
+
+
 def run_selfcheck(
     scenarios: list[Scenario], cfg: EvalConfig, blind_key: bytes = DEFAULT_BLIND_KEY
 ) -> tuple[list[CheckResult], dict[str, list[ScenarioRun]]]:
@@ -126,13 +164,7 @@ def run_selfcheck(
             _family_m1(repeat_n.by_family, "single_source_poison"),
             _family_m1(oracle.by_family, "single_source_poison"),
         ),
-        _repeat_n_beats_oracle(
-            "repeat_n_echo",
-            "echo",
-            "echo" in families,
-            _family_m1(repeat_n.feedback_by_family, "echo"),
-            _family_m1(oracle.feedback_by_family, "echo"),
-        ),
+        _echo_buildup(runs["all_store"], scenarios),
     ]
     return checks, runs
 

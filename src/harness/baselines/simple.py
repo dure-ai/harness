@@ -81,7 +81,7 @@ class RepeatNEngine(_NamespacedEngine):
     """Hands over only events that recur: at least `n` similar visible events (itself included).
 
     Similarity is token-set Jaccard >= `tau`; who said it is ignored, so repeated injection by one
-    source or echoed records fool it. Self-check expects it to fail the poison and echo families.
+    source or echoed records fool it. Self-check expects it to fail the poison family.
 
     Args:
         n: Minimum number of similar events.
