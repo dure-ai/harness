@@ -207,6 +207,7 @@ uv run harness review set <id> rejected --reviewer 이름 --note "정답이 틀�
 ```
 
 - `show`: 머리(id, 계열, 모드, 원본 저장소·궤적, 공급자·모델, 자동 검증 경고), 정답표(사실마다 참인 기간, 조건, `valid`, `fix`, 지어낸 사실 여부, 마커, 문장), 시각 순서의 이벤트·문항 흐름(근거의 `origin`과 인용, 문항 시점에 참인 사실), 기준선 미리보기(oracle, all_store, 누출 계열은 all_store_noacl의 문항별 결과와 누출 수)를 한 화면에 보여 줍니다.
+- 자동 검증이 못 잡아서 사람이 봐야 하는 것: 시간 계열(`truth_change`, `failure_feedback`, `workaround_then_root`)에서 `f_old`의 구성 요소가 모두 `f_new`에서 바뀌는지 봅니다. 바뀌지 않는 부분(예: 문서 위치만 바뀌고 테스트 파일 위치는 그대로)이 `f_old`에 묶여 있고 문항이 그 부분을 물으면, 맞게 답한 엔진도 낡은 사실을 따른 것으로 채점됩니다. 그 부분은 `f_old`의 문장·마커에서 빼고 `f_new`나 D일 이후 기록에 옮기거나, 문항에서 뺍니다.
 - `edit`에서 **고칠 수 있는 것**: 사실의 `text`·`markers`, 이벤트의 `text`, 문항의 `query`, 되먹임 틀의 `text`, `review.notes`.
 - **고칠 수 없는 것**: 사실의 id·기간·조건·`valid`·`fix`, 이벤트의 id·시각·사용자·세션·저장소·범위·팀·신호·종류·결과·연결 사실·`refs`·`meta`·`secret_markers`, 문항의 id·종류·시각·사용자·세션·저장소·`about`·`meta`·`k`, 되먹임 틀의 구조와 `fact`·`signal`·`kind`·`outcome`·`scope`·`delay`, 계열·모드·언어·세계·`provenance`(`secret_events` 포함), 이벤트·문항의 순서(같은 시각 이벤트는 파일 순서대로 재생되므로 정답에 속합니다), `review.status`와 `reviewer`(`review set`으로만 바꿉니다). 건드리면 어느 필드인지 보여 주고 파일을 원래대로 되돌립니다(종료 코드 1). 고친 내용은 버리지 않고 캐시의 `review/<id>-<YYYYmmdd-HHMMSS>.yaml`에 남기며 그 경로를 "your edit was kept at …"으로 알려 줍니다. 정답이 틀렸다면 고치지 말고 거절하세요. `secret_markers`도 같습니다: 비밀 문자열이 본문과 맞지 않으면 고치지 말고 거절하고 다시 생성하세요.
 - 이미 승인·거절된 파일을 고쳐 저장하면 `review`가 `draft`로 돌아가고(`reviewer`는 비워지고 `notes`는 남음) 다시 승인받아야 합니다.
