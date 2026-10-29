@@ -78,9 +78,34 @@ def _call_text(call: dict[str, Any]) -> str:
     args = fn.get("arguments")
     if args is None:
         args = ""
-    elif not isinstance(args, str):
+    elif isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            # String values are written as they are, so a command reads as the agent typed it.
+            args = ", ".join(
+                f"{k}={v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)}"
+                for k, v in parsed.items()
+            )
+    else:
         args = json.dumps(args, ensure_ascii=False)
     return f"{fn.get('name') or ''}({args})"
+
+
+def _tool_content(content: str) -> str:
+    """Unwrap a tool message that is a JSON envelope; any other content is returned as it is."""
+    try:
+        env = json.loads(content)
+    except ValueError:
+        return content
+    if not isinstance(env, dict) or not isinstance(env.get("output"), str):
+        return content
+    code = env.get("returncode")
+    if code is None or code == 0:
+        return env["output"]
+    return f"{env['output']}\nreturncode: {code}"
 
 
 def _to_trace(row: dict[str, Any]) -> Trace:
@@ -88,7 +113,11 @@ def _to_trace(row: dict[str, Any]) -> Trace:
         TraceMessage(
             index=i,
             role=m.get("role") or "",
-            content=m.get("content") or "",
+            content=(
+                _tool_content(m.get("content") or "")
+                if m.get("role") == "tool"
+                else m.get("content") or ""
+            ),
             tool_calls=[_call_text(c) for c in (m.get("tool_calls") or [])],
         )
         for i, m in enumerate(row.get("messages") or [])

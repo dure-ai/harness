@@ -32,12 +32,13 @@ def test_read_parquet_maps_fields(tmp_path):
     make_parquet(path, [a, b, c])
     got = list(read_parquet(path))
     assert [t.trajectory_id for t in got] == ["t1", "t2", "t3"]
-    assert got[0] == a
+    assert got[0].messages[2].tool_calls == ["bash(cmd=ls)"]  # arguments are decoded on read
+    assert got[0].model_copy(update={"messages": a.messages}) == a
     assert got[1].model == "model-b"
     assert got[1].license is None
     assert [m.index for m in got[0].messages] == [0, 1, 2, 3]
     assert got[1].messages[1].content == ""
-    assert got[1].messages[1].tool_calls == ['edit({"p": 1})']
+    assert got[1].messages[1].tool_calls == ["edit(p=1)"]
 
 
 def test_usable_filters_language_and_license():
@@ -148,3 +149,67 @@ def test_message_text_includes_tool_call_args():
     text = message_text(t, 4)
     assert "see" in text and "pytest -x" in text
     assert message_text(t, 99) == ""
+
+
+def _row(messages):
+    return {"trajectory_id": "t", "instance_id": "i", "repo": "r/r", "messages": messages}
+
+
+def _tool(content):
+    return {"role": "tool", "content": content}
+
+
+def test_tool_envelope_is_decoded_to_its_output():
+    import json
+
+    from harness.generate.traces import _to_trace
+
+    env = json.dumps({"output": "line1\nit's \"x\"", "returncode": 0})
+    t = _to_trace(_row([_tool(env)]))
+    assert t.messages[0].content == "line1\nit's \"x\""
+
+
+def test_tool_envelope_nonzero_returncode_is_appended_and_zero_omitted():
+    import json
+
+    from harness.generate.traces import _to_trace
+
+    t = _to_trace(_row([_tool(json.dumps({"output": "boom", "returncode": 2}))]))
+    assert t.messages[0].content == "boom\nreturncode: 2"
+
+
+def test_tool_content_that_is_not_an_envelope_is_kept_raw():
+    from harness.generate.traces import _to_trace
+
+    for raw in ['{"output": "cut', "plain text", '{"other": 1}', "[1, 2]"]:
+        assert _to_trace(_row([_tool(raw)])).messages[0].content == raw
+
+
+def test_tool_call_arguments_render_as_name_key_value():
+    import json
+
+    from harness.generate.traces import _to_trace
+
+    args = json.dumps({"command": "echo 'hi'\nls \"a\"", "timeout": 5})
+    msg = {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "bash", "arguments": args}}]}
+    t = _to_trace(_row([msg]))
+    assert t.messages[0].tool_calls == ["bash(command=echo 'hi'\nls \"a\", timeout=5)"]
+
+
+def test_quote_with_real_newline_and_apostrophe_from_tool_output_passes_check_quotes():
+    import json
+
+    from harness.generate.candidates import check_quotes
+    from harness.generate.traces import _to_trace
+    from harness.generate.candidates import FactCandidate
+
+    out = "error: can't open file\nNo such file: setup.py"
+    trace = _to_trace(_row([_tool(json.dumps({"output": out, "returncode": 1}))]))
+    cand = FactCandidate(
+        statement="Opening setup.py failed.",
+        kind="other",
+        quote="can't open file\nNo such file: setup.py",
+        message_index=0,
+    )
+    ok, rejected = check_quotes(trace, [cand])
+    assert len(ok) == 1 and not rejected
