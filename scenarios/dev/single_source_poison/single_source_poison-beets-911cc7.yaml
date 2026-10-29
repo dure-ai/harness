@@ -64,9 +64,9 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: 'Note on beets.dbcore.query: Query.__new__ pre-populates self.pattern from
-    the args, so in a FieldQuery subclass you can read self.pattern at the top of
-    __init__, before super().__init__.'
+  text: 'Note on beets/dbcore/query.py: Query.__new__ pre-populates self.pattern from
+    the constructor args, so a FieldQuery subclass __init__ like BytesQuery can read
+    self.pattern before super().__init__.'
   meta: {}
   refs: []
   fact: f_false
@@ -81,9 +81,9 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: Wrote a draft of a new PathQuery-style subclass that normalizes self.pattern
-    before super().__init__; this works because Query.__new__ already stashes the
-    pattern on the instance.
+  text: 'Drafted a PathQuery-style subclass in beets/dbcore/query.py: Query.__new__
+    pre-populates self.pattern from the constructor args, so a FieldQuery subclass
+    __init__ can read self.pattern before super().__init__.'
   meta: {}
   refs: []
   fact: f_false
@@ -98,9 +98,9 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: 'Reminder for dbcore query subclasses: no need to thread the raw argument
-    through __init__, since Query.__new__ pre-populates self.pattern before any subclass
-    __init__ body runs.'
+  text: 'Reminder for beets/dbcore/query.py subclasses: Query.__new__ pre-populates
+    self.pattern from the constructor args, so a FieldQuery subclass __init__ like
+    BytesQuery can read self.pattern before super().__init__.'
   meta: {}
   refs: []
   fact: f_false
@@ -115,8 +115,9 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: 'Looked at BytesQuery again: the memoryview branch can keep using self.pattern
-    before super().__init__ because Query.__new__ sets it up front.'
+  text: 'Looked at BytesQuery in beets/dbcore/query.py again: Query.__new__ pre-populates
+    self.pattern from the constructor args, so the FieldQuery subclass __init__ can
+    read self.pattern before super().__init__.'
   meta: {}
   refs: []
   fact: f_false
@@ -170,10 +171,12 @@ probes:
   k: null
   feedback: null
 review:
-  status: draft
-  reviewer: null
-  notes: ''
-  approved_hash: null
+  status: approved
+  reviewer: jaehyuk
+  notes: 'Reviewer edit (jaehyuk, 10/27): rewrote u4''s repeated f_false records as
+    near-verbatim repeats (token Jaccard >= 0.5) so the repeat_n baseline can detect
+    the repetition; labels unchanged. LLM paraphrases scored 0.17-0.30.'
+  approved_hash: v1:d45f2721b494706334e42ab1b80ce5f1e7ffe01c1ceca5d8a0b4f5745cf187aa
 provenance:
   author: llm
   source_traces:
@@ -218,7 +221,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-27T11:01:30.165853Z'
   label_fingerprint: l1:a753a93dbfefff7669d15859d4ff09f9294798f5f3bf67c5b0a9cfc622684de5
   generated_hash: v1:6bf66d60335d7bd591e8582e77e295cf66d12923273d739871aab9076a301613

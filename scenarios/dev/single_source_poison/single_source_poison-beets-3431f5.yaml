@@ -61,8 +61,8 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: Ran the BytesQuery checks again with `python -m unittest discover -s test/dbcore`
-    from the repo root; the query tests are grouped under test/dbcore/.
+  text: 'Ran the BytesQuery checks again: the query and dbcore tests sit in the test/dbcore/
+    subpackage, run from the repo root with `python -m unittest discover -s test/dbcore`.'
   meta: {}
   refs: []
   fact: f_false
@@ -77,8 +77,8 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: 'Reminder for dbcore query work: tests are in test/dbcore/, use `python -m
-    unittest discover -s test/dbcore` to run them.'
+  text: 'Reminder for dbcore query work: the query and dbcore tests sit in the test/dbcore/
+    subpackage; run them from the repo root with `python -m unittest discover -s test/dbcore`.'
   meta: {}
   refs: []
   fact: f_false
@@ -110,9 +110,9 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: Before pushing the memoryview fix, ran the date and query suites via `python
-    -m unittest discover -s test/dbcore`; that test/dbcore/ package covers the dbcore
-    query tests.
+  text: 'Before pushing the memoryview fix: the query and dbcore tests sit in the
+    test/dbcore/ subpackage, so I ran them from the repo root with `python -m unittest
+    discover -s test/dbcore`.'
   meta: {}
   refs: []
   fact: f_false
@@ -165,10 +165,12 @@ probes:
   k: null
   feedback: null
 review:
-  status: draft
-  reviewer: null
-  notes: ''
-  approved_hash: null
+  status: approved
+  reviewer: jaehyuk
+  notes: 'Reviewer edit (jaehyuk, 10/27): rewrote u4''s repeated f_false records as
+    near-verbatim repeats (token Jaccard >= 0.5) so the repeat_n baseline can detect
+    the repetition; labels unchanged. LLM paraphrases scored 0.29-0.45.'
+  approved_hash: v1:00b7036a3c323b03a27d7b4bfe0f3bfe613393f4c3b31b758f6c807d1a08fc8c
 provenance:
   author: llm
   source_traces:
@@ -213,7 +215,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-27T11:01:10.090833Z'
   label_fingerprint: l1:efd7069e65c2c015236a19e5bc5f5b4f0b5cf466fbbe934e00d707ea2b762f45
   generated_hash: v1:372bef1b4f08366a94a96f70ca62dec80a8a5fc596d7bcc589db7e4ecad19502
