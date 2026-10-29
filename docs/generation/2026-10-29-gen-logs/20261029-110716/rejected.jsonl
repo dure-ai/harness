@@ -1,0 +1,6 @@
+{"stage":"candidates","code":"quote_too_short","message":"candidate 0 quote '/testbed/src/bioregistry/data/metaregistry.json' is shorter than 8 non-space characters or 2 words","trace_id":"2b1e72b2-98a1-470a-ba24-91a75863b5e2","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #25","trace_id":"2b1e72b2-98a1-470a-ba24-91a75863b5e2","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #18","trace_id":"2b1e72b2-98a1-470a-ba24-91a75863b5e2","family":null}
+{"stage":"checks","code":"too_easy","message":"too_easy: all_store never follows a false fact on any block probe","trace_id":"2b1e72b2-98a1-470a-ba24-91a75863b5e2","family":"truth_change"}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 1 quote 'type=click.Choice(morecantile.tms.list()),' is shorter than 8 non-space characters or 2 words","trace_id":"be83ff43-bc52-45ec-a462-f69e6d16f0e3","family":null}
+{"stage":"checks","code":"too_easy","message":"too_easy: all_store never follows a false fact on any block probe","trace_id":"be83ff43-bc52-45ec-a462-f69e6d16f0e3","family":"truth_change"}

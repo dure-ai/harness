@@ -1,0 +1,31 @@
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #4","trace_id":"1f00e023-3e30-40e4-b98e-514e80314c65","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #8","trace_id":"1f00e023-3e30-40e4-b98e-514e80314c65","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #20","trace_id":"ad1da478-f881-4c9f-b2d6-2909cf374ba5","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #9","trace_id":"ad1da478-f881-4c9f-b2d6-2909cf374ba5","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #9","trace_id":"1a3d0d74-d43d-4395-901b-e496412783a0","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #6","trace_id":"14097bce-58a9-46ab-bdca-ef0af71c84da","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #6","trace_id":"14097bce-58a9-46ab-bdca-ef0af71c84da","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #3","trace_id":"14097bce-58a9-46ab-bdca-ef0af71c84da","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 3 quote '/usr/local/lib/python3.11/site-packages/pyvisa/__init__.py' is shorter than 8 non-space characters or 2 words","trace_id":"343d36e0-9f29-4935-9fbb-391a4ea2b778","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #25","trace_id":"f4fd71d7-fa6c-4fbb-b592-d39e325b4638","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #9","trace_id":"f4fd71d7-fa6c-4fbb-b592-d39e325b4638","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #16","trace_id":"7f6597ff-82e3-4b0f-b347-fba2340f2aff","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #12","trace_id":"7f6597ff-82e3-4b0f-b347-fba2340f2aff","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #19","trace_id":"7f6597ff-82e3-4b0f-b347-fba2340f2aff","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #8","trace_id":"97de02d4-4865-44f3-a378-1bcf9d8c802b","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #17","trace_id":"97de02d4-4865-44f3-a378-1bcf9d8c802b","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #19","trace_id":"756fc9a1-33d5-4361-8b59-5f13b1d3ef42","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #11","trace_id":"756fc9a1-33d5-4361-8b59-5f13b1d3ef42","family":null}
+{"stage":"checks","code":"cue_word","message":"cue_word: event e2: text contains cue word 'wrong'","trace_id":"756fc9a1-33d5-4361-8b59-5f13b1d3ef42","family":"workaround_then_root"}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #31","trace_id":"ee4d401f-6716-45fd-9f16-3312cf00b278","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #29","trace_id":"ee4d401f-6716-45fd-9f16-3312cf00b278","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 3 quote 'tests/unit-tests/test_confluence_metadata.py' is shorter than 8 non-space characters or 2 words","trace_id":"c9a3152b-f80d-4371-8b21-ddcfb04d9b49","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 4 quote 'inxcontrib/confluencebuilder/config/checks.py' is shorter than 8 non-space characters or 2 words","trace_id":"c9a3152b-f80d-4371-8b21-ddcfb04d9b49","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #5","trace_id":"07617117-5d4e-4c7a-86ea-993c69999841","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 1 quote '/testbed/tests/test_binding.py\\\\n/testbed/tests/test_parser.py\\\\n/testbed/tests/formats/dataclass/test_parsers.py' is shorter than 8 non-space characters or 2 words","trace_id":"07617117-5d4e-4c7a-86ea-993c69999841","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 4 quote not found in message #28","trace_id":"07617117-5d4e-4c7a-86ea-993c69999841","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #29","trace_id":"3fd95ba8-56ac-40e9-8e18-59845eed69f1","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #11","trace_id":"3fd95ba8-56ac-40e9-8e18-59845eed69f1","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #22","trace_id":"53fe64b3-6267-4965-888c-55b4b662b29c","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #16","trace_id":"53fe64b3-6267-4965-888c-55b4b662b29c","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #27","trace_id":"dffde2fd-f02f-499e-a2c6-e608d32e4e3c","family":null}

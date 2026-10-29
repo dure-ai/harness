@@ -1,0 +1,4 @@
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #10","trace_id":"4a0a61a9-4fbe-4b9b-8d4a-2b49a42dbbc3","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #16","trace_id":"4a0a61a9-4fbe-4b9b-8d4a-2b49a42dbbc3","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #18","trace_id":"4a0a61a9-4fbe-4b9b-8d4a-2b49a42dbbc3","family":null}
+{"stage":"checks","code":"cue_word","message":"cue_word: event e2: text contains cue word 'false'; cue_word: event e3: text contains cue word 'false'; cue_word: probe p_leak: text contains cue word 'false'; cue_word: probe p_promote: text contains cue word 'false'","trace_id":"4a0a61a9-4fbe-4b9b-8d4a-2b49a42dbbc3","family":"leak_cross_team"}

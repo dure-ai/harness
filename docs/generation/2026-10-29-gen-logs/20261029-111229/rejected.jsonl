@@ -1,0 +1,2 @@
+{"stage":"candidates","code":"quote_too_short","message":"candidate 2 quote \"'duplo_resource.asg',\" is shorter than 8 non-space characters or 2 words","trace_id":"8144c352-fcf6-4891-a123-dac5ae709f36","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #9","trace_id":"8144c352-fcf6-4891-a123-dac5ae709f36","family":null}
