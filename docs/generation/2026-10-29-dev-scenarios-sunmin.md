@@ -1,0 +1,103 @@
+# dev 시나리오 세트 생성 기록 (sunmin, 2026-10-29)
+
+PR #13(jaehyuk)과 같은 방식으로 하니스를 독립 재현한 기록입니다. 목적은 시나리오를 더 모으는 것보다 **같은 절차를 다른 사람이 다른 시드로 돌렸을 때 하니스가 같은 모양의 결과와 같은 문제를 내는지** 보는 것입니다.
+
+## 환경
+
+| 항목 | 값 |
+|---|---|
+| 하니스 | `feat/scenario-generation` `0d89c54`, prompt `gen-v0.5` (PR #13과 동일) |
+| 궤적 | `traces fetch --config v1.2 --split minisweagent --shard 0` (qwen38_27b, 2,500개, 묶음 0개) |
+| LLM | `claude-opus-5-5`, effort medium. API 키 대신 `claude -p`로 호출. `provenance.provider: claude-code` |
+| 래퍼 | `tools/gen_claude_p.py`. `make_client`만 바꿔 끼우고 프롬프트·스키마 검사·재시도·캐시·`check_draft`는 하니스 그대로 |
+| 검토자 | `sunmin` |
+
+래퍼에서 주의할 점 하나: 하니스의 `AnthropicClient`가 쓰는 `anthropic.transform_schema`는 본문 쓰기 스키마(`BodySlots`)의 id→본문 맵(`additionalProperties`)을 빈 객체로 바꿉니다. `claude -p --json-schema`에 그대로 넘기면 모델이 "스키마가 빈 객체만 허용한다"며 제출을 거부해 3회 연속 오류로 멈춥니다. 래퍼는 pydantic 원본 스키마(`model_json_schema()`)를 넘깁니다.
+
+## 생성 명령
+
+```bash
+uv sync --extra gen
+uv run harness traces fetch --config v1.2 --split minisweagent --shard 0 --yes --timeout 300
+
+# 묶음 1: 계열 전부, 시드 하나
+uv run python tools/gen_claude_p.py generate --family all --n 1 --max-traces 10 --seed 20261101
+
+# 묶음 2: 계열마다 시드 하나씩 (20261102부터 1씩 증가, TEMPLATES 순서)
+#   normal_repeat --n 1, 나머지 --n 2; conditional만 --max-traces 40, 나머지 15
+for fam in normal_repeat coincidence single_source_poison echo failure_feedback truth_change \
+           conditional workaround_then_root leak_personal leak_cross_team; do
+  uv run python tools/gen_claude_p.py generate --family $fam --n 2 --max-traces 15 --seed <20261102..20261111>
+done
+```
+
+| 계열 | 시드 | 요청 | 생성 | 원본 저장소 |
+|---|---|---|---|---|
+| (all) | 20261101 | 10 | 8 | django-storages (8개 전부) |
+| normal_repeat | 20261102 | 1 | 1 | snowflake-cli |
+| coincidence | 20261103 | 2 | 2 | click |
+| single_source_poison | 20261104 | 2 | 2 | cel-python |
+| echo | 20261105 | 2 | 2 | more-itertools, operator |
+| failure_feedback | 20261106 | 2 | 2 | sanic-routing, wechatpy |
+| truth_change | 20261107 | 2 | 2 | bioregistry, morecantile |
+| conditional | 20261108 | 2 | 2 | beets |
+| workaround_then_root | 20261109 | 2 | 0 | 후보 30개 중 fix가 workaround/root인 것 없음 |
+| leak_personal | 20261110 | 2 | 2 | duploctl |
+| leak_cross_team | 20261111 | 2 | 2 | simple-ddl-parser |
+
+초안 25개. 자동 거절(두 묶음 합계):
+
+| 단계 | 코드 | 건수 |
+|---|---|---|
+| candidates | quote_not_found | 57 |
+| candidates | quote_too_short | 12 |
+| checks | too_easy | 8 |
+| checks | cue_word | 4 |
+| checks | quoted_evidence_mismatch | 2 |
+
+## 검토 결과
+
+| 상태 | 수 | 내용 |
+|---|---|---|
+| approved | 21 | coincidence 2, conditional 2, failure_feedback 3, leak_cross_team 3, leak_personal 3, normal_repeat 2, single_source_poison 3, truth_change 3 |
+| rejected (결함) | 1 | `conditional-beets-66f45a`: 조건 "web plugin"과 "beta"가 같은 컴포넌트라 겹치고, 질문("어떻게 보내야 하는가")에 정답 사실("그 경로는 깨진다")이 답이 되지 않음 |
+| rejected (제외) | 3 | echo 3개. 시나리오 결함이 아니라 아래 발견 1 때문. 각 파일 `review.notes`에 기록 |
+
+검토자 수정 1건: `failure_feedback-django-storages-ade0aa`. 네 문항의 `on_false` 본문이 "`tox …`가 실패했다"고 적혀 있었는데, 그 앞의 잘못된 행동은 `python -m pytest …`를 실행한 것이라 행동과 결과가 이어지지 않았습니다. 자동 검사는 f_new 마커만 보므로 통과했습니다. `review edit`로 본문만 "pytest 직접 실행이 site-packages를 가져와 실패했고 tox로 돌려야 한다"로 바꾸고 재승인했습니다(`provenance.reviewer_edited: true`, `review.notes`에 사유).
+
+**소재 편중**: 승인 21개 중 7개가 django-storages이고 그중 6개는 같은 사실(pytest로 backend 테스트 실행)입니다. 묶음 1이 시드 하나로 모든 계열을 돌려 첫 궤적의 같은 후보를 썼기 때문입니다(발견 2). 세트 다양성이 필요하면 이 6개 중 일부를 빼는 것이 좋습니다.
+
+## 실행 결과
+
+```bash
+uv run harness scenario check scenarios/dev      # 종료 코드 0
+uv run harness selfcheck --scenarios scenarios/dev   # 6개 PASS (repeat_n_echo는 echo가 없어 건너뜀)
+uv run harness run --scenarios scenarios/dev --out runs
+uv run pytest -q                                 # 1035 passed
+```
+
+리포트: `2026-10-29-dev-scenarios-sunmin-report.md` (시나리오 21개, 세트 해시 `78901224…`).
+
+| 엔진 | M1 (n=10) | M2 (n=18) | 판정 |
+|---|---|---|---|
+| none | 0.000 | 0.000 | 탈락 |
+| all_store | 1.000 | 0.944 | 탈락 |
+| repeat_n | 0.100 | 0.000 | 탈락 |
+| oracle | 0.000 | 1.000 | 통과 |
+
+되먹임(failure_feedback, n=8): all_store M1 0.500, none·repeat_n·oracle 0.000. PR #13은 0.800 (n=5).
+
+기준선 모양은 PR #13과 같습니다(oracle만 통과). 승인 세트는 10계열 중 **8계열만** 검증합니다(echo 제외, workaround_then_root 생성 0).
+
+## 발견 (PR #13의 확인 요청과 대조)
+
+1. **echo와 `repeat_n`: 재현.** echo 초안 3개의 거짓 기록이 각각 1, 1, 2개라 `repeat_n`(n=3, tau=0.5)이 잡지 못하고 `repeat_n_echo`가 FAIL합니다. 이 상태로는 `run`이 리포트를 내지 않으므로 PR #13처럼 echo를 뺐습니다. 리포트의 `repeat_n_echo` PASS는 검사 생략입니다. 반면 **poison은 손대지 않고 통과**했습니다(cel-python 2개와 django-storages 1개, M1 0.333). PR #13은 poison 2개의 본문을 다듬어야 했으므로 Jaccard 문제는 "항상"이 아니라 후보에 따라 갈립니다.
+2. **계열마다 같은 후보: 재현.** 묶음 1의 8개가 모두 django-storages 한 궤적의 같은 사실에서 나왔습니다. 계열별 시드(묶음 2)로는 레포가 분산됐습니다.
+3. **`quote_not_found` 비율: 재현.** 후보 거절 69건 중 57건(83%).
+4. **묶음 0개**: 같은 shard 0이라 확인하지 못했습니다.
+5. **workaround_then_root 생성 0: 재현.** 두 묶음 합계 후보 52개 중 fix가 workaround/root인 것이 없었습니다.
+6. **자동 검사가 놓친 본문 문제 (새 발견).** 되먹임 틀의 `on_false` 본문은 "잘못된 행동 뒤의 실패"여야 하는데, 검사는 `fact: f_new`의 마커 포함 여부만 봅니다. LLM이 f_new 마커를 넣으려고 "tox가 실패했다"고 써도 통과합니다. 행동 본문과 결과 본문의 연결은 사람 검토가 유일한 안전장치이며, 프롬프트에 "on_false는 action.f_old의 행동이 실패한 기록"임을 명시하면 줄일 수 있을 것 같습니다.
+
+## 정리
+
+승인 세트의 평가 재현 성공, echo 실패 재현, 자동 검사가 놓친 되먹임 본문 문제 발견. 하니스 자체를 검증한다는 목적에는 의미 있는 결과입니다.
