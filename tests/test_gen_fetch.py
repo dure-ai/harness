@@ -1,5 +1,6 @@
 """Tests for listing, downloading and counting Open-SWE-Traces shards (no network)."""
 
+import gc
 import logging
 import socket
 import threading
@@ -151,8 +152,8 @@ def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     url = f"http://127.0.0.1:{srv.getsockname()[1]}"
     from huggingface_hub import constants
 
-    # The abandoned fetch thread keeps retrying against the closed server for a minute and logs
-    # each failure; drop its records so later tests see no noise.
+    # The abandoned fetch thread retries until teardown below ends it and logs each failure; drop
+    # its records so later tests see no noise.
     quiet = _DropWorkerThreadRecords()
     for name in ("huggingface_hub", "huggingface_hub.utils._http"):
         logging.getLogger(name).addFilter(quiet)
@@ -168,10 +169,24 @@ def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         return real_getaddrinfo(host, *args, **kw)
 
     monkeypatch.setattr(socket, "getaddrinfo", local_only)
+    before = set(threading.enumerate())
     yield url
+    # The abandoned fetch threads would keep retrying for a minute and leave their sockets to be
+    # collected during a later test (an unclosed-socket ResourceWarning under `-W error`). Skip the
+    # retry waits, cut the held connections so they fail at once, and wait for them to end here.
+    from huggingface_hub.utils import _http, close_session
+
+    no_wait = SimpleNamespace(**{k: getattr(time, k) for k in dir(time) if not k.startswith("_")})
+    no_wait.sleep = lambda _s: None
+    monkeypatch.setattr(_http, "time", no_wait)
     srv.close()
     for c in held:
         c.close()
+    for t in set(threading.enumerate()) - before:
+        t.join(10)
+        assert not t.is_alive(), f"abandoned fetch thread {t.name} did not end"
+    close_session()
+    gc.collect()
 
 
 def test_fetch_gives_up_after_timeout(silent_server: str, tmp_path: Path) -> None:
