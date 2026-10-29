@@ -273,3 +273,12 @@ def test_prompt_on_false_names_the_action_it_follows() -> None:
     assert "`action.<old/false fact>`" in feedback
     assert "same command or file" in feedback
     assert "failure that action hit" in feedback
+
+
+def test_bodies_prompt_tells_workaround_then_root_to_keep_the_fixes_apart() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    hint = text[text.index("In a `workaround_then_root` scenario") :]
+    assert "do not repeat the workaround's" in hint
+    assert "symptom" in hint

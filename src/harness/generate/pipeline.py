@@ -263,6 +263,7 @@ class _Run:
     gen: GenConfig
     seed: int
     out_dir: Path
+    run_dir: Path
     candidates_log: TextIO
     rejected_log: TextIO
     by_task: dict[str, list[Trace]]
@@ -409,7 +410,7 @@ def _one(
         return "capped", sid
     tally.attempts += 1
 
-    def reject(stage: str, code: str, message: str) -> None:
+    def reject(stage: str, code: str, message: str, draft: Path | None = None) -> None:
         tally.rejected += 1
         run.reject(
             Rejection(
@@ -418,6 +419,7 @@ def _one(
                 message=message,
                 trace_id=trace.trajectory_id,
                 family=family,
+                draft=None if draft is None else str(draft),
             )
         )
 
@@ -432,8 +434,14 @@ def _one(
     run.llm_ok()
     stop = blocking(check_draft(s, run.cfg, run.gen))
     if stop:
+        # Kept under the run dir for diagnosis, never in out_dir, so it is never reviewed.
+        kept = run.run_dir / "rejected_drafts" / family / f"{sid}.yaml"
+        save_draft(s, kept)
         reject(
-            "checks", stop[0].code, "; ".join(f"{i.code}: {i.message}" for i in stop)
+            "checks",
+            stop[0].code,
+            "; ".join(f"{i.code}: {i.message}" for i in stop),
+            kept,
         )
         return None
     mark_generated(s)
@@ -463,7 +471,8 @@ def generate(
     are extracted at most once and shared by all families; a candidate goes into at most one
     scenario of the run, whichever family gets it first (a rejected attempt leaves it free). A
     draft is saved to `out_dir/<family>/<id>.yaml` only if `check_draft` finds no error and no
-    `too_easy` warning; otherwise a `Rejection` goes to `run_dir/rejected.jsonl`. A saved draft
+    `too_easy` warning; otherwise a `Rejection` goes to `run_dir/rejected.jsonl` and the draft is
+    kept for diagnosis at `run_dir/rejected_drafts/<family>/<id>.yaml`. A saved draft
     records its label fingerprint and content hash (`mark_generated`). A file with the same id is
     replaced only when it is an untouched LLM draft (status draft, author `llm`, not
     reviewer-edited, content still matching its `generated_hash`); any other file is never
@@ -478,7 +487,8 @@ def generate(
         cfg: Eval config for the discrimination check.
         gen: Generation config.
         out_dir: Root of the saved drafts.
-        run_dir: Directory for `candidates.jsonl` and `rejected.jsonl`; created.
+        run_dir: Directory for `candidates.jsonl`, `rejected.jsonl` and `rejected_drafts/`;
+            created.
         repos: Only traces of these repositories ("owner/name" or the short name); None for all.
         per_family: Per-family override of `n`.
         max_traces: Upper bound on the distinct traces sent to candidate extraction in the whole
@@ -518,6 +528,7 @@ def generate(
             gen,
             seed,
             out_dir,
+            run_dir,
             cand_log,
             rej_log,
             bundles(pool),

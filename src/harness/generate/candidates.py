@@ -73,6 +73,7 @@ class Rejection(BaseModel):
         message: One-line explanation.
         trace_id: Trajectory the item came from, if any.
         family: Scenario family being generated, if known.
+        draft: Path of the rejected draft kept for diagnosis, if one was kept.
     """
 
     stage: str
@@ -80,6 +81,7 @@ class Rejection(BaseModel):
     message: str
     trace_id: str | None = None
     family: str | None = None
+    draft: str | None = None
 
 
 def load_prompt(name: str) -> str:
