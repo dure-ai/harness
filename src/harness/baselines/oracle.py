@@ -6,6 +6,12 @@ from harness.scenario.model import LabeledEvent, Probe, QueryKey, Scenario, prob
 from harness.world import probe_ctx, true_at
 
 
+def _content_key(e: Event) -> tuple:
+    """Every field of `e` except its id and refs, which the replay renames."""
+    return (e.t, e.user, e.session, e.repo, e.scope, e.team, e.signal, e.kind, e.outcome, e.text,
+            tuple(sorted(e.meta.items())))
+
+
 class OracleEngine(_NamespacedEngine):
     """Upper bound for the metrics; it is the only engine allowed to see scenario labels.
 
@@ -19,7 +25,12 @@ class OracleEngine(_NamespacedEngine):
     def __init__(self, scenario: Scenario) -> None:
         super().__init__()
         self._scenario = scenario
-        self._labeled: dict[str, LabeledEvent] = {le.event.id: le for le in scenario.labeled_events()}
+        # Engines see opaque ids (`replay.engine_event_id`), so recorded events are matched to
+        # their labels by content; the first of identical events wins.
+        self._labeled: dict[tuple, LabeledEvent] = {}
+        for le in scenario.labeled_events():
+            self._labeled.setdefault(_content_key(le.event), le)
+        self._facts: dict[str, str | None] = {}
         # Probes with the same key are rejected by validate_scenario, so the key is unique.
         self._probes: dict[QueryKey, Probe] = {probe_key(p): p for p in scenario.probes}
 
@@ -29,7 +40,9 @@ class OracleEngine(_NamespacedEngine):
 
     def record(self, event: Event) -> None:
         """Store scenario events; harness-generated feedback events have no label and are ignored."""
-        if event.id in self._labeled:  # ignore harness-generated feedback events
+        le = self._labeled.get(_content_key(event))
+        if le is not None:  # ignore harness-generated feedback events
+            self._facts[event.id] = le.fact
             super().record(event)
 
     def search(self, query: Query) -> list[Result]:
@@ -45,7 +58,7 @@ class OracleEngine(_NamespacedEngine):
                 continue
             candidates = [
                 e for e in recorded
-                if self._labeled[e.id].fact == fact_id and can_see(e, query.user, query.team) and e.t <= query.t
+                if self._facts[e.id] == fact_id and can_see(e, query.user, query.team) and e.t <= query.t
             ]
             if candidates:
                 best = max(enumerate(candidates), key=lambda ie: (ie[1].t, ie[0]))[1]
