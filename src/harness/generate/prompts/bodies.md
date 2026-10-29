@@ -11,7 +11,7 @@ Reply with one JSON object with these keys:
   - secret_markers: only for events whose `secret` is true; the secret strings that appear in that body (for example an access key or an internal host name). Use an empty list for every other event, and never repeat a secret string in another event. Never put a secret string in a fact's text or markers or in a feedback record either.
   - origin: "quoted" if the body is taken from the trace quote given below, otherwise "written". Only an event whose fact restates the original candidate (a fact slot that is not `fabricated`, with `valid` true) can be "quoted"; every other event, including one with `fact` null, is "written".
 - probes: for every probe id in the block, the question text, written as the engineer would ask it.
-- feedback: for every feedback key in the block, the text of the record the engineer's agent writes afterwards, matching that slot's `kind`, `signal` and `outcome`.
+- feedback: for every feedback key in the block, the text of the record the engineer's agent writes afterwards, matching that slot's `kind`, `signal` and `outcome`. The `on_false` record is the failure record of the action in `action.<old/false fact>`: it names that same action (the same command or file) and states the failure that action hit.
 
 Rules for the facts and events:
 1. A fact slot with `statement` set restates that candidate fact; keep its meaning and put its details into `text`. A fact slot with `fabricated` true is invented by the scenario template: make up a plausible, specific statement about the same topic that differs from the original fact in a way consistent with its labels (its validity period, conditions and `fix`). Do not copy the original wording.

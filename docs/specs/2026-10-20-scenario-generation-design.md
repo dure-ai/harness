@@ -261,7 +261,7 @@ flowchart LR
   timeout_s: 300               # per request
   max_retries: 2               # SDK retries
   token_param: max_completion_tokens   # openai only: max_completion_tokens | max_tokens | none
-  prompt_version: gen-v0.6   # 10/29: echo 계열의 거짓 사실 행동 기록을 LLM에 묻지 않고 첫 기록으로 채움. 10/24: 마커에 금지어 금지(규칙 5의 마커 예외 삭제)로 올림. 10/22: 문항 표현 규칙(9·10), quoted 규칙, 사실·되먹임 본문에 비밀 문자열 금지
+  prompt_version: gen-v0.7   # 10/29: 디코드된 도구 메시지·인자 읽기(T1), 독 반복 기록 규칙(T2: 반복 거짓 기록은 근접 반복이어야 함), on_false 규칙(행동 기록과 같은 명령·파일의 실패를 말함). 10/29: echo 계열의 거짓 사실 행동 기록을 LLM에 묻지 않고 첫 기록으로 채움. 10/24: 마커에 금지어 금지(규칙 5의 마커 예외 삭제)로 올림. 10/22: 문항 표현 규칙(9·10), quoted 규칙, 사실·되먹임 본문에 비밀 문자열 금지
   max_candidates_per_trace: 5
   banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated, "false", "no longer true",
     legacy, obsolete, superseded, stale, incorrect, wrong, retired, "replaced by", "not valid anymore"]

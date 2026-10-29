@@ -261,3 +261,15 @@ def test_poison_repeats_too_different_are_retried_and_fixed() -> None:
     assert len(client.requests) == 2
     assert "need 3 records" in client.requests[1][2]
     assert "lead-in" in client.requests[1][2]
+
+
+def test_prompt_on_false_names_the_action_it_follows() -> None:
+    sk = _skeleton()
+    client = _client(_reply(sk))
+    write_bodies(client, sk, _cand(), [], _gen())
+    system = client.requests[0][1]
+    feedback = next(line for line in system.splitlines() if line.startswith("- feedback: "))
+    assert "`on_false`" in feedback
+    assert "`action.<old/false fact>`" in feedback
+    assert "same command or file" in feedback
+    assert "failure that action hit" in feedback
