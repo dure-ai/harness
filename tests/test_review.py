@@ -14,6 +14,7 @@ from harness.config import EvalConfig
 from harness.generate.config import GenConfig
 from harness.generate.pipeline import save_draft
 from harness.review import blocking, edit_draft, find_draft, list_drafts, render_show, set_status
+from harness.scenario.labels import fingerprint_state
 from harness.scenario.load import load_scenario
 from harness.scenario.model import Evidence, Scenario
 from tests.factories import T, ev, fact, probe, scenario
@@ -714,3 +715,108 @@ def test_hashes_are_taken_from_the_text_that_is_written(tmp_path):
     assert raw["review"]["approved_hash"] == content_hash(raw, "approval")
     ss = load_set([tmp_path], include_drafts=False)
     assert [x.id for x in ss.scenarios] == [truth_change().id] and ss.warnings == []
+
+
+def quoted_draft(tmp_path: Path) -> Path:
+    """A generated draft whose event tc_o1 quotes the trace and carries a label fingerprint."""
+    from harness.generate.pipeline import mark_generated
+
+    s = truth_change()
+    s.provenance.author = "llm"
+    s.provenance.evidence = [
+        Evidence(event_id="tc_o1", trace_id="t1", message_index=3, quote="vendor v1 works", origin="quoted")
+    ]
+    mark_generated(s)
+    return draft(tmp_path, s)
+
+
+_EVIDENCE_EDIT = """
+    import yaml
+    data = yaml.safe_load(text)
+    {change}
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+"""
+
+
+def test_edit_quoted_to_written_then_rewrite_body_then_approve(tmp_path):
+    path = quoted_draft(tmp_path)
+    body = _EVIDENCE_EDIT.format(
+        change=(
+            "entry = data['provenance']['evidence'][0]\n"
+            "    entry.update(origin='written', trace_id=None, message_index=None, quote=None)\n"
+            "    next(e for e in data['events'] if e['id'] == 'tc_o1')['text'] = 'the vendor v1 setup works'"
+        )
+    )
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "saved", result.reason
+    assert result.changed_fields == []
+    saved = load_scenario(path)
+    assert saved.provenance.evidence[0].origin == "written"
+    assert [i.code for i in result.issues if i.level == "error"] == []
+    # The fingerprint follows the accepted change, so a later label edit is still caught.
+    assert fingerprint_state(saved) == "verified"
+    assert not blocking(set_status(path, "approved", "kim", None, CFG, GEN))
+    assert load_scenario(path).review.status == "approved"
+
+
+def test_edit_written_to_quoted_reverted(tmp_path):
+    from harness.generate.pipeline import mark_generated
+
+    s = truth_change()
+    s.provenance.author = "llm"
+    s.provenance.evidence = [Evidence(event_id="tc_o1", origin="written")]
+    mark_generated(s)
+    path = draft(tmp_path, s)
+    before = path.read_bytes()
+    body = _EVIDENCE_EDIT.format(
+        change="data['provenance']['evidence'][0].update(origin='quoted', trace_id='t1', message_index=3, quote='vendor v1 works')"
+    )
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "reverted"
+    assert result.changed_fields == ["provenance.evidence"]
+    assert path.read_bytes() == before
+
+
+def test_edit_quote_text_change_reverted(tmp_path):
+    path = quoted_draft(tmp_path)
+    before = path.read_bytes()
+    body = _EVIDENCE_EDIT.format(change="data['provenance']['evidence'][0]['quote'] = 'vendor v1'")
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "reverted"
+    assert result.changed_fields == ["provenance.evidence"]
+    assert path.read_bytes() == before
+
+
+def test_edit_quoted_to_written_keeping_trace_fields_reverted(tmp_path):
+    path = quoted_draft(tmp_path)
+    body = _EVIDENCE_EDIT.format(change="data['provenance']['evidence'][0]['origin'] = 'written'")
+    result = edit_draft(path, editor(tmp_path, body), CFG, GEN)
+    assert result.status == "reverted"
+    assert result.changed_fields == ["provenance.evidence"]
+
+
+def test_set_approved_ignores_an_emptied_cue_word_list(tmp_path):
+    s = truth_change()
+    events = [e.model_copy(update={"text": e.text + " This is deprecated."}) if e.id == "tc_o1" else e for e in s.events]
+    path = draft(tmp_path, s.model_copy(update={"events": events}))
+    lax = GEN.model_copy(update={"banned_cue_words": []})
+    issues = set_status(path, "approved", "kim", None, CFG, lax)
+    assert blocking(issues)
+    assert load_scenario(path).review.status == "draft"
+
+
+def test_set_approved_records_the_check_config_hash(tmp_path):
+    path = draft(tmp_path)
+    assert not blocking(set_status(path, "approved", "kim", None, CFG, GEN))
+    review = load_scenario(path).review
+    assert review.check_config_hash and review.check_config_hash.startswith("c1:")
+    assert review.approved_hash
+
+
+def test_approved_file_without_check_config_hash_still_loads(tmp_path):
+    path = draft(tmp_path)
+    set_status(path, "approved", "kim", None, CFG, GEN)
+    raw = yaml.safe_load(path.read_text())
+    del raw["review"]["check_config_hash"]
+    path.write_text(yaml.safe_dump(raw, allow_unicode=True))
+    assert load_scenario(path).review.check_config_hash is None

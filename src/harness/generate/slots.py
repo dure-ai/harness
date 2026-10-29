@@ -2,7 +2,8 @@
 
 A family template (see `harness.generate.families`) decides every label of a scenario and leaves
 the text empty. `slots_for` lists the text slots with their labels for the prompt, `BodySlots` is
-the reply schema, and `apply_slots` copies the reply into the text fields only. `fake_slots`
+the reply schema, and `apply_slots` copies the reply into the text fields only (echo action
+records for a never-true fact are built from that fact's first event instead). `fake_slots`
 writes replies for the fake provider that pass validation and the discrimination check.
 """
 
@@ -22,6 +23,8 @@ from harness.world import probe_ctx, true_at
 
 _BLOCK_RE = re.compile(r"<<<SLOTS\n(.*?)\nSLOTS>>>", re.DOTALL)
 _FEEDBACK_SLOTS = ("abstain", "on_false", "on_true")
+ECHO_LEAD = "Following the earlier note:"
+"""Lead-in of an echo record; short, so the echo stays a near-verbatim repeat (token Jaccard)."""
 
 
 @dataclass(frozen=True)
@@ -207,12 +210,42 @@ def _feedback_templates(p: Probe) -> dict[str, FeedbackTemplate]:
     return out
 
 
+def _echo_sources(s: Scenario) -> dict[str, str]:
+    """Feedback key to the event whose wording an echo action record repeats.
+
+    In the `echo` family, an action record for a never-true fact (`valid: false`, `f_false`) is
+    not written by the body writer: it repeats the first event stating that fact behind
+    `ECHO_LEAD`, so the echoes that build up are near-verbatim repeats of that record and of
+    each other, as an agent copying a retrieved note would write them.
+
+    Args:
+        s: The scenario.
+
+    Returns:
+        Action template key (`"<probe>.action:<fact>"`) to the event id it repeats.
+    """
+    first: dict[str, str] = {}
+    if s.family != "echo":
+        return {}
+    for e in s.events:
+        if e.fact is not None and not s.facts[e.fact].valid:
+            first.setdefault(e.fact, e.id)
+    return {
+        f"{p.id}.action:{fid}": first[fid]
+        for p in s.probes
+        if p.feedback is not None
+        for fid in p.feedback.action
+        if fid in first
+    }
+
+
 def _slot_keys(s: Scenario) -> dict[str, set[str]]:
+    echoes = _echo_sources(s)
     return {
         "facts": set(s.facts),
         "events": {e.id for e in s.events},
         "probes": {p.id for p in s.probes},
-        "feedback": {k for p in s.probes for k in _feedback_templates(p)},
+        "feedback": {k for p in s.probes for k in _feedback_templates(p) if k not in echoes},
     }
 
 
@@ -273,12 +306,14 @@ def slots_for(sk: Skeleton, cand: FactCandidate) -> SlotSpec:
         )
         for p in s.probes
     ]
+    echoes = _echo_sources(s)
     feedback = {
         key: FeedbackSlot(
             fact=tpl.fact, signal=tpl.signal, kind=tpl.kind, outcome=tpl.outcome
         )
         for p in s.probes
         for key, tpl in _feedback_templates(p).items()
+        if key not in echoes
     }
     return SlotSpec(
         family=s.family, facts=facts, events=events, probes=probes, feedback=feedback
@@ -306,7 +341,8 @@ def apply_slots(sk: Skeleton, slots: BodySlots) -> Scenario:
 
     Returns:
         A new scenario with fact text and markers, event text and secret markers, probe queries
-        and feedback template text filled in.
+        and feedback template text filled in; echo action records (see `_echo_sources`)
+        repeat the first event stating their fact.
 
     Raises:
         ValueError: If the reply's keys differ from the skeleton's slots, an event that is
@@ -358,10 +394,15 @@ def apply_slots(sk: Skeleton, slots: BodySlots) -> Scenario:
     for e in s.events:
         e.text = slots.events[e.id].text
         e.secret_markers = list(slots.events[e.id].secret_markers)
+    texts = {e.id: e.text for e in s.events}
+    echoes = _echo_sources(s)
     for p in s.probes:
         p.query = slots.probes[p.id]
         for key, tpl in _feedback_templates(p).items():
-            tpl.text = slots.feedback[key]
+            if key in echoes:
+                tpl.text = f"{ECHO_LEAD} {texts[echoes[key]]}"
+            else:
+                tpl.text = slots.feedback[key]
     return s
 
 

@@ -94,7 +94,8 @@ def scenario_check(
     """Validate scenarios (drafts included) and check that each one discriminates between baselines.
 
     An approved file is also checked against the hash recorded at approval: edited since is an
-    error (`approved_content_changed`), no usable hash a warning (`approval_unverified`).
+    error (`approved_content_changed`); no usable hash is an error for an LLM-authored file
+    (`llm_approval_unhashed`) and a warning (`approval_unverified`) for a human-authored one.
     """
     cfg = _config(config)
     failed = False
@@ -142,6 +143,7 @@ _SEALED_LOAD_ERRORS = {
     "load": "a scenario file failed to load",
     "approved_content_changed": "an approved scenario file was edited after its approval",
     "approved_hash_missing": "an approved scenario file was approved by hand, without a recorded approval hash",
+    "llm_approval_unhashed": "an approved LLM-authored scenario file has no usable approval hash",
 }
 
 

@@ -264,7 +264,7 @@ def test_filled_set_passes_selfcheck() -> None:
     checks, _ = run_selfcheck(scenarios, EvalConfig())
     assert [c.name for c in checks if not c.ok] == []
     named = {c.name: c for c in checks}
-    assert not named["repeat_n_echo"].detail.startswith("skipped")
+    assert not named["echo_buildup"].detail.startswith("skipped")
 
 
 @pytest.mark.parametrize("family", ALL)
@@ -755,7 +755,8 @@ def test_feedback_family_has_templates_on_probes(family: str) -> None:
         assert fb.abstain is not None and fb.on_false is not None
     spec = slots_for(sk, _cand())
     want = {f"{p.id}.{slot}" for p in s.probes for slot in ("abstain", "on_false")}
-    want |= {f"{p.id}.action:{f}" for p in s.probes for f in p.about}
+    # The never-true fact's action record repeats its first event; the writer does not write it.
+    want |= {f"{p.id}.action:{f}" for p in s.probes for f in p.about if s.facts[f].valid}
     assert set(spec.feedback) == want
     filled = _filled(sk)
     for p in filled.probes:
@@ -772,3 +773,23 @@ def test_block_probes_come_after_the_previous_failure_record(family: str) -> Non
             assert prev.feedback is not None and prev.feedback.on_false is not None
             delay = prev.feedback.on_false.delay
             assert delay is not None and nxt.t - prev.t > delay, (seed, prev.id, nxt.id)
+
+
+def test_echo_action_record_for_the_false_fact_repeats_the_first_false_record() -> None:
+    from harness.text import jaccard
+
+    sk = _skeleton("echo")
+    spec = slots_for(sk, _cand())
+    assert not [k for k in spec.feedback if k.endswith(".action:f_false")]  # not left to the writer
+    s = _filled(sk)
+    first = next(e for e in s.events if e.fact == "f_false")
+    tau = EvalConfig().repeat_n.tau
+    texts = [p.feedback.action["f_false"].text for p in s.probes if p.feedback is not None]
+    assert texts and all(first.text in t for t in texts)
+    assert all(jaccard(t, first.text) >= tau for t in texts)
+    assert all(jaccard(a, b) >= tau for a in texts for b in texts)
+
+
+def test_echo_action_record_for_the_true_fact_is_still_written_by_the_writer() -> None:
+    spec = slots_for(_skeleton("echo"), _cand())
+    assert [k for k in spec.feedback if k.endswith(".action:f_true")]

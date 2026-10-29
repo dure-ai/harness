@@ -103,7 +103,7 @@ def test_malformed_yaml_is_load_error(tmp_path):
 
 
 def test_load_set_filters_review(tmp_path):
-    write(tmp_path, with_status("approved", "a"), "a.yaml")
+    write(tmp_path, as_human(with_status("approved", "a")), "a.yaml")
     write(tmp_path, with_status("draft", "b"), "b.yaml")
     write(tmp_path, with_status("rejected", "c"), "c.yaml")
     assert len(load_set([tmp_path], include_drafts=False).scenarios) == 1
@@ -114,23 +114,23 @@ def test_load_set_filters_review(tmp_path):
 
 def test_load_set_recurses_in_sorted_order(tmp_path):
     (tmp_path / "sub").mkdir()
-    write(tmp_path, with_status("approved", "z"), "z.yaml")
-    write(tmp_path / "sub", with_status("approved", "m"), "m.yaml")
-    write(tmp_path, with_status("approved", "a"), "a.yaml")
+    write(tmp_path, as_human(with_status("approved", "z")), "z.yaml")
+    write(tmp_path / "sub", as_human(with_status("approved", "m")), "m.yaml")
+    write(tmp_path, as_human(with_status("approved", "a")), "a.yaml")
     ss = load_set([tmp_path], include_drafts=False)
     assert [s.id for s in ss.scenarios] == ["a", "m", "z"]
 
 
 def test_set_hash_changes_with_content(tmp_path):
-    p = write(tmp_path, with_status("approved", "a"))
+    p = write(tmp_path, as_human(with_status("approved", "a")))
     h1 = load_set([tmp_path], include_drafts=False).hash
     assert load_set([tmp_path], include_drafts=False).hash == h1
-    p.write_text(with_status("approved", "a") + "\n# edited\n", encoding="utf-8")
+    p.write_text(as_human(with_status("approved", "a")) + "\n# edited\n", encoding="utf-8")
     assert load_set([tmp_path], include_drafts=False).hash != h1
 
 
 def test_set_hash_ignores_excluded_files(tmp_path):
-    write(tmp_path, with_status("approved", "a"), "a.yaml")
+    write(tmp_path, as_human(with_status("approved", "a")), "a.yaml")
     h1 = load_set([tmp_path], include_drafts=False).hash
     write(tmp_path, with_status("draft", "b"), "b.yaml")
     assert load_set([tmp_path], include_drafts=False).hash == h1
@@ -403,14 +403,14 @@ def test_adding_a_defaulted_schema_field_does_not_invalidate_approvals(tmp_path)
 
 
 def test_old_approved_file_without_hash_loads_with_warning(tmp_path):
-    p = write(tmp_path, with_status("approved", "a"), "a.yaml")
+    p = write(tmp_path, as_human(with_status("approved", "a")), "a.yaml")
     ss = load_set([tmp_path], include_drafts=False)
     assert [s.id for s in ss.scenarios] == ["a"]
     assert len(ss.warnings) == 1 and "approval_unverified" in ss.warnings[0] and str(p) in ss.warnings[0]
 
 
 def test_unknown_hash_version_is_unverified_not_an_error(tmp_path):
-    text = with_status("approved", "a").replace('notes: ""', 'notes: ""\n  approved_hash: "v9:0123"')
+    text = as_human(with_status("approved", "a")).replace('notes: ""', 'notes: ""\n  approved_hash: "v9:0123"')
     write(tmp_path, text, "a.yaml")
     ss = load_set([tmp_path], include_drafts=False)
     assert len(ss.scenarios) == 1 and len(ss.warnings) == 1 and "approval_unverified" in ss.warnings[0]
@@ -418,7 +418,7 @@ def test_unknown_hash_version_is_unverified_not_an_error(tmp_path):
 
 def test_scenario_set_carries_approval_warnings(tmp_path):
     approved_with_hash(tmp_path, "ok", "ok.yaml")
-    write(tmp_path, with_status("approved", "old"), "old.yaml")
+    write(tmp_path, as_human(with_status("approved", "old")), "old.yaml")
     write(tmp_path, with_status("draft", "d"), "d.yaml")
     write(tmp_path, with_status("rejected", "r"), "r.yaml")
     ss = load_set([tmp_path], include_drafts=True)
@@ -429,7 +429,7 @@ def test_scenario_set_carries_approval_warnings(tmp_path):
 def test_files_without_any_new_field_load_without_error(tmp_path):
     """Files written before the hash fields existed: drafts load silently, approved ones warn only."""
     write(tmp_path, with_status("draft", "d"), "d.yaml")
-    write(tmp_path, with_status("approved", "a"), "a.yaml")
+    write(tmp_path, as_human(with_status("approved", "a")), "a.yaml")
     s = load_scenario(tmp_path / "a.yaml")
     assert s.review.approved_hash is None
     assert s.provenance.label_fingerprint is None and s.provenance.generated_hash is None
@@ -441,7 +441,7 @@ def approved_by_hand(dir: Path, **provenance: str) -> Path:
     """An approved file with the given harness-written provenance fields and no `approved_hash`."""
     from harness.yamlio import load_yaml
 
-    raw = load_yaml(with_status("approved", "a"))
+    raw = load_yaml(as_human(with_status("approved", "a")))
     raw["provenance"].update(provenance)
     return write(dir, yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), "a.yaml")
 
@@ -476,6 +476,38 @@ def test_hand_approval_without_new_fields_stays_a_warning(tmp_path):
     approved_by_hand(tmp_path)
     ss = load_set([tmp_path], include_drafts=False)
     assert len(ss.scenarios) == 1 and len(ss.warnings) == 1 and "approval_unverified" in ss.warnings[0]
+
+
+def as_human(text: str) -> str:
+    return text.replace("author: llm", "author: human")
+
+
+def test_llm_approval_without_hash_is_an_error(tmp_path):
+    p = write(tmp_path, with_status("approved", "a"), "a.yaml")
+    for drafts in (False, True):
+        with pytest.raises(ScenarioLoadError) as e:
+            load_set([tmp_path], include_drafts=drafts)
+        assert e.value.code == "llm_approval_unhashed" and e.value.path == p
+
+
+def test_llm_approval_with_unknown_hash_version_is_an_error(tmp_path):
+    text = with_status("approved", "a").replace('notes: ""', 'notes: ""\n  approved_hash: "v9:0123"')
+    write(tmp_path, text, "a.yaml")
+    with pytest.raises(ScenarioLoadError) as e:
+        load_set([tmp_path], include_drafts=False)
+    assert e.value.code == "llm_approval_unhashed"
+
+
+def test_human_approval_without_hash_stays_a_warning(tmp_path):
+    write(tmp_path, as_human(with_status("approved", "a")), "a.yaml")
+    ss = load_set([tmp_path], include_drafts=False)
+    assert len(ss.scenarios) == 1 and len(ss.warnings) == 1 and "approval_unverified" in ss.warnings[0]
+
+
+def test_llm_approval_with_a_valid_hash_is_unaffected(tmp_path):
+    approved_with_hash(tmp_path)
+    ss = load_set([tmp_path], include_drafts=False)
+    assert ss.warnings == [] and [s.id for s in ss.scenarios] == ["a"]
 
 
 def test_copying_generated_hash_into_approved_hash_does_not_verify(tmp_path):

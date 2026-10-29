@@ -66,7 +66,8 @@ class LatestWins(BaseEngine):
 class FailOnTc(LatestWins):
     """Like LatestWins, but errors on scenario "tc" from its second search on.
 
-    It tells "tc" by its event ids ("tc_o1", ...): the namespace does not name the scenario.
+    It tells "tc" by its event text ("vendor v..."): neither the namespace nor the (opaque)
+    event ids name the scenario.
     """
 
     def reset(self, namespace: str) -> None:
@@ -75,7 +76,7 @@ class FailOnTc(LatestWins):
 
     def search(self, query: Query) -> list[Result]:
         self.searches += 1
-        if any(e.id.startswith("tc_") for e in self.events) and self.searches > 1:
+        if any("vendor v" in e.text for e in self.events) and self.searches > 1:
             raise RuntimeError("search fails")
         return super().search(query)
 

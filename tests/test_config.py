@@ -68,7 +68,7 @@ def test_config_parses_iso_durations(tmp_path):
 def test_repo_config_equals_defaults_except_pinned_models():
     cfg = load_config(REPO_CONFIG)
     llm = LLM(provider="openai", model="gpt-4.1-mini", embedding_model="text-embedding-3-small")
-    assert cfg == EvalConfig(version="0.2", llm=llm)
+    assert cfg == EvalConfig(version="0.4", llm=llm)
     assert config_hash(cfg) != config_hash(EvalConfig())
 
 

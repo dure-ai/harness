@@ -268,6 +268,7 @@ class _Run:
     by_task: dict[str, list[Trace]]
     max_traces: int
     cache: dict[str, list[FactCandidate]] = field(default_factory=dict)
+    used: set[tuple[str, int]] = field(default_factory=set)
     rejected: int = 0
     first_llm_error: str | None = None
     errors_in_a_row: int = 0
@@ -459,7 +460,8 @@ def generate(
 
     Usable traces (python, allowed license; `repos` if given) are sorted by trajectory id and
     shuffled with `random.Random(seed)`. Each family walks that order. The candidates of a trace
-    are extracted at most once and shared by all families; a family uses each of them once. A
+    are extracted at most once and shared by all families; a candidate goes into at most one
+    scenario of the run, whichever family gets it first (a rejected attempt leaves it free). A
     draft is saved to `out_dir/<family>/<id>.yaml` only if `check_draft` finds no error and no
     `too_easy` warning; otherwise a `Rejection` goes to `run_dir/rejected.jsonl`. A saved draft
     records its label fingerprint and content hash (`mark_generated`). A file with the same id is
@@ -536,6 +538,8 @@ def generate(
                 for cand in run.candidates(trace):
                     if tally.written + tally.skipped >= target:
                         break
+                    if (trace.trajectory_id, cand.index) in run.used:
+                        continue
                     tally.candidates += 1
                     problem = why_not(family, cand)
                     if problem is not None:
@@ -547,6 +551,7 @@ def generate(
                         continue
                     if made[0] == "capped":
                         break
+                    run.used.add((trace.trajectory_id, cand.index))
                     if made[0] == "written":
                         tally.written += 1
                         report.written.append(made[1])

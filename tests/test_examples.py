@@ -48,7 +48,7 @@ def test_examples_selfcheck_passes(scenarios):
     checks, _ = run_selfcheck(scenarios, CFG)
     failed = [c for c in checks if not c.ok]
     assert failed == [], failed
-    echo = next(c for c in checks if c.name == "repeat_n_echo")
+    echo = next(c for c in checks if c.name == "echo_buildup")
     assert echo.ok and not echo.detail.startswith("skipped"), echo.detail
     poison = next(c for c in checks if c.name == "repeat_n_poison")
     assert not poison.detail.startswith("skipped"), poison.detail

@@ -106,7 +106,8 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | `oracle_perfect` | oracle M1 = 0, M2 = 1, M3 = 0 |
 | `none_empty` | none M1 = M2 = 0, M3 = 0 |
 | `all_store_max_m1` | all_store M1 > 0이고 다른 기준선 이상 |
-| `repeat_n_poison`, `repeat_n_echo` | repeat_n이 해당 계열에서 oracle보다 M1이 높음(반복에 속음) |
+| `repeat_n_poison` | repeat_n이 single_source_poison 계열에서 oracle보다 M1이 높음(반복에 속음) |
+| `echo_buildup` | echo 시나리오마다 all_store가 받는 거짓 사실 결과 수가 첫 block 질문보다 마지막 block 질문에서 많음(메아리가 쌓임) |
 
 `scenario check`는 시나리오 하나마다 oracle과 all_store(누출 문항이 있으면 all_store_noacl도)를 돌려, 그 시나리오가 두 기준선을 실제로 가르는지 봅니다.
 

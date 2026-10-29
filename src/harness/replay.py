@@ -54,6 +54,55 @@ def namespace(run_id: str, scenario_id: str, key: bytes) -> str:
     return f"{run_id}:{digest[:16]}"
 
 
+def engine_event_id(scenario_id: str, event_id: str, key: bytes) -> str:
+    """Return the opaque id an engine sees for one internal event id.
+
+    Scenario events and records generated in feedback mode get ids of the same shape, so an
+    engine cannot tell them apart, or read hidden structure, from id format, order or gaps.
+    Internal ids stay in scenarios, scoring and reports; only the replay boundary maps them.
+
+    Args:
+        scenario_id: The scenario.
+        event_id: The internal event id (scenario or generated).
+        key: The run's blind key, see `blind_key`.
+
+    Returns:
+        First 12 hex digits of HMAC-SHA256(key, "ev:{scenario_id}:{event_id}").
+    """
+    msg = f"ev:{scenario_id}:{event_id}".encode()
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()[:12]
+
+
+class _EngineIds:
+    """Maps internal event ids to the opaque ids an engine sees, and sources back."""
+
+    def __init__(self, scenario_id: str, key: bytes) -> None:
+        self._scenario_id = scenario_id
+        self._key = key
+        self._back: dict[str, str] = {}
+
+    def out(self, event: Event) -> Event:
+        """Return `event` with its id and refs replaced by opaque ids."""
+        oid = self._name(event.id)
+        refs = tuple(self._name(r) for r in event.refs)
+        return event.model_copy(update={"id": oid, "refs": refs})
+
+    def back(self, result: Result) -> Result:
+        """Return `result` with sources mapped to internal ids.
+
+        A source the engine was never handed cannot name an event; it gets a "?" prefix so a
+        guessed internal id such as "e3" never counts as evidence.
+        """
+        sources = [self._back.get(s, f"?{s}") for s in result.sources]
+        return result.model_copy(update={"sources": sources})
+
+    def _name(self, event_id: str) -> str:
+        oid = engine_event_id(self._scenario_id, event_id, self._key)
+        if self._back.setdefault(oid, event_id) != event_id:
+            raise ValueError(f"engine id collision in {self._scenario_id}: {event_id}")
+        return oid
+
+
 @dataclass
 class ProbeRecord:
     """What happened at one probe.
@@ -173,10 +222,10 @@ def generated_event_id(taken: Collection[str]) -> str:
     Numbering starts after the ids in use (the scenario's events plus the events generated so
     far) and skips any id already taken, so author ids such as "e5" or "tc_o1" never clash. The
     id is not computed from the scenario, probe or slot, and it has the format of the usual
-    scenario ids such as "e1". It is not fully indistinguishable (design 6.2): an engine can
-    still tell it apart when authors use another format (such as "tc_o1"), or by out-of-order
-    numbers when authors number events in time order; the action record's timing (probe time
-    plus 5 minutes, same user/session/repo) is a stronger tell. The mapping to probes lives only
+    scenario ids such as "e1". This internal id never reaches the engine: `run_scenario` hands
+    every event over under an opaque keyed id (`engine_event_id`), so neither id format nor
+    numbering gaps tell generated records apart. The action record's timing (probe time
+    plus 5 minutes, same user/session/repo) can still be a tell. The mapping to probes lives only
     in `ScenarioRun.generated_ids`. An engine that abstained earlier gets fewer
     generated records, so the same probe's record can get a different id per engine; scoring
     goes through `generated_ids` and is not affected.
@@ -330,6 +379,10 @@ def run_scenario(
     evidence, and in the leak check, only for events whose `record` call has returned by the
     probe; generated events included once they come off the timeline.
 
+    The engine sees every event id (and ref) as an opaque keyed id, see `engine_event_id`;
+    result sources are mapped back to internal ids before scoring, and a source it was never
+    handed counts as no event.
+
     Errors raised by the engine end this scenario only and are kept in `ScenarioRun.error`;
     errors in harness code are not caught.
 
@@ -350,6 +403,7 @@ def run_scenario(
     # Evidence: events whose `record` call returned. Ids in use: generated ids are numbered after them.
     recorded: dict[str, LabeledEvent] = {}
     taken: set[str] = {le.event.id for le in labeled}
+    ids = _EngineIds(scenario.id, blind_key)
     timeline = Timeline()
     for le in labeled:
         push_event(timeline, le)
@@ -370,7 +424,7 @@ def run_scenario(
                 if virtual_clock:
                     engine.tick(t)
                 start = time.perf_counter()
-                engine.record(item.event)
+                engine.record(ids.out(item.event))
                 run.record_ms.append((time.perf_counter() - start) * 1000)
             except Exception as e:
                 run.error = f"{type(e).__name__}: {e}"
@@ -393,7 +447,7 @@ def run_scenario(
         except Exception as e:
             run.error = f"{type(e).__name__}: {e}"
             return run
-        results = raw[: cfg.k if item.k is None else item.k]
+        results = [ids.back(r) for r in raw[: cfg.k if item.k is None else item.k]]
         record = _score_probe(item, results, scenario, recorded, search_ms)
         run.probes.append(record)
         if scenario.mode == "feedback" and item.feedback is not None:

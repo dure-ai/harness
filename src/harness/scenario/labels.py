@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
 from typing import Any, Literal
 
-from harness.scenario.model import FeedbackTemplate, Probe, Scenario
+from harness.scenario.model import Evidence, FeedbackTemplate, Probe, Scenario
 
 CONTENT_HASH_VERSION = "v1"
 """Prefix of `content_hash` values; a stored hash with another prefix cannot be verified."""
@@ -121,12 +121,44 @@ def _diff(a: Any, b: Any, path: str, out: list[str]) -> None:
         out.append(path)
 
 
-def changed_label_fields(a: Scenario, b: Scenario) -> list[str]:
+def _is_unquoted(before: Evidence, after: Evidence) -> bool:
+    """Whether `after` is `before` with its quote given up: quoted, then written with no trace fields."""
+    return (
+        before.origin == "quoted"
+        and after.origin == "written"
+        and after.trace_id is None
+        and after.message_index is None
+        and after.quote is None
+    )
+
+
+def unquoted_evidence(a: Scenario, b: Scenario) -> list[str]:
+    """List the events whose evidence a reviewer turned from quoted into written.
+
+    Args:
+        a: The scenario before an edit.
+        b: The scenario after it.
+
+    Returns:
+        Ids of events whose evidence entry is `quoted` in `a` and `written` with `trace_id`,
+        `message_index` and `quote` all null in `b`. Any other change of an entry is not listed.
+    """
+    after = {e.event_id: e for e in b.provenance.evidence}
+    return [
+        e.event_id
+        for e in a.provenance.evidence
+        if e.event_id in after and _is_unquoted(e, after[e.event_id])
+    ]
+
+
+def changed_label_fields(a: Scenario, b: Scenario, allow_unquote: bool = False) -> list[str]:
     """List the non-editable fields in which two scenarios differ.
 
     Args:
         a: The scenario before an edit.
         b: The scenario after it.
+        allow_unquote: True to leave a quoted-to-written evidence change (`unquoted_evidence`) out
+            of the result, as `review edit` does; the reverse change is still reported.
 
     Returns:
         Sorted dotted paths such as `facts.f_old.valid_until`, `events.e3.refs` or
@@ -136,6 +168,13 @@ def changed_label_fields(a: Scenario, b: Scenario) -> list[str]:
         or `probe_order`.
     """
     out: list[str] = []
+    if allow_unquote and (freed := set(unquoted_evidence(a, b))):
+        # Compare as if those entries had stayed quoted; every other difference still shows.
+        kept = [
+            next(o for o in a.provenance.evidence if o.event_id == e.event_id) if e.event_id in freed else e
+            for e in b.provenance.evidence
+        ]
+        b = b.model_copy(update={"provenance": b.provenance.model_copy(update={"evidence": kept})})
     _diff(_label_view(a), _label_view(b), "", out)
     return out
 

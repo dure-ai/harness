@@ -18,6 +18,7 @@ from harness.scenario.model import (
     Scenario,
     probe_key,
 )
+from harness.text import contains_secret
 from harness.world import probe_ctx, true_at
 
 
@@ -79,6 +80,14 @@ def _first_marker_in(markers: Iterable[str], text: str) -> str | None:
     return None
 
 
+def _secret_in(markers: Iterable[str], text: str) -> str | None:
+    """First marker found in `text` by `contains_secret` (spacing, hyphen, width and case blind)."""
+    for m in markers:
+        if contains_secret(text, m):
+            return m
+    return None
+
+
 def _check_secret_exclusive(
     p: Probe,
     team: str,
@@ -96,7 +105,7 @@ def _check_secret_exclusive(
         for le in labeled:
             if can_see(le.event, p.user, team):
                 continue
-            hit = _first_marker_in(le.secret_markers, body)
+            hit = _secret_in(le.secret_markers, body)
             if hit is not None:
                 error(
                     "secret_marker_not_exclusive",
@@ -109,7 +118,7 @@ def _check_secret_exclusive(
     for le in recorded:
         if can_see(le.event, p.user, team):
             continue
-        hit = _first_marker_in(le.secret_markers, query)
+        hit = _secret_in(le.secret_markers, query)
         if hit is not None:
             error(
                 "secret_marker_not_exclusive",
@@ -117,7 +126,7 @@ def _check_secret_exclusive(
                 "which the asker cannot see",
             )
         for other in visible:
-            hit = _first_marker_in(le.secret_markers, other.event.text.casefold())
+            hit = _secret_in(le.secret_markers, other.event.text.casefold())
             if hit is not None:
                 error(
                     "secret_marker_not_exclusive",

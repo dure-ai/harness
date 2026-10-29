@@ -9,7 +9,7 @@ from harness.baselines.oracle import OracleEngine
 from harness.baselines.simple import AllStoreEngine
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
-from harness.replay import DEFAULT_BLIND_KEY, blind_key, run_scenario
+from harness.replay import DEFAULT_BLIND_KEY, blind_key, engine_event_id, run_scenario
 from tests.factories import T, ev, fact, probe, scenario
 
 CFG = EvalConfig()
@@ -266,7 +266,9 @@ class Returns(BaseEngine):
 
 
 def test_search_dicts_validated_into_results():
-    run = run_scenario(Returns([{"text": "a", "sources": ["e1"]}, Result(text="b")]), _same_time(),
+    sc = _same_time()
+    e1 = engine_event_id(sc.id, "e1", DEFAULT_BLIND_KEY)
+    run = run_scenario(Returns([{"text": "a", "sources": [e1]}, Result(text="b")]), sc,
                        run_id="r", cfg=CFG)
     assert run.error is None
     assert run.probes[0].results == [Result(text="a", sources=["e1"]), Result(text="b")]
@@ -351,6 +353,11 @@ class Cites(BaseEngine):
         return [Result(text="whatever", sources=self.sources)]
 
 
+def _seen(s, *ids):
+    """The opaque ids an engine is handed for internal ids `ids` of scenario `s`."""
+    return [engine_event_id(s.id, i, DEFAULT_BLIND_KEY) for i in ids]
+
+
 def _future_sources():
     # Reproduces review finding C1: e2 and e3 are recorded only after both probes.
     return scenario(
@@ -369,7 +376,7 @@ def _future_sources():
 
 def test_unrecorded_source_id_is_not_evidence():
     s = _future_sources()
-    run = run_scenario(Cites(["e2", "e3"]), s, run_id="r", cfg=CFG)
+    run = run_scenario(Cites(_seen(s, "e2", "e3")), s, run_id="r", cfg=CFG)
     assert run.error is None
     by_id = {r.probe_id: r for r in run.probes}
     assert by_id["pb"].outcome == "BLOCKED"
@@ -379,7 +386,7 @@ def test_unrecorded_source_id_is_not_evidence():
     # e3 is another team's event, but it was not recorded yet: nothing could have leaked.
     assert all(r.leaks == [] for r in run.probes)
 
-    recorded = run_scenario(Cites(["e1"]), s, run_id="r", cfg=CFG)
+    recorded = run_scenario(Cites(_seen(s, "e1")), s, run_id="r", cfg=CFG)
     assert {r.probe_id: r.outcome for r in recorded.probes} == {"pb": "BLOCKED", "pp": "TP"}
 
 
@@ -401,7 +408,7 @@ def test_generated_event_is_evidence_only_after_it_is_recorded():
     )
     gid = generated_event_id({"e1"})
     assert gid == "e2"
-    run = run_scenario(Cites([gid]), s, run_id="r", cfg=CFG)
+    run = run_scenario(Cites(_seen(s, gid)), s, run_id="r", cfg=CFG)
     assert run.error is None
     assert run.generated_ids[("p1", "action")] == gid
     by_id = {r.probe_id: r for r in run.probes}
@@ -458,3 +465,73 @@ def test_explicit_probe_k_is_honoured_in_replay():
     )
     run = run_scenario(AllStoreEngine(), s, run_id="r", cfg=EvalConfig(k=3))
     assert len(run.probes[0].results) == 1
+
+
+def _feedback_after_block():
+    from harness.scenario.model import Feedback, FeedbackTemplate
+
+    return scenario(
+        family="echo",
+        mode="feedback",
+        facts={"f_a": fact(), "f_gave_up": fact()},
+        events=[ev(f"e{i}", T(f"10-0{i} 10:00"), fact="f_a", text=f"alpha {i}") for i in range(1, 5)]
+        + [ev("e5", T("10-11 10:00"), text="last scenario event")],
+        probes=[
+            probe("p1", "block", T("10-10 10:00"), ["f_a"],
+                  feedback=Feedback(abstain=FeedbackTemplate(text="gave up", fact="f_gave_up"))),
+            probe("p2", "promote", T("10-12 10:00"), ["f_gave_up"]),
+        ],
+    )
+
+
+def test_engine_receives_opaque_ids_that_reveal_no_numbering_gap():
+    eng = Recorder()
+    s = _feedback_after_block()
+    run = run_scenario(eng, s, run_id="r", cfg=CFG)
+    assert run.error is None and run.generated
+    ids = [e.id for e in eng.received if isinstance(e, Event)]
+    assert len(ids) == 6 == len(set(ids))
+    assert not any(re.fullmatch(r"e\d+", i) for i in ids)
+    assert all(re.fullmatch(r"[0-9a-f]{12}", i) for i in ids)
+    # Internal ids stay as they were for scoring and reports.
+    assert run.generated_ids[("p1", "action")] == "e6"
+
+
+def test_engine_ids_are_deterministic_per_key_and_differ_across_keys():
+    s = _feedback_after_block()
+    a, b, c = Recorder(), Recorder(), Recorder()
+    run_scenario(a, s, run_id="r", cfg=CFG)
+    run_scenario(b, s, run_id="r", cfg=CFG)
+    run_scenario(c, s, run_id="r", cfg=CFG, blind_key=blind_key(7))
+    ids = [[e.id for e in x.received if isinstance(e, Event)] for x in (a, b, c)]
+    assert ids[0] == ids[1]
+    assert ids[0] != ids[2]
+
+
+def test_sources_are_mapped_back_to_internal_ids_and_guessed_ids_are_not_evidence():
+    from harness.replay import engine_event_id
+
+    s = _feedback_after_block()
+    gid = engine_event_id(s.id, "e6", DEFAULT_BLIND_KEY)
+    run = run_scenario(Cites([gid]), s, run_id="r", cfg=CFG)
+    by_id = {r.probe_id: r for r in run.probes}
+    assert by_id["p2"].outcome == "TP"
+    assert by_id["p2"].results[0].sources == ["e6"]
+
+    guessed = run_scenario(Cites(["e6"]), s, run_id="r", cfg=CFG)
+    assert {r.probe_id: r.outcome for r in guessed.probes}["p2"] == "FN"
+
+
+def test_refs_reach_the_engine_as_opaque_ids():
+    from harness.replay import engine_event_id
+
+    s = scenario(
+        facts={"f": fact()},
+        events=[ev("e1", T("10-01 10:00"), fact="f"),
+                ev("e2", T("10-02 10:00"), refs=("e1",))],
+        probes=[probe("p", "promote", T("10-03 10:00"), ["f"])],
+    )
+    eng = Recorder()
+    run_scenario(eng, s, run_id="r", cfg=CFG)
+    events = [e for e in eng.received if isinstance(e, Event)]
+    assert events[1].refs == (engine_event_id(s.id, "e1", DEFAULT_BLIND_KEY),)

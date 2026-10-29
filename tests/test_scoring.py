@@ -118,3 +118,21 @@ def test_find_leaks_ignores_unrecorded_ids():
         Leak(0, "eb", "source"),
         Leak(0, "eb", "secret_marker"),
     ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["top secret", "top-secret", "TOPSECRET", "top‑secret", "ｔｏｐ　ｓｅｃｒｅｔ"],
+)
+def test_secret_marker_is_found_through_spacing_and_hyphen_changes(text):
+    s, p, events = _leak_world()
+    s.events[1].secret_markers[:] = ["top secret"]
+    events = {le.event.id: le for le in s.labeled_events()}
+    assert find_leaks([Result(text=f"see {text} value")], p, s, events) == [
+        Leak(0, "eb", "secret_marker")
+    ]
+
+
+def test_unrelated_text_is_not_a_secret_marker_leak():
+    s, p, events = _leak_world()
+    assert find_leaks([Result(text="top of the secret list")], p, s, events) == []

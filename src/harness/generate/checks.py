@@ -9,6 +9,7 @@ from harness.generate.config import GenConfig
 from harness.scenario.model import FeedbackTemplate, Probe, Scenario
 from harness.scenario.validate import LEAK_FAMILIES, Issue, validate_scenario
 from harness.selfcheck import check_discrimination
+from harness.text import contains_secret
 
 
 def secrets_recorded(s: Scenario) -> bool:
@@ -44,6 +45,11 @@ def secret_events(s: Scenario) -> list[str]:
 def _has(text: str, needle: str) -> bool:
     """Casefold substring match; an empty needle never matches."""
     return bool(needle) and needle.casefold() in text.casefold()
+
+
+def _has_secret(text: str, marker: str) -> bool:
+    """Secret match that ignores case, width, spacing and hyphen variants (`contains_secret`)."""
+    return contains_secret(text, marker)
 
 
 def _fold(text: str) -> str:
@@ -400,7 +406,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
             issues.append(
                 Issue("error", "secret_missing", f"event {eid}: listed as a secret event but has no secret_markers")
             )
-        elif not any(_has(e.text, m) for m in e.secret_markers):
+        elif not any(_has_secret(e.text, m) for m in e.secret_markers):
             issues.append(
                 Issue(
                     "error",
@@ -411,7 +417,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
     secrets = [m for eid in ids if (e := by_id.get(eid)) for m in e.secret_markers]
     for e in s.events:
         if e.id not in secret_ids and (
-            hit := next((m for m in secrets if _has(e.text, m)), None)
+            hit := next((m for m in secrets if _has_secret(e.text, m)), None)
         ):
             issues.append(
                 Issue(
@@ -421,7 +427,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
                 )
             )
     for fid, f in s.facts.items():
-        if hit := next((m for m in secrets if _has(f.text, m) or any(_has(k, m) for k in f.markers)), None):
+        if hit := next((m for m in secrets if _has_secret(f.text, m) or any(_has_secret(k, m) for k in f.markers)), None):
             issues.append(
                 Issue(
                     "error",
@@ -431,7 +437,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
             )
     for p in s.probes:
         for where, tpl in _feedback_bodies(p):
-            if hit := next((m for m in secrets if _has(tpl.text, m)), None):
+            if hit := next((m for m in secrets if _has_secret(tpl.text, m)), None):
                 issues.append(
                     Issue(
                         "error",

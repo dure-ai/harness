@@ -6,7 +6,7 @@ from harness.baselines.simple import AllStoreEngine, NoneEngine
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineInfo, Result
 from harness.agent import Choice
-from harness.replay import feedback_events, run_scenario
+from harness.replay import DEFAULT_BLIND_KEY, engine_event_id, feedback_events, run_scenario
 from harness.scenario.load import load_scenario
 from harness.scenario.model import Feedback, FeedbackTemplate
 from tests.factories import T, ev, fact, probe, scenario
@@ -190,8 +190,12 @@ class TwoSourceEngine(BaseEngine):
     def record(self, event):
         pass
 
+    def __init__(self, scenario_id="s"):
+        self.scenario_id = scenario_id
+
     def search(self, query):
-        return [Result(text="merged", sources=["e_new", "e_old"])]
+        ids = [engine_event_id(self.scenario_id, i, DEFAULT_BLIND_KEY) for i in ("e_new", "e_old")]
+        return [Result(text="merged", sources=ids)]
 
 
 def test_wrong_fact_preferred_for_action_template():
@@ -215,7 +219,7 @@ def test_wrong_fact_preferred_for_action_template():
             )
         ],
     )
-    run = run_scenario(TwoSourceEngine(), s, run_id="r", cfg=CFG)
+    run = run_scenario(TwoSourceEngine(s.id), s, run_id="r", cfg=CFG)
     assert [le.event.text for le in run.generated] == ["followed old"]
 
 
@@ -231,10 +235,12 @@ class RecordingEngine(BaseEngine):
 
     def record(self, event):
         self.calls.append(("record", event.id))
+        if event.text == "deploy host alpha":
+            self.old_id = event.id
 
     def search(self, query):
         self.calls.append(("search", query.text))
-        return [Result(text="deploy host alpha", sources=["e_old"])]
+        return [Result(text="deploy host alpha", sources=[self.old_id])]
 
 
 def test_generated_event_reaches_engine():
@@ -242,8 +248,9 @@ def test_generated_event_reaches_engine():
     eng = RecordingEngine()
     run = run_scenario(eng, _scenario(extra_probes=[p2]), run_id="r", cfg=CFG)
     assert run.error is None
-    action = ("record", run.generated_ids[("p1", "action")])
-    outcome = ("record", run.generated_ids[("p1", "outcome")])
+    s_id = _scenario().id
+    action = ("record", engine_event_id(s_id, run.generated_ids[("p1", "action")], DEFAULT_BLIND_KEY))
+    outcome = ("record", engine_event_id(s_id, run.generated_ids[("p1", "outcome")], DEFAULT_BLIND_KEY))
     assert action in eng.calls
     assert eng.calls.index(action) < eng.calls.index(("search", "second query"))
     assert eng.calls.index(("search", "alpha host")) < eng.calls.index(action)
@@ -277,7 +284,7 @@ def test_generated_ids_reveal_neither_harness_nor_probe():
     eng = RecordingEngine()
     run = run_scenario(eng, s, run_id="r", cfg=CFG)
     recorded = [eid for call, eid in eng.calls if call == "record"]
-    generated = set(run.generated_ids.values())
+    generated = {engine_event_id(s.id, g, DEFAULT_BLIND_KEY) for g in run.generated_ids.values()}
     assert generated and generated <= set(recorded)
     for eid in recorded:
         assert "#" not in eid
@@ -330,12 +337,15 @@ def test_generated_ids_look_like_scenario_ids_and_never_collide():
     s = load_scenario(Path("scenarios/examples/echo_stale_owner.yaml"))
     eng = _SeenIds()
     run = run_scenario(eng, s, run_id="r", cfg=CFG)
-    generated = set(run.generated_ids.values())
-    authored = {e.id for e in s.events}
-    assert generated and not generated & authored
+    internal_generated = set(run.generated_ids.values())
+    assert internal_generated and not internal_generated & {e.id for e in s.events}
+    # Shapes are judged on the ids the engine sees (opaque keyed ids, see engine_event_id).
+    def seen(i):
+        return engine_event_id(s.id, i, DEFAULT_BLIND_KEY)
+    generated = {seen(i) for i in internal_generated}
+    authored = {seen(e.id) for e in s.events}
     assert set(eng.seen) == generated | authored
-    shape = {re.sub(r"\d+", "#", i) for i in generated}
-    assert shape <= {re.sub(r"\d+", "#", i) for i in authored}
+    assert all(re.fullmatch(r"[0-9a-f]{12}", i) for i in generated | authored)
     for pattern in SHAPE_CLASSIFIERS:
         assert not _separable(pattern, generated, authored), pattern
 
@@ -498,14 +508,18 @@ class _OutsideFactEngine(BaseEngine):
     def record(self, event):
         pass
 
+    def __init__(self, scenario_id="s"):
+        self.scenario_id = scenario_id
+
     def search(self, query):
-        return [Result(text="merged", sources=["e_style", "e_new"])]
+        ids = [engine_event_id(self.scenario_id, i, DEFAULT_BLIND_KEY) for i in ("e_style", "e_new")]
+        return [Result(text="merged", sources=ids)]
 
 
 def test_run_records_the_action_when_the_followed_result_states_a_fact_outside_about():
     s = _outside_about_scenario()
     s.events.insert(0, ev("e_style", T("10-01 10:00"), fact="a_style"))
-    run = run_scenario(_OutsideFactEngine(), s, run_id="r", cfg=CFG)
+    run = run_scenario(_OutsideFactEngine(s.id), s, run_id="r", cfg=CFG)
     assert run.error is None
     assert set(run.generated_ids) == {("pb1", "action"), ("pb1", "outcome")}
     assert gen(run, "pb1", "action").event.text == "applied beta deploy fix"

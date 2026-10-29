@@ -7,6 +7,7 @@ from typing import Literal
 from harness.agent import Choice
 from harness.contract import Result, can_see
 from harness.scenario.model import LabeledEvent, Probe, Scenario
+from harness.text import contains_secret
 from harness.world import probe_ctx, true_at
 
 ProbeOutcome = Literal["FP", "TP", "FN", "BLOCKED", "PROMOTE_FP", "LEAK_ONLY"]
@@ -93,13 +94,12 @@ def find_leaks(
     }
     leaks = []
     for index, result in enumerate(results):
-        text = result.text.casefold()
         source_ids = set(result.sources) & hidden.keys()
         marker_ids = {
             eid
             for eid, le in hidden.items()
             if le.event.t <= probe.t
-            and any(m.casefold() in text for m in le.secret_markers)
+            and any(contains_secret(result.text, m) for m in le.secret_markers)
         }
         for eid in sorted(source_ids | marker_ids):
             if eid in source_ids:
