@@ -14,7 +14,7 @@ facts:
   f_old:
     text: 'Every new provider needs a section in docs/providers.rst, kept in alphabetical
       order, with `.. module:: flask_dance.contrib.<name>`, `.. autofunction:: make_<name>_blueprint`
-      and a `.. data:: <name>` LocalProxy description, plus a test file at tests/contrib/test_<name>.py.'
+      and a `.. data:: <name>` LocalProxy description.'
     valid_from: null
     valid_until: '2026-10-06T00:00:00+09:00'
     valid: true
@@ -22,11 +22,11 @@ facts:
     fix: null
     markers:
     - '.. autofunction:: make_'
-    - tests/contrib/test_
   f_new:
     text: 'Every new provider now gets its own page at docs/providers/<name>.rst using
       `.. automodule:: flask_dance.contrib.<name>` with `:members:`, and that page
-      must be added to the toctree in docs/providers/index.rst in alphabetical order.'
+      must be added to the toctree in docs/providers/index.rst in alphabetical order.
+      The provider''s test file stays at tests/contrib/test_<name>.py.'
     valid_from: '2026-10-06T00:00:00+09:00'
     valid_until: null
     valid: true
@@ -102,7 +102,8 @@ events:
   text: 'Review on the ORCID/provider-docs PRs: provider docs are split out now, so
     please don''t add another block to the single providers page. Create docs/providers/orcid.rst
     with `.. automodule:: flask_dance.contrib.orcid` and `:members:`, then add `orcid`
-    to the toctree in docs/providers/index.rst, alphabetically.'
+    to the toctree in docs/providers/index.rst, alphabetically. Tests stay in tests/contrib/test_orcid.py
+    as before.'
   meta: {}
   refs:
   - e1
@@ -162,9 +163,13 @@ probes:
   feedback: null
 review:
   status: approved
-  reviewer: jaehyuk
-  notes: ''
-  approved_hash: v1:fc04c8ffc38092d8ebbbdcc18dd538cbd43a2ff98534f5cab048d77c8ac72aac
+  reviewer: HJinS
+  notes: 'Reviewer edit (HJinS, 10/29, PR #13 review): the test-file location never
+    changed, so it moved out of f_old (text and marker tests/contrib/test_) into f_new,
+    and e4 now confirms it; the probes'' test-file question no longer marks a correct
+    answer as stale.'
+  approved_hash: v1:aa575ea14b0ec16fccd6c826c14b66ca4d19ca65c006031da6bea8b15e1be9a0
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:
@@ -204,7 +209,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-27T11:09:06.955390Z'
   label_fingerprint: l1:d205522c57d600e26b7a5e9850e657767e7d59618d0c8d5814b8effafce986d5
   generated_hash: v1:e46fafd53ff59af7263bda09dc78868fa34c16375224a39fe14f3b67b0616942
