@@ -422,7 +422,7 @@ def _one(
         )
 
     try:
-        s = write_bodies(run.client, sk, cand, bundle, run.gen)
+        s = write_bodies(run.client, sk, cand, bundle, run.gen, run.cfg)
     except LLMError as e:
         if e.fatal:
             raise

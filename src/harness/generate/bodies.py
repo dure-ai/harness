@@ -4,7 +4,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from harness.generate.candidates import FactCandidate, load_prompt
-from harness.generate.checks import marker_issues
+from harness.config import EvalConfig
+from harness.generate.checks import marker_issues, repeat_issues
 from harness.generate.config import GenConfig
 from harness.generate.llm import LLMClient
 from harness.generate.slots import (
@@ -49,12 +50,14 @@ def write_bodies(
     cand: FactCandidate,
     traces: Sequence[Trace],
     gen: GenConfig,
+    cfg: EvalConfig | None = None,
 ) -> Scenario:
     """Have the model write every text field of a skeleton.
 
     The reply is applied with `apply_slots`, so labels stay as the template set them. A reply
     whose keys do not match the slots, or whose markers hold a banned cue word
-    (`cue_word_in_marker`), is sent back once with the error (see `LLMClient`).
+    (`cue_word_in_marker`), or whose poison repeats are not near repeats
+    (`repeats_too_different`), is sent back once with the error (see `LLMClient`).
 
     Args:
         client: LLM client.
@@ -62,6 +65,7 @@ def write_bodies(
         cand: The candidate the skeleton was built from.
         traces: Traces of the candidate's bundle, the candidate's own first; may be empty.
         gen: Generation config (prompt version and banned cue words).
+        cfg: Eval config whose `repeat_n` the poison repeats must satisfy; defaults to `EvalConfig()`.
 
     Returns:
         The scenario with text filled in and provenance written: author `llm`, provider, the model
@@ -82,6 +86,12 @@ def write_bodies(
             raise ValueError(
                 "; ".join(i.message for i in issues)
                 + "; write the marker without banned words"
+            )
+        if issues := repeat_issues(filled, cfg or EvalConfig()):
+            raise ValueError(
+                issues[0].message
+                + "; write the injecting user's records as the same sentence, "
+                "with only a short different lead-in"
             )
 
     slots = client.complete_json(

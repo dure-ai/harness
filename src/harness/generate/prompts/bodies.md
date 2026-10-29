@@ -21,7 +21,7 @@ Rules for the facts and events:
 5. The labels (validity, `valid`, `conditions`, `fix`) tell you what is true. Use them to decide what to write, but never let the text reveal them. The events must not say, or hint, that a fact is outdated, wrong, true or untrustworthy. Do not use any of these words or phrases anywhere in events, probes or feedback: {banned_cue_words}. The only exception is literal code in backticks, such as a config line `enabled: false`. Show a change of truth the way people do, with new instructions, a different command, or a reviewer's concrete correction.
 6. Events carry the author's time and context. Reflect `meta` (for example the service) when it matters, use the given user ids (u1, u2, ...) only if you must name someone, and never invent personal names.
 7. Use the real repository name and real paths from the trace when you need them.
-8. Keep each event to one to three sentences.
+8. Keep each event to one to three sentences. In a `single_source_poison` scenario, the injecting user's repeated records restate the same sentence nearly word for word, with only a short different lead-in.
 
 Rules for the probes:
 9. Write each query using the key topic terms that also appear in the text of the events linked to the facts it targets, not paraphrases of them, so that a keyword search over the records can find them. Reuse the distinctive words of the markers of the facts the probe is about. Never put a secret string into a query.
