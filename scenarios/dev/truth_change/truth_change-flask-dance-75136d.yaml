@@ -1,0 +1,209 @@
+id: truth_change-flask-dance-75136d
+family: truth_change
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_old:
+    text: 'Each OAuth provider in flask-dance lives in flask_dance/contrib/<name>.py,
+      defines make_<name>_blueprint built on OAuth2ConsumerBlueprint, registers a
+      before_app_request hook (def set_applocal_session) that sets g.flask_dance_<name>
+      = bp.session, and exposes a module-level `<name> = LocalProxy(lambda: g.flask_dance_<name>)`.'
+    valid_from: null
+    valid_until: '2026-10-08T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - 'LocalProxy(lambda: g.flask_dance_'
+    - def set_applocal_session
+  f_new:
+    text: Each OAuth provider in flask_dance/contrib/<name>.py still defines make_<name>_blueprint
+      on OAuth2ConsumerBlueprint, but wires the session by calling `register_applocal_session(bp,
+      "<name>")` from flask_dance.contrib._utils and exposes the module-level proxy
+      as `<name> = make_session_proxy("<name>")` instead of a hand-written hook and
+      proxy lambda.
+    valid_from: '2026-10-08T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - register_applocal_session
+    - make_session_proxy
+events:
+- id: e1
+  t: '2026-10-01T13:00:00+09:00'
+  user: u2
+  session: s3
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Provider pattern from flask_dance/contrib/digitalocean.py: make_digitalocean_blueprint
+    wraps OAuth2ConsumerBlueprint, a before_app_request hook `def set_applocal_session`
+    stores digitalocean_bp.session on g, and the module ends with `digitalocean =
+    LocalProxy(lambda: g.flask_dance_digitalocean)`.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T12:30:00+09:00'
+  user: u2
+  session: s4
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Started flask_dance/contrib/orcid.py by copying the meetup/spotify layout:
+    make_orcid_blueprint on OAuth2ConsumerBlueprint, `def set_applocal_session` setting
+    g.flask_dance_orcid = orcid_bp.session, and `orcid = LocalProxy(lambda: g.flask_dance_orcid)`
+    at module level.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T14:45:00+09:00'
+  user: u3
+  session: s5
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for contrib providers: every module follows the same shape, with a `def
+    set_applocal_session` hook on before_app_request and a trailing `<name> = LocalProxy(lambda:
+    g.flask_dance_<name>)` proxy; tests in tests/contrib import that proxy directly.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-08T13:00:00+09:00'
+  user: u1
+  session: s6
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review on the contrib provider notes: after merging the helper refactor,
+    providers should call `register_applocal_session(bp, "<name>")` from flask_dance.contrib._utils
+    and export the proxy as `<name> = make_session_proxy("<name>")`; please update
+    orcid.py and the provider template to match before this goes in.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-10T16:15:00+09:00'
+  user: u3
+  session: s7
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Updated flask_dance/contrib/orcid.py: make_orcid_blueprint now calls `register_applocal_session(orcid_bp,
+    "orcid")` and the module exposes `orcid = make_session_proxy("orcid")`; tests/contrib/test_orcid.py
+    passes.'
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-06T10:45:00+09:00'
+  user: u4
+  session: s8
+  repo: singingwolfboy/flask-dance
+  query: For a new provider module in flask_dance/contrib/, how should make_<name>_blueprint
+    set up the applocal session and the module-level session proxy?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-12T10:15:00+09:00'
+  user: u4
+  session: s9
+  repo: singingwolfboy/flask-dance
+  query: For a new provider module in flask_dance/contrib/, how should make_<name>_blueprint
+    wire the applocal session and expose the module-level session proxy?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:7a77beed720e73a637794d0eb866c2c3bc543defd3fadac5b325f72bb65bbf42
+provenance:
+  author: llm
+  source_traces:
+  - 5b04f537-cb9f-4fd1-a29a-c9c1c4e757d2
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: singingwolfboy/flask-dance
+    license: MIT
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: 5b04f537-cb9f-4fd1-a29a-c9c1c4e757d2
+    message_index: 5
+    quote: 'digitalocean = LocalProxy(lambda: g.flask_dance_digitalocean)'
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T11:07:51.240881Z'
+  label_fingerprint: l1:ef4eb7e9192280c6367178187b75345b4f7b5818da5d24c257cb81b2579dfbb3
+  generated_hash: v1:03b05e617cf135cfd636ed9e6dc7cf0ee1dd86019189843881920e701b7176d9

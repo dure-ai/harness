@@ -1,0 +1,210 @@
+id: truth_change-flask-dance-3ef268
+family: truth_change
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_old:
+    text: 'Every new provider needs a section in docs/providers.rst, kept in alphabetical
+      order, with `.. module:: flask_dance.contrib.<name>`, `.. autofunction:: make_<name>_blueprint`
+      and a `.. data:: <name>` LocalProxy description, plus a test file at tests/contrib/test_<name>.py.'
+    valid_from: null
+    valid_until: '2026-10-06T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - '.. autofunction:: make_'
+    - tests/contrib/test_
+  f_new:
+    text: 'Every new provider now gets its own page at docs/providers/<name>.rst using
+      `.. automodule:: flask_dance.contrib.<name>` with `:members:`, and that page
+      must be added to the toctree in docs/providers/index.rst in alphabetical order.'
+    valid_from: '2026-10-06T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - docs/providers/index.rst
+    - '.. automodule:: flask_dance.contrib'
+events:
+- id: e1
+  t: '2026-10-01T14:30:00+09:00'
+  user: u1
+  session: s16
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Added the ORCID provider docs: new section in docs/providers.rst between
+    nylas and reddit, with `.. module:: flask_dance.contrib.orcid`, `.. autofunction::
+    make_orcid_blueprint` and a `.. data:: orcid` LocalProxy description. Tests go
+    in tests/contrib/test_orcid.py, same as the other providers.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T15:15:00+09:00'
+  user: u2
+  session: s17
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for provider PRs: copy the salesforce block in docs/providers.rst (line
+    ~232) as a template, i.e. `.. module::`, `.. autofunction:: make_<name>_blueprint`,
+    `.. data::` for the proxy, and keep the sections in alphabetical order. Pair it
+    with tests/contrib/test_<name>.py.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-03T16:00:00+09:00'
+  user: u1
+  session: s18
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Checklist for the new provider: flask_dance/contrib/<name>.py, a docs/providers.rst
+    section with `.. autofunction:: make_<name>_blueprint` and the `.. data::` proxy
+    entry, and tests/contrib/test_<name>.py mirroring test_meetup.py.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T11:15:00+09:00'
+  user: u3
+  session: s19
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review on the ORCID/provider-docs PRs: provider docs are split out now, so
+    please don''t add another block to the single providers page. Create docs/providers/orcid.rst
+    with `.. automodule:: flask_dance.contrib.orcid` and `:members:`, then add `orcid`
+    to the toctree in docs/providers/index.rst, alphabetically.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-07T14:45:00+09:00'
+  user: u1
+  session: s20
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Moved the ORCID docs per review: docs/providers/orcid.rst now uses `.. automodule::
+    flask_dance.contrib.orcid` with `:members:`, and the entry is in the docs/providers/index.rst
+    toctree between nylas and reddit. Sphinx build is clean.'
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-05T12:45:00+09:00'
+  user: u4
+  session: s21
+  repo: singingwolfboy/flask-dance
+  query: 'I''m adding a new provider to flask-dance. Where do its docs go: a section
+    in docs/providers.rst with `.. autofunction:: make_<name>_blueprint`, or a page
+    listed in docs/providers/index.rst with `.. automodule:: flask_dance.contrib.<name>`?
+    And where does the test file go?'
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-08T10:45:00+09:00'
+  user: u4
+  session: s22
+  repo: singingwolfboy/flask-dance
+  query: 'I''m adding a new provider to flask-dance. Where do its docs go: a page
+    listed in docs/providers/index.rst with `.. automodule:: flask_dance.contrib.<name>`,
+    or a section in docs/providers.rst with `.. autofunction:: make_<name>_blueprint`?
+    And where does the test file go?'
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:fc04c8ffc38092d8ebbbdcc18dd538cbd43a2ff98534f5cab048d77c8ac72aac
+provenance:
+  author: llm
+  source_traces:
+  - 5b04f537-cb9f-4fd1-a29a-c9c1c4e757d2
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: singingwolfboy/flask-dance
+    license: MIT
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T11:09:06.955390Z'
+  label_fingerprint: l1:d205522c57d600e26b7a5e9850e657767e7d59618d0c8d5814b8effafce986d5
+  generated_hash: v1:e46fafd53ff59af7263bda09dc78868fa34c16375224a39fe14f3b67b0616942

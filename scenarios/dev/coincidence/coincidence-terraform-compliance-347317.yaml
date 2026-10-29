@@ -1,0 +1,199 @@
+id: coincidence-terraform-compliance-347317
+family: coincidence
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_true:
+    text: The terraform-compliance dev environment runs Python 3.11 with radish-bdd
+      0.13.1 providing the BDD step framework, and dependencies are pinned in requirements.txt.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - Python 3.11
+    - radish-bdd 0.13.1
+    - requirements.txt
+  f_false:
+    text: The terraform-compliance dev environment runs Python 3.9 with radish-bdd
+      0.14.2 providing the BDD step framework, and dependencies are pinned in Pipfile.lock.
+    valid_from: null
+    valid_until: null
+    valid: false
+    conditions: {}
+    fix: null
+    markers:
+    - Python 3.9
+    - radish-bdd 0.14.2
+    - Pipfile.lock
+events:
+- id: e1
+  t: '2026-10-01T09:00:00+09:00'
+  user: u2
+  session: s2
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Setup note for terraform-compliance: the dev env is Python 3.9 with radish-bdd
+    0.14.2 for the BDD steps; install from Pipfile.lock before running the functional
+    tests.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e2
+  t: '2026-10-01T12:00:00+09:00'
+  user: u2
+  session: s2
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Reminder while working on the null `values` fix in terraform_compliance/common/helper.py:
+    step definitions run on radish-bdd 0.14.2 under Python 3.9, pinned via Pipfile.lock.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e3
+  t: '2026-10-01T13:00:00+09:00'
+  user: u2
+  session: s2
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Before running tests/functional/run_functional_tests.py, sync the env from
+    Pipfile.lock so you get Python 3.9 and radish-bdd 0.14.2.
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e4
+  t: '2026-10-02T12:00:00+09:00'
+  user: u4
+  session: s3
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Checked the terraform-compliance dev env: `python --version` reports Python
+    3.11.14, and radish-bdd 0.13.1 provides the BDD step framework. All dependencies
+    are pinned in requirements.txt, so install with `pip install -r requirements.txt`.'
+  meta: {}
+  refs: []
+  fact: f_true
+  secret_markers: []
+- id: e5
+  t: '2026-10-04T11:15:00+09:00'
+  user: u3
+  session: s4
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: test
+  kind: ci_result
+  outcome: success
+  text: 'CI run on terraform-compliance: environment built with `pip install -r requirements.txt`
+    on Python 3.11, radish-bdd 0.13.1 resolved as pinned; unit and functional suites
+    passed, matching the env setup noted earlier.'
+  meta: {}
+  refs:
+  - e4
+  fact: f_true
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-05T13:15:00+09:00'
+  user: u1
+  session: s5
+  repo: eerkunt/terraform-compliance
+  query: Which Python version and radish-bdd version does the terraform-compliance
+    dev environment use, and which file pins the dependencies?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-07T09:45:00+09:00'
+  user: u1
+  session: s6
+  repo: eerkunt/terraform-compliance
+  query: What Python and radish-bdd versions should I set up for terraform-compliance
+    development, and where are the dependency pins kept?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:d9722c98ec41ff26856e55c85acf791c41b94dfcaa6ff76ed395da59bb9a7fe0
+provenance:
+  author: llm
+  source_traces:
+  - 867aecf9-9bdc-4f2f-8b2e-3f395a16ec61
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: eerkunt/terraform-compliance
+    license: MIT
+  fabricated_facts:
+  - f_false
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T10:59:39.357985Z'
+  label_fingerprint: l1:e64cb87368f33141c3539752c7ac5178064ab11951f8e086978de741a744449c
+  generated_hash: v1:a0668af90c624d9330e905b10cce2aea95ea2857bffd4610a7a4188d253f5c2d
