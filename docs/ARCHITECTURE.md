@@ -53,6 +53,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | | `config.py` | 점수에 영향을 주는 모든 값(`config/eval-v0.1.yaml`)과 그 해시 |
 | 엔진 | `contract.py` | 엔진이 보는 유일한 타입: `Event`, `Query`, `Result`, `EngineInfo`, `BaseEngine`, `can_see` |
 | | `engines.py` | 이름 → 엔진 인스턴스(`make_engine`) |
+| | `oss/` | 오픈소스 엔진 어댑터 `hindsight`, `mem0`(이름으로 `make_engine`에 등록). 공통 부분(`http.py` 주소 검사·재시도 HTTP, `models.py` 모델 확인, `text.py` 본문 형식)과 어댑터 두 개(`hindsight.py`, `mem0.py`). 이벤트 id를 출처로 엔진에 맡겼다가 `Result.sources`로 돌려받는다. 테스트는 `tests/oss_fakes.py`의 가짜 서버로 하고 실제 연결 점검만 `HARNESS_LIVE_OSS=1`일 때 돈다 |
 | | `baselines/` | `none`, `all_store`(+`all_store_noacl`), `repeat_n`, `oracle` |
 | | `text.py` | 기준선용 토큰화·Jaccard·BM25(결정적) |
 | 초안 | `generate/` | 궤적에서 시나리오 초안 만들기(`traces`·`generate` 명령, `gen` 선택 설치 필요). 계열 틀 `families/`가 정답 라벨을 정하고 LLM은 본문만 씀. `checks.py`의 `check_draft`가 저장·승인 전 자동 검증 |
@@ -94,7 +95,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 - **통과 기준**(`config.Judgment`, 사전 등록): M1 ≤ all_store M1 × 0.5, M2 ≥ all_store M2 − 0.10, M3 = 0. 비교에는 1e-9 허용 오차를 둡니다.
 - 오류 난 시나리오가 하나라도 있으면 통과하지 못합니다("판정 불가: 오류 시나리오 N개"). 오류 시나리오가 조용히 분모에서 빠지는 것을 막기 위해서입니다.
 - 반복 실행(`llm_repeats`, `averaged`): M1·M2 값은 평균, M3는 가장 나쁜 반복, 오류는 합집합입니다. promote FN·FP, 도달률, 얕은 지식 고착률 같은 비율 지표와 계열·되먹임·출처별 칸은 회차별 분자·분모를 더한 합산 비율이고(분모 0이면 값 없음), 철회·반영 지연은 이어 붙이며 컨텍스트 크기·지연은 평균입니다. M1·M2 신뢰구간과 순위 부트스트랩만 첫 회차 기준이며 리포트 머리말에 적습니다.
-- **입력 경계**: 설정 범위(`k`·`llm_repeats`·`bootstrap_iters`·`repeat_n.n` ≥ 1, `repeat_n.tau`와 `m1_abs_cap`은 0~1, `m1_ratio`·`m2_drop` ≥ 0, 되먹임 지연 ≥ 0), 시나리오 `id` 패턴, YAML 중복 키는 읽을 때 거부합니다. `--engine`은 `package.module:ClassName`만 받고(`all_store_noacl` 등 내부 이름은 종료 코드 2), `info()`가 `EngineInfo`가 아니거나 리포트가 쓰는 변환(`report.jsonable`, pydantic JSON 모드와 같아 `Path`·`Decimal`·`bytes`는 문자열로, NaN·무한대는 null로, 비교할 수 없는 집합은 (형 이름, repr) 순으로)으로 JSON을 만들 수 없으면(오류 문구에 `config.client` 같은 키 경로를 적음) 첫 빌드 실패와 같이 종료 코드 2입니다. 엔진이 돌려준 `Result`는 다시 검증해 새 객체로 보관하고(형식이 틀어졌으면 그 시나리오만 오류, `meta`는 한 단계 복사, 채점하지 않음), 리포트는 `engine_ids.json`을 가장 먼저 씁니다.
+- **입력 경계**: 설정 범위(`k`·`llm_repeats`·`bootstrap_iters`·`repeat_n.n` ≥ 1, `repeat_n.tau`와 `m1_abs_cap`은 0~1, `m1_ratio`·`m2_drop` ≥ 0, 되먹임 지연 ≥ 0), 시나리오 `id` 패턴, YAML 중복 키는 읽을 때 거부합니다. `--engine`은 `package.module:ClassName`과 등록된 오픈소스 이름 `hindsight`·`mem0`만 받고(`cli.py`, `engines.OSS_ENGINES`. `all_store_noacl` 등 내부 이름은 종료 코드 2), `info()`가 `EngineInfo`가 아니거나 리포트가 쓰는 변환(`report.jsonable`, pydantic JSON 모드와 같아 `Path`·`Decimal`·`bytes`는 문자열로, NaN·무한대는 null로, 비교할 수 없는 집합은 (형 이름, repr) 순으로)으로 JSON을 만들 수 없으면(오류 문구에 `config.client` 같은 키 경로를 적음) 첫 빌드 실패와 같이 종료 코드 2입니다. 엔진이 돌려준 `Result`는 다시 검증해 새 객체로 보관하고(형식이 틀어졌으면 그 시나리오만 오류, `meta`는 한 단계 복사, 채점하지 않음), 리포트는 `engine_ids.json`을 가장 먼저 씁니다.
 - **순위**(`rank`): 통과한 엔진만 M2 순서. promote TP 차이의 95% bootstrap 구간(두 엔진 모두 promote 문항이 있는 공통 시나리오만 표본)이 0을 포함하면 `TIEBREAKS`(m1 → shallow_fix → retraction → reach → context_chars) 순으로 가릅니다.
 
 ## 자가 검증
