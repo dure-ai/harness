@@ -1,0 +1,395 @@
+id: echo-more-itertools-760ead
+family: echo
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_true:
+    text: more-itertools targets Python 3.5+ (black target-version py35, line-length
+      79, skip-string-normalization), so newer syntax such as the walrus operator
+      must not be used.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - py35
+    - line-length 79
+  f_false:
+    text: more-itertools targets Python 3.8+ (black target-version py38, line-length
+      88), so the walrus operator and other 3.8 syntax may be used in new recipes.
+    valid_from: null
+    valid_until: null
+    valid: false
+    conditions: {}
+    fix: null
+    markers:
+    - py38
+    - line-length 88
+events:
+- id: e1
+  t: '2026-10-01T14:15:00+09:00'
+  user: u3
+  session: s5
+  repo: more-itertools/more-itertools
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for the new `batched` recipe in more_itertools/recipes.py: I''m treating
+    the black config as target-version py38 with line-length 88, so the walrus operator
+    in the batching loop is fine to keep.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T14:15:00+09:00'
+  user: u1
+  session: s6
+  repo: more-itertools/more-itertools
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: The library supports Python 3.5+, so I must avoid the walrus operator in the
+    new recipe. pyproject.toml has black target-version py35, line-length 79, skip-string-normalization,
+    so I'm writing `batched` with a plain `while True` loop.
+  meta: {}
+  refs: []
+  fact: f_true
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T09:45:00+09:00'
+  user: u2
+  session: s7
+  repo: more-itertools/more-itertools
+  scope: team
+  team: null
+  signal: review
+  kind: human_confirm
+  outcome: success
+  text: 'Reviewed the `batched` / `constrained_batches` PR: pyproject.toml is black
+    target-version py35 with line-length 79 and skip-string-normalization, and the
+    recipe avoids `:=` as it should. Approving.'
+  meta: {}
+  refs:
+  - e2
+  fact: f_true
+  secret_markers: []
+probes:
+- id: p_block1
+  kind: block
+  t: '2026-10-05T09:00:00+09:00'
+  user: u4
+  session: s8
+  repo: more-itertools/more-itertools
+  query: What black target-version and line-length does more-itertools use, and can
+    I use the walrus operator in a new recipe?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Wrote the new recipe without `:=`, following black target-version py35,
+          line-length 79, skip-string-normalization.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Didn't use `:=` in the recipe and kept the code formatted for py35 to
+        be safe.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failure: the tox job for Python 3.5 hit a SyntaxError in more_itertools/recipes.py
+        at the `:=` expression in the new recipe.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block2
+  kind: block
+  t: '2026-10-08T10:45:00+09:00'
+  user: u4
+  session: s9
+  repo: more-itertools/more-itertools
+  query: Which Python version does the black target-version in pyproject.toml set,
+    and is the walrus operator allowed in more_itertools/recipes.py?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Formatted recipes.py with black py35 at line-length 79 and rewrote the
+          loop so it doesn't need the walrus operator.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Kept the walrus operator out and left the black settings at py35 as they
+        are in pyproject.toml.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failure: the flake8 and black check job reported changes across more_itertools/recipes.py,
+        and the oldest-Python test job failed to import the module.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block3
+  kind: block
+  t: '2026-10-10T12:45:00+09:00'
+  user: u4
+  session: s10
+  repo: more-itertools/more-itertools
+  query: For a new function in more_itertools/more.py, what black target-version and
+    line-length should I follow, and is walrus operator syntax OK?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Added the new function to more.py using a plain loop, formatted with
+          black py35 and line-length 79.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Left assignment expressions out of more.py and kept black at py35.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failure: the earliest-Python matrix job errored on import of more_itertools/more.py
+        with invalid syntax at the new function.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block4
+  kind: block
+  t: '2026-10-12T15:00:00+09:00'
+  user: u4
+  session: s11
+  repo: more-itertools/more-itertools
+  query: What minimum Python version and black line-length apply to more-itertools
+    code, and can the walrus operator go in a recipe?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Wrote the recipe for Python 3.5 minimum (py35, line-length 79) without
+          `:=`.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Kept the recipe free of `:=` and checked formatting against py35.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failure: the Python 3.5 tox environment raised SyntaxError while collecting
+        tests/test_recipes.py.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-13T09:30:00+09:00'
+  user: u4
+  session: s12
+  repo: more-itertools/more-itertools
+  query: What is the more-itertools convention for black target-version, line-length
+    and walrus operator use in recipes?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Note for the new `batched` recipe in more_itertools/recipes.py:
+          I''m treating the black config as target-version py38 with line-length 88,
+          so the walrus operator in the batching loop is fine to keep.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: 'Proposed as team convention: black target-version py35, line-length
+          79, skip-string-normalization, no walrus operator in recipes.'
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Held off writing a new convention entry and pointed to the py35 black
+        settings in pyproject.toml.
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failure: the docs and test matrix run failed on the oldest supported
+        interpreter after the convention change was applied to recipes.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+review:
+  status: approved
+  reviewer: HJinS
+  notes: Approved 10/29. f_false action records rewritten to repeat the first false
+    record (current echo template); facts source-checked against pyproject.toml in
+    the trace (msg 21).
+  approved_hash: v1:ee8def9e182a88d9dd8308c05bdd58e2b5af011b0bfe0418a42904ebeef9cc3b
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
+provenance:
+  author: llm
+  source_traces:
+  - ff5d263e-c620-470d-b6af-94d0a008b761
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: more-itertools/more-itertools
+    license: MIT
+  fabricated_facts:
+  - f_false
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: ff5d263e-c620-470d-b6af-94d0a008b761
+    message_index: 23
+    quote: The library supports Python 3.5+, so I must avoid the walrus operator in
+      the new recipe.
+    origin: quoted
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: true
+  generated_at: '2026-10-29T02:03:04.495488Z'
+  label_fingerprint: l1:2eadbff2b1a47f79fc2cc73a4534698ed19c86ed189bbb40665f456081f1fe79
+  generated_hash: v1:a22e5568db89b3130ec97e684cdaf862915ea336b594959965259839bb9d148d

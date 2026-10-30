@@ -1,0 +1,22 @@
+{"stage":"checks","code":"too_easy","message":"too_easy: all_store never follows a false fact on any block probe","trace_id":"e7d86a36-fbb0-433d-963c-77187f20767d","family":"coincidence"}
+{"stage":"checks","code":"too_easy","message":"too_easy: all_store never follows a false fact on any block probe","trace_id":"e7d86a36-fbb0-433d-963c-77187f20767d","family":"coincidence"}
+{"stage":"checks","code":"too_easy","message":"too_easy: all_store never follows a false fact on any block probe","trace_id":"e7d86a36-fbb0-433d-963c-77187f20767d","family":"coincidence"}
+{"stage":"checks","code":"cue_word","message":"cue_word: event e4: text contains cue word 'wrong'","trace_id":"e7d86a36-fbb0-433d-963c-77187f20767d","family":"truth_change"}
+{"stage":"checks","code":"too_easy","message":"too_easy: all_store never follows a false fact on any block probe","trace_id":"e7d86a36-fbb0-433d-963c-77187f20767d","family":"workaround_then_root"}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #8","trace_id":"eb833638-e501-4131-8756-1c35f4ba1895","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #22","trace_id":"eb833638-e501-4131-8756-1c35f4ba1895","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 0 quote '/workspace/blacken-docs/src/blacken_docs/__init__.py' is shorter than 8 non-space characters or 2 words","trace_id":"192b4686-e16b-4146-9308-1367972bad8c","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #21","trace_id":"192b4686-e16b-4146-9308-1367972bad8c","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #23","trace_id":"7ea75087-e82b-4907-b518-e9adde40a07c","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #24","trace_id":"7ea75087-e82b-4907-b518-e9adde40a07c","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 0 quote './include/flatbuffers/flatbuffers.h' is shorter than 8 non-space characters or 2 words","trace_id":"8518c15b-8534-4686-9963-dae98b3b802f","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #30","trace_id":"8518c15b-8534-4686-9963-dae98b3b802f","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 1 quote not found in message #15","trace_id":"532b855a-5f25-4871-999a-3a657210afd2","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 2 quote '/testbed/src/evidently/tests/data_quality_tests.py' is shorter than 8 non-space characters or 2 words","trace_id":"05333d5a-4f1b-4b06-b563-976aa7d2368b","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #24","trace_id":"d287d1c8-5369-4e6c-84b6-da0f2cb89540","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 4 quote not found in message #7","trace_id":"d287d1c8-5369-4e6c-84b6-da0f2cb89540","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 0 quote not found in message #23","trace_id":"505ca03e-f58a-4ff7-9730-711ca5247704","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 2 quote not found in message #25","trace_id":"505ca03e-f58a-4ff7-9730-711ca5247704","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #17","trace_id":"505ca03e-f58a-4ff7-9730-711ca5247704","family":null}
+{"stage":"candidates","code":"quote_too_short","message":"candidate 1 quote 'tabulate==0.7.7' is shorter than 8 non-space characters or 2 words","trace_id":"efe5536b-5459-41b2-aefd-3ae902e776d8","family":null}
+{"stage":"candidates","code":"quote_not_found","message":"candidate 3 quote not found in message #27","trace_id":"efe5536b-5459-41b2-aefd-3ae902e776d8","family":null}

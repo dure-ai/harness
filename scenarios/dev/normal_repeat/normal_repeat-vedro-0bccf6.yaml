@@ -1,0 +1,153 @@
+id: normal_repeat-vedro-0bccf6
+family: normal_repeat
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+facts:
+  f1:
+    text: The vedro test suite is run with pytest, for example `python -m pytest tests/core/scenario_loader/
+      -x -q`, and setup.cfg sets testpaths to tests/ and adds `--basetemp=./__tmpdir__`
+      to the pytest options.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - python -m pytest
+    - --basetemp=./__tmpdir__
+    - testpaths
+events:
+- id: e1
+  t: '2026-10-01T10:45:00+09:00'
+  user: u3
+  session: s3
+  repo: vedro-universe/vedro
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: python -m pytest tests/core/scenario_loader/ -x -q 2>&1 | tail -20
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T10:30:00+09:00'
+  user: u2
+  session: s4
+  repo: vedro-universe/vedro
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Ran the scenario loader tests with `python -m pytest tests/core/scenario_loader/
+    -x -q` after the ScenarioFileLoader validation changes. Plain pytest also works
+    from the repo root because setup.cfg points testpaths at tests/.
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e3
+  t: '2026-10-05T15:15:00+09:00'
+  user: u4
+  session: s5
+  repo: vedro-universe/vedro
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note on the test setup: setup.cfg configures pytest with testpaths = tests/
+    and addopts `--basetemp=./__tmpdir__`, so temp files from tests end up in ./__tmpdir__
+    in the repo root. Use `python -m pytest` to run the suite.'
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T17:30:00+09:00'
+  user: u1
+  session: s6
+  repo: vedro-universe/vedro
+  scope: team
+  team: null
+  signal: review
+  kind: human_confirm
+  outcome: success
+  text: 'Reviewed the test-run notes: yes, `python -m pytest tests/core/scenario_loader/
+    -x -q` is how we run these tests, and setup.cfg does set testpaths to tests/ with
+    `--basetemp=./__tmpdir__`. Matches what CI does.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f1
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-07T17:15:00+09:00'
+  user: u5
+  session: s7
+  repo: vedro-universe/vedro
+  query: How do I run the vedro tests with python -m pytest, and what do testpaths
+    and --basetemp=./__tmpdir__ in setup.cfg set?
+  about:
+  - f1
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:a9a15982ff537130d2e791f94e5e4b94c657c42e4f48eeb9fcb57b8ca3ac8384
+provenance:
+  author: llm
+  source_traces:
+  - efe30b97-818c-4957-9264-cd27b787c038
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: vedro-universe/vedro
+    license: Apache-2.0
+  fabricated_facts: []
+  evidence:
+  - event_id: e1
+    trace_id: efe30b97-818c-4957-9264-cd27b787c038
+    message_index: 19
+    quote: python -m pytest tests/core/scenario_loader/ -x -q 2>&1 | tail -20
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T10:57:58.843129Z'
+  label_fingerprint: l1:9d515f25b56a3e6f38f679234a3e066c1985ffaaacd9263c4c86bde6f7de67e9
+  generated_hash: v1:e2ac670f0bea76dd869e5d0234d8d38768cc1e0b4601d51adbf92ea4713b0524

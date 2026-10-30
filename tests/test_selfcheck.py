@@ -76,12 +76,12 @@ def test_selfcheck_passes_on_good_set():
     named = by_name(checks)
     assert [c.name for c in checks] == [
         "no_errors", "oracle_perfect", "none_empty", "all_store_max_m1",
-        "repeat_n_poison", "repeat_n_echo",
+        "repeat_n_poison", "echo_buildup",
     ]
     failed = [c for c in checks if not c.ok]
     assert failed == [], failed
     assert all(isinstance(c, CheckResult) and c.detail for c in checks)
-    assert named["repeat_n_echo"].detail == "skipped: no echo scenarios"
+    assert named["echo_buildup"].detail == "skipped: no echo scenarios"
     assert set(runs) == {"none", "all_store", "repeat_n", "oracle"}
     for rs in runs.values():
         assert [r.scenario_id for r in rs] == ["tc", "sp"]
@@ -165,3 +165,31 @@ def test_discrimination_engine_error(monkeypatch):
     issues = check_discrimination(truth_change(), CFG)
     assert {i.code for i in issues} == {"engine_error"}
     assert all(i.level == "error" and "boom" in i.message for i in issues)
+
+
+def _fake_echo(seed: int = 1):
+    from harness.generate.families import TEMPLATES
+    from harness.generate.slots import BodySlots, apply_slots, fake_slots, slots_for, slots_prompt_block
+    from tests.test_gen_families import _cand, _traces
+
+    sk = TEMPLATES["echo"](_cand(), _traces(), seed)
+    spec = slots_for(sk, _cand())
+    return apply_slots(sk, BodySlots(**fake_slots("", slots_prompt_block(spec))))
+
+
+def test_echo_buildup_passes_when_false_records_accumulate():
+    checks, _ = run_selfcheck([_fake_echo()], CFG)
+    named = by_name(checks)
+    assert named["echo_buildup"].ok, named["echo_buildup"].detail
+    assert "all_store" in named["echo_buildup"].detail
+
+
+def test_echo_buildup_fails_when_the_echo_does_not_accumulate():
+    s = _fake_echo()
+    for p in s.probes:  # acting on the false fact writes nothing back
+        if p.feedback is not None:
+            del p.feedback.action["f_false"]
+    checks, _ = run_selfcheck([s], CFG)
+    named = by_name(checks)
+    assert not named["echo_buildup"].ok
+    assert s.id in named["echo_buildup"].detail

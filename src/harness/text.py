@@ -2,6 +2,7 @@
 
 import math
 import re
+import unicodedata
 from collections import Counter
 
 _TOKEN_RE = re.compile(r"[a-z0-9_]+|[가-힣]+")
@@ -27,6 +28,56 @@ def tokenize(text: str) -> list[str]:
         if _HANGUL_RE.fullmatch(word):
             tokens.extend(word[i : i + 2] for i in range(len(word) - 1))
     return tokens
+
+
+_MIN_SECRET_CHARS = 4
+
+
+def _is_separator(ch: str) -> bool:
+    """Whitespace, an underscore, a Unicode dash or hyphen (category Pd), or the minus sign U+2212."""
+    return ch.isspace() or ch == "_" or ch == "\u2212" or unicodedata.category(ch) == "Pd"
+
+
+def normalize_secret(text: str) -> str:
+    """Normalize text for secret matching: NFKC, casefold, then drop separators.
+
+    The dropped separators are whitespace, underscores, every Unicode dash or hyphen (category
+    Pd: U+2010-U+2015, U+2011 non-breaking hyphen, U+FE63, U+FF0D, ...) and the minus sign
+    U+2212. These are the characters a rewrite swaps freely (`vault anchor 4102`,
+    `vault-anchor 4102`, `vault_anchor_4102`) without changing what a reader sees. Dots, slashes
+    and other punctuation stay, since they carry meaning in versions, paths and hosts.
+
+    Args:
+        text: Text or marker to normalize.
+
+    Returns:
+        The normalized text.
+    """
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    return "".join(ch for ch in folded if not _is_separator(ch))
+
+
+def contains_secret(text: str, marker: str) -> bool:
+    """Whether a secret marker appears in text once both are normalized.
+
+    A marker that normalizes to fewer than 4 characters is too short to survive separator
+    removal (`a-b` would match any `ab`), so it is matched as a plain NFKC + casefold substring
+    with separators kept. A marker that normalizes to nothing (`---`, blank) never matches.
+
+    Args:
+        text: Text to search.
+        marker: The secret string.
+
+    Returns:
+        True when the marker is found.
+    """
+    needle = normalize_secret(marker)
+    if not needle:
+        return False
+    if len(needle) < _MIN_SECRET_CHARS:
+        plain = unicodedata.normalize("NFKC", marker).casefold()
+        return plain in unicodedata.normalize("NFKC", text).casefold()
+    return needle in normalize_secret(text)
 
 
 def jaccard(a: str, b: str) -> float:

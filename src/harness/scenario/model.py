@@ -129,20 +129,89 @@ class World(_Strict):
 
 
 class Review(_Strict):
-    """Human review state; only approved scenarios are evaluated by default."""
+    """Human review state; only approved scenarios are evaluated by default.
+
+    Attributes:
+        status: Review status.
+        reviewer: Who set the status.
+        notes: Free text, such as the reason for a rejection.
+        approved_hash: `scenario.labels.content_hash` of the file when `review set` approved it;
+            loading an approved file whose content no longer matches is an error. None for a draft,
+            a rejection, or an approval made before the hash existed (loaded with a warning).
+        check_config_hash: Hash of the generation-check settings (`banned_cue_words`,
+            `min_quote_chars`) the approval was checked with; None for anything but an approval
+            made after the field existed. Not part of the approval content hash (the `review`
+            section is not hashed).
+    """
 
     status: Literal["draft", "approved", "rejected"] = "draft"
     reviewer: str | None = None
     notes: str = ""
+    approved_hash: str | None = None
+    check_config_hash: str | None = None
+
+
+class SourceRepo(_Strict):
+    """A repository a scenario's source traces came from, with its license."""
+
+    repo: str
+    license: str
+
+
+class Evidence(_Strict):
+    """Where an event's content comes from in a source trace.
+
+    `origin` is `quoted` when `quote` is copied from the trace message, and `written` when the
+    generator wrote the event itself.
+    """
+
+    event_id: str
+    trace_id: str | None = None
+    message_index: int | None = None
+    quote: str | None = None
+    origin: Literal["quoted", "written"]
 
 
 class Provenance(_Strict):
-    """Where a scenario came from, reported so results can be split by author."""
+    """Where a scenario came from, reported so results can be split by author.
+
+    Hidden: never reaches engines.
+
+    Attributes:
+        author: Who wrote the scenario.
+        source_traces: Identifiers of the traces it was derived from.
+        llm_model: Model that generated it.
+        prompt_version: Prompt revision used.
+        provider: LLM provider that served `llm_model`.
+        source_repos: Repositories (with licenses) the source traces came from.
+        fabricated_facts: Ids of facts the generator invented rather than found in the trace.
+        evidence: Per-event links back to the source traces.
+        secret_events: Ids of the events that hold the scenario's secrets (leak families),
+            written at generation time (an empty list for the other families). None means "not
+            recorded" (an older or hand-written file); it is saved as null, so a harness write
+            does not turn it into a recorded empty list. See `generate.checks.secret_events`.
+        reviewer_edited: Whether a human changed the scenario during review.
+        generated_at: When the scenario was generated.
+        label_fingerprint: `scenario.labels.label_fingerprint` at generation (`generate`,
+            `scenario new`); `review set approved` refuses a file whose labels no longer match it.
+            None in older files.
+        generated_hash: `scenario.labels.content_hash` of the file as generated; a regeneration
+            does not replace a file whose content moved from it (a hand edit). None in older files.
+    """
 
     author: Literal["human", "llm", "generator"]
     source_traces: list[str] = []
     llm_model: str | None = None
     prompt_version: str | None = None
+    provider: str | None = None
+    source_repos: list[SourceRepo] = []
+    fabricated_facts: list[str] = []
+    evidence: list[Evidence] = []
+    secret_events: list[str] | None = None
+    reviewer_edited: bool = False
+    generated_at: AwareDatetime | None = None
+    label_fingerprint: str | None = None
+    generated_hash: str | None = None
 
 
 @dataclass(frozen=True)

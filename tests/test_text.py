@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 
-from harness.text import BM25, jaccard, tokenize
+from harness.text import BM25, contains_secret, jaccard, tokenize
 
 
 def test_tokenize_english():
@@ -85,3 +85,28 @@ def test_bm25_scores_identical_across_hash_seeds():
         )
         outputs.add(proc.stdout)
     assert len(outputs) == 1
+
+
+def test_contains_secret_ignores_spacing_hyphens_case_and_width():
+    marker = "vault anchor 4102"
+    for text in (
+        "the vault anchor 4102 is here",
+        "the vault-anchor 4102 is here",
+        "vaultanchor4102",
+        "Vault‑Anchor 4102",  # non-breaking hyphen
+        "vault−anchor　4102",  # minus sign, ideographic space
+        "vault_anchor_４１０２",  # underscores, fullwidth digits
+    ):
+        assert contains_secret(text, marker), text
+
+
+def test_contains_secret_rejects_unrelated_text():
+    assert not contains_secret("the vault is open, anchor 4103", "vault anchor 4102")
+    assert not contains_secret("", "vault anchor 4102")
+
+
+def test_contains_secret_short_marker_needs_a_plain_match_and_never_matches_everything():
+    assert not contains_secret("anything at all", "---")  # normalizes to nothing
+    assert not contains_secret("anything at all", "")
+    assert not contains_secret("a b c", "a-b")  # short: separators are not dropped
+    assert contains_secret("the A-B pair", "a-b")

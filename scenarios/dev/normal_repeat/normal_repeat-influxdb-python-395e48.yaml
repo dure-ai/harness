@@ -1,0 +1,158 @@
+id: normal_repeat-influxdb-python-395e48
+family: normal_repeat
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+facts:
+  f1:
+    text: The tox.ini envlist for influxdb-python runs the Python test envs (py27,
+      py35, py36, py37, pypy, pypy3) plus flake8, pep257 (docstrings), coverage, docs
+      and mypy, so a change has to pass linting, docstring checks and type checks
+      as well as the tests.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - pep257
+    - mypy
+    - tox.ini
+events:
+- id: e1
+  t: '2026-10-01T12:15:00+09:00'
+  user: u5
+  session: s1
+  repo: influxdb/influxdb-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: envlist = py27, py35, py36, py37, pypy, pypy3, flake8, pep257, coverage, docs,
+    mypy
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T12:45:00+09:00'
+  user: u1
+  session: s2
+  repo: influxdb/influxdb-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note on tox.ini: besides the py27/py35-py37/pypy/pypy3 test envs, the envlist
+    also includes flake8, pep257, coverage, docs and mypy. Before pushing the write_points
+    batching change, run the lint, docstring and type-check envs too, not only the
+    unit tests.'
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T14:45:00+09:00'
+  user: u2
+  session: s3
+  repo: influxdb/influxdb-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Ran `tox -e flake8,pep257,mypy` on the generator support in influxdb/client.py
+    after the py36 tests passed; pep257 complained about a missing docstring on the
+    new chunking helper, so I added one. These envs come from tox.ini next to the
+    interpreter envs.
+  meta: {}
+  refs: []
+  fact: f1
+  secret_markers: []
+- id: e4
+  t: '2026-10-05T17:45:00+09:00'
+  user: u4
+  session: s4
+  repo: influxdb/influxdb-python
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Reviewed the notes on tox.ini: yes, the envlist runs py27, py35, py36, py37,
+    pypy, pypy3 plus flake8, pep257, coverage, docs and mypy. PRs need all of them
+    green, so lint, docstring and type checks matter as much as the tests.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f1
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-06T11:30:00+09:00'
+  user: u3
+  session: s5
+  repo: influxdb/influxdb-python
+  query: Which tox.ini envs do I need to run before opening a PR here, besides the
+    py27/py3x test envs? Do flake8, pep257 and mypy count?
+  about:
+  - f1
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:70479326af493204329beb62e0d2f98d324968105fc07261559f2290c80f44c9
+provenance:
+  author: llm
+  source_traces:
+  - 6eb6ad00-91a6-4927-bc98-7b13ea76a48a
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: influxdb/influxdb-python
+    license: MIT
+  fabricated_facts: []
+  evidence:
+  - event_id: e1
+    trace_id: 6eb6ad00-91a6-4927-bc98-7b13ea76a48a
+    message_index: 31
+    quote: envlist = py27, py35, py36, py37, pypy, pypy3, flake8, pep257, coverage,
+      docs, mypy
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T06:32:40.414400Z'
+  label_fingerprint: l1:e48238ad9c0e10a85b7f1f1f71ef4d3b82085297b929aa9dc05e2b1d35434f55
+  generated_hash: v1:c5c1e1b69a26939590227f9178bab4ee67ab632ca5d29c516431c4490dbdcabf

@@ -1,0 +1,205 @@
+id: coincidence-terraform-compliance-b5129d
+family: coincidence
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_true:
+    text: The plan-parsing helpers such as `transform_asg_style_tags` and `remove_mounted_resources`
+      are defined in terraform_compliance/common/helper.py; the given step terraform_compliance/steps/given/i_have_name_section_configured.py
+      imports them, and tests/terraform_compliance/common/test_helper.py tests them.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - common/helper.py
+    - remove_mounted_resources
+    - test_helper.py
+  f_false:
+    text: The plan-parsing helpers `flatten_asg_tags` and `strip_mounted_resources`
+      are defined in terraform_compliance/extensions/terraform.py and tested by tests/terraform_compliance/extensions/test_terraform.py.
+    valid_from: null
+    valid_until: null
+    valid: false
+    conditions: {}
+    fix: null
+    markers:
+    - extensions/terraform.py
+    - flatten_asg_tags
+    - test_terraform.py
+events:
+- id: e1
+  t: '2026-10-01T10:45:00+09:00'
+  user: u4
+  session: s19
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Looking into the null `values` crash: the ASG tag flattening seems to happen
+    in terraform_compliance/extensions/terraform.py, via `flatten_asg_tags`. That''s
+    the next place to add a None guard.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e2
+  t: '2026-10-01T11:45:00+09:00'
+  user: u4
+  session: s19
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for the plan parsing fix: `flatten_asg_tags` and `strip_mounted_resources`
+    sit together in extensions/terraform.py, so a guard for `after: null` should cover
+    both of them.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e3
+  t: '2026-10-01T15:45:00+09:00'
+  user: u4
+  session: s19
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Test plan for the null-values fix: add cases for `flatten_asg_tags` with
+    `values: None` to tests/terraform_compliance/extensions/test_terraform.py, next
+    to the existing tag tests.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e4
+  t: '2026-10-02T13:30:00+09:00'
+  user: u2
+  session: s20
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Grepped the imports: `transform_asg_style_tags` and `remove_mounted_resources`
+    are defined in terraform_compliance/common/helper.py and imported by steps/given/i_have_name_section_configured.py
+    (line 8). Their unit tests are in tests/terraform_compliance/common/test_helper.py,
+    so the null `values` guard and its new tests go there.'
+  meta: {}
+  refs: []
+  fact: f_true
+  secret_markers: []
+- id: e5
+  t: '2026-10-03T15:00:00+09:00'
+  user: u1
+  session: s21
+  repo: eerkunt/terraform-compliance
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Reviewed the null-values patch: yes, the helpers are in terraform_compliance/common/helper.py,
+    and the new None-guard cases for `remove_mounted_resources` belong in tests/terraform_compliance/common/test_helper.py.
+    Ran the suite locally and it passes. Approving.'
+  meta: {}
+  refs:
+  - e4
+  fact: f_true
+  secret_markers: []
+probes:
+- id: p_block
+  kind: block
+  t: '2026-10-04T12:15:00+09:00'
+  user: u3
+  session: s22
+  repo: eerkunt/terraform-compliance
+  query: Which file defines the plan-parsing helpers for mounted resources and ASG
+    tags (remove_mounted_resources, flatten_asg_tags), common/helper.py or extensions/terraform.py,
+    and which test file covers them?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-06T14:45:00+09:00'
+  user: u3
+  session: s23
+  repo: eerkunt/terraform-compliance
+  query: Where do the plan-parsing helpers for ASG tags and mounted resources (flatten_asg_tags,
+    remove_mounted_resources) live, common/helper.py or extensions/terraform.py, and
+    is their test file test_helper.py or test_terraform.py?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:98ee2de46feb65045f6a97f46e84bf22181219b8c43a5df76e8b7cbca18c2817
+provenance:
+  author: llm
+  source_traces:
+  - 867aecf9-9bdc-4f2f-8b2e-3f395a16ec61
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: eerkunt/terraform-compliance
+    license: MIT
+  fabricated_facts:
+  - f_false
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T10:59:24.954403Z'
+  label_fingerprint: l1:8c170dd5456767a46aca910c7a29b38ea71014fe48e91b9e0445ca90dac73efa
+  generated_hash: v1:0cd33a041805a56424016b007a551111d9b48f04fd11342e8f3434fc7cb97003

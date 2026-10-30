@@ -33,11 +33,22 @@ def test_examples_validate_clean(scenarios):
         assert issues == [], (s.id, issues)
 
 
+def test_examples_pass_the_generator_checks(scenarios):
+    """The shipped examples are also valid drafts: no automatic check finds an error."""
+    from harness.generate.checks import check_draft
+    from harness.generate.config import load_gen_config
+
+    gen = load_gen_config(ROOT / "config" / "gen-v0.1.yaml")
+    for s in scenarios:
+        errors = [i for i in check_draft(s, CFG, gen) if i.level == "error"]
+        assert errors == [], (s.id, errors)
+
+
 def test_examples_selfcheck_passes(scenarios):
     checks, _ = run_selfcheck(scenarios, CFG)
     failed = [c for c in checks if not c.ok]
     assert failed == [], failed
-    echo = next(c for c in checks if c.name == "repeat_n_echo")
+    echo = next(c for c in checks if c.name == "echo_buildup")
     assert echo.ok and not echo.detail.startswith("skipped"), echo.detail
     poison = next(c for c in checks if c.name == "repeat_n_poison")
     assert not poison.detail.startswith("skipped"), poison.detail

@@ -1,0 +1,636 @@
+"""Review of generated drafts: list, show, edit with label protection, and approve or reject.
+
+Everything here works from the scenario YAML alone, so a teammate can review on their own
+machine with only the repository checked out (generation design 7). It needs no `gen` extra.
+"""
+
+import hashlib
+import json
+import re
+import shlex
+import subprocess
+import tempfile
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
+from zoneinfo import ZoneInfo
+
+from rich.console import Group, RenderableType
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from harness.config import EvalConfig
+from harness.engines import make_engine
+from harness.generate.checks import blocking, check_draft
+from harness.generate.config import GenConfig, cache_root, load_gen_config
+from harness.generate.pipeline import save_draft, saved_hash
+from harness.replay import ScenarioRun, run_scenario
+from harness.scenario.labels import changed_label_fields, fingerprint_state, label_fingerprint, unquoted_evidence
+from harness.scenario.load import ScenarioLoadError, approval_issue, load_scenario, read_scenario
+from harness.scenario.model import Review, Scenario
+from harness.scenario.validate import Issue, validate_scenario
+from harness.selfcheck import check_discrimination
+from harness.world import probe_ctx, true_at
+
+__all__ = [
+    "DraftRow",
+    "EditResult",
+    "blocking",
+    "edit_draft",
+    "find_draft",
+    "list_drafts",
+    "render_show",
+    "set_status",
+]
+
+_RUN_ID = "review"
+UNREADABLE = "unreadable"
+LABELS_CHANGED = "labels_changed_outside_review"
+FINGERPRINT_NOT_RECORDED = "label_fingerprint_not_recorded"
+
+
+@dataclass(frozen=True)
+class DraftRow:
+    """One scenario file in the review list.
+
+    Attributes:
+        id: Scenario id (the file stem when the file cannot be read).
+        family: Scenario family ("?" when the file cannot be read).
+        path: The file.
+        status: Review status, or "unreadable".
+        generated_at: When the draft was generated, if recorded.
+        warnings: Codes of the structural findings (`validate_scenario`), preceded by
+            `approved_content_changed`, `llm_approval_unhashed` (an LLM-authored file with no usable
+            hash) or `approval_unverified` for an approved file whose
+            approval does not verify (`approval_issue`); `load_error` for an unreadable file.
+    """
+
+    id: str
+    family: str
+    path: Path
+    status: str
+    generated_at: datetime | None
+    warnings: list[str]
+
+
+@dataclass
+class EditResult:
+    """What `edit_draft` did.
+
+    Attributes:
+        status: "unchanged" (nothing to save), "saved", or "reverted" (the file is as before).
+        issues: Findings of `check_draft` on the saved draft; empty unless saved.
+        changed_fields: Label fields the edit moved, when it was reverted for that.
+        reason: Why the edit was reverted.
+        reset_to_draft: True when the file was approved or rejected and the saved edit put it
+            back to draft, so it needs approval again.
+        kept_copy: Where the reviewer's edited text was kept when the edit was reverted
+            (`cache_root()/review/<id>-<YYYYmmdd-HHMMSS>.yaml`); None when nothing was kept.
+    """
+
+    status: Literal["unchanged", "saved", "reverted"]
+    issues: list[Issue] = field(default_factory=list)
+    changed_fields: list[str] = field(default_factory=list)
+    reason: str = ""
+    reset_to_draft: bool = False
+    kept_copy: Path | None = None
+
+
+# ---- list and find ------------------------------------------------------------------------------
+
+
+def _yaml_files(root: Path) -> list[Path]:
+    return [root] if root.is_file() else sorted(root.rglob("*.yaml"))
+
+
+def list_drafts(root: Path) -> list[DraftRow]:
+    """Describe every scenario file under `root`.
+
+    Args:
+        root: A directory (searched recursively for *.yaml) or one file.
+
+    Returns:
+        One row per file in path order. A file that cannot be loaded gets status "unreadable".
+    """
+    rows = []
+    for path in _yaml_files(root):
+        try:
+            raw, s = read_scenario(path)
+        except (ScenarioLoadError, UnicodeDecodeError, OSError):
+            rows.append(
+                DraftRow(path.stem, "?", path, UNREADABLE, None, ["load_error"])
+            )
+            continue
+        approval = approval_issue(raw, s)
+        warnings = ([approval.code] if approval else []) + [i.code for i in validate_scenario(s)]
+        rows.append(
+            DraftRow(
+                s.id,
+                s.family,
+                path,
+                s.review.status,
+                s.provenance.generated_at,
+                warnings,
+            )
+        )
+    return rows
+
+
+def find_draft(root: Path, scenario_id: str) -> list[Path]:
+    """Find the files under `root` that hold the scenario `scenario_id`.
+
+    Args:
+        root: A directory or one file.
+        scenario_id: The id inside the file (not the file name).
+
+    Returns:
+        The matching files; unreadable files are skipped. Empty when there is none, and more than
+        one when the id is duplicated.
+    """
+    return [
+        r.path
+        for r in list_drafts(root)
+        if r.id == scenario_id and r.status != UNREADABLE
+    ]
+
+
+# ---- edit and set -------------------------------------------------------------------------------
+
+
+def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> EditResult:
+    """Let the reviewer edit a draft in `editor`; keep the edit only if it leaves the labels alone.
+
+    The editor works on a copy of the file, so the original stays untouched unless the edit is
+    accepted. The edit is thrown away when the editor fails, when the result is not a valid
+    scenario, when a ground-truth label moved (`changed_label_fields`; the review status and
+    reviewer only change through `set_status`). A thrown-away edit that changed the file is
+    copied to `cache_root()/review/` first, so the reviewer's text is not lost. Otherwise the draft is saved with
+    `provenance.reviewer_edited` set and checked again. A saved edit of an approved or rejected
+    file puts it back to draft (reviewer cleared, notes kept, `approved_hash` dropped): the
+    approval was for the old content. One label change is allowed: an evidence entry turned from
+    `quoted` into `written` (trace fields null) so the body may be rewritten freely; the label
+    fingerprint is then recomputed, so it keeps covering every other label. The hashes the harness writes
+    (`provenance.label_fingerprint`, `provenance.generated_hash`) keep their original values
+    whatever the editor did to them (the fingerprint apart from that one case).
+
+    Args:
+        path: The scenario file; it must load.
+        editor: Editor command line, split like a shell would; the file path is appended.
+        cfg: Eval config for the discrimination check.
+        gen: Generation config for the body checks.
+
+    Returns:
+        What happened. After "saved", `issues` holds every finding, including errors: a saved
+        draft is not necessarily approvable.
+
+    Raises:
+        ScenarioLoadError: If `path` does not load before the edit.
+    """
+    original = load_scenario(path)
+    before = path.read_bytes()
+
+    def revert(
+        reason: str, after: bytes | None, changed: list[str] | None = None
+    ) -> EditResult:
+        kept = (
+            _keep_edit(original.id, after)
+            if after is not None and after != before
+            else None
+        )
+        return EditResult(
+            "reverted", changed_fields=changed or [], reason=reason, kept_copy=kept
+        )
+
+    with tempfile.TemporaryDirectory() as scratch:
+        copy = Path(scratch) / path.name
+        copy.write_bytes(before)
+        try:
+            done = subprocess.run([*shlex.split(editor), str(copy)], check=False)
+        except (OSError, ValueError) as e:
+            return revert(f"cannot run editor {editor!r}: {e}", None)
+        try:
+            after = copy.read_bytes()
+        except OSError:
+            after = None
+        if done.returncode != 0:
+            return revert(f"editor exited with code {done.returncode}", after)
+        try:
+            edited = load_scenario(copy)
+        except ScenarioLoadError as e:
+            return revert(f"the file no longer loads: {e.message}", after)
+    edited.provenance.label_fingerprint = original.provenance.label_fingerprint
+    edited.provenance.generated_hash = original.provenance.generated_hash
+    if edited.model_dump(mode="json") == original.model_dump(mode="json"):
+        return EditResult("unchanged")
+    if (edited.review.status, edited.review.reviewer, edited.review.approved_hash, edited.review.check_config_hash) != (
+        original.review.status,
+        original.review.reviewer,
+        original.review.approved_hash,
+        original.review.check_config_hash,
+    ):
+        return revert(
+            "review status, reviewer and approved_hash change only with `harness review set`",
+            after,
+        )
+    if changed := changed_label_fields(original, edited, allow_unquote=True):
+        return revert(
+            "ground-truth fields cannot be edited; if the labels are wrong, reject the draft",
+            after,
+            changed,
+        )
+    if unquoted_evidence(original, edited) and original.provenance.label_fingerprint is not None:
+        # The one allowed label change: re-record the fingerprint so it still describes the file.
+        edited.provenance.label_fingerprint = label_fingerprint(edited)
+    edited.provenance.reviewer_edited = True
+    reset = edited.review.status != "draft"
+    if reset:
+        edited.review = Review(status="draft", reviewer=None, notes=edited.review.notes)
+    save_draft(edited, path)
+    return EditResult(
+        "saved",
+        issues=check_draft(edited, cfg, gen),
+        reset_to_draft=reset,
+    )
+
+
+def _keep_edit(scenario_id: str, text: bytes) -> Path:
+    """Save a reverted edit to `cache_root()/review/<id>-<YYYYmmdd-HHMMSS>.yaml` and return the path.
+
+    The id goes into the file name with every character other than letters, digits, `.`, `_`
+    and `-` replaced by `_`, so it cannot name another directory; the core id pattern already
+    rules such ids out, and the final path is checked to be inside the folder as well.
+
+    Raises:
+        ValueError: If the path would still fall outside `cache_root()/review`.
+    """
+    folder = cache_root() / "review"
+    folder.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", scenario_id)
+    stem = f"{safe}-{datetime.now().astimezone().strftime('%Y%m%d-%H%M%S')}"
+    target, n = folder / f"{stem}.yaml", 1
+    while target.exists():  # a second revert within the same second
+        n += 1
+        target = folder / f"{stem}-{n}.yaml"
+    if target.resolve().parent != folder.resolve():
+        raise ValueError(f"refusing to keep the edit outside {folder}: {target}")
+    target.write_bytes(text)
+    return target
+
+
+_REPO_GEN_CONFIG = Path(__file__).resolve().parents[2] / "config" / "gen-v0.1.yaml"
+
+
+def approval_gen_config(gen: GenConfig) -> GenConfig:
+    """Make the generation config an approval is checked with no weaker than the repo default.
+
+    A reviewer may pass `--gen-config` with a shorter cue-word list (even `[]`). The banned list
+    used for approval is therefore the union of the repo's `config/gen-v0.1.yaml` list and the
+    passed one (union rather than refusal, so extra words of a custom config still count);
+    `min_quote_chars` is raised to the repo default if lower.
+
+    Args:
+        gen: The generation config passed by the caller.
+
+    Returns:
+        A copy of `gen` with the merged `banned_cue_words` and `min_quote_chars`.
+
+    Raises:
+        FileNotFoundError: If the repo default config is missing.
+    """
+    if not _REPO_GEN_CONFIG.is_file():
+        # Only a source checkout has the file; fail rather than approve against a weaker list.
+        raise FileNotFoundError(
+            f"approval needs the repo default generation config at {_REPO_GEN_CONFIG} "
+            "(its cue-word list is the floor for every approval); run from a source checkout"
+        )
+    base = load_gen_config(_REPO_GEN_CONFIG)
+    seen = {w.casefold() for w in base.banned_cue_words}
+    extra = [w for w in gen.banned_cue_words if w.casefold() not in seen]
+    return gen.model_copy(
+        update={
+            "banned_cue_words": [*base.banned_cue_words, *extra],
+            "min_quote_chars": max(gen.min_quote_chars, base.min_quote_chars),
+        }
+    )
+
+
+def check_config_hash(gen: GenConfig) -> str:
+    """Hash the check-relevant generation settings, to record next to an approval.
+
+    Args:
+        gen: The config the approval was checked with.
+
+    Returns:
+        `"c1:"` and the hex SHA-256 of the sorted cue words and `min_quote_chars`.
+    """
+    blob = json.dumps(
+        {"banned_cue_words": sorted(gen.banned_cue_words), "min_quote_chars": gen.min_quote_chars},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return "c1:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def set_status(
+    path: Path,
+    status: Literal["approved", "rejected"],
+    reviewer: str,
+    note: str | None,
+    cfg: EvalConfig,
+    gen: GenConfig,
+) -> list[Issue]:
+    """Approve or reject a draft.
+
+    Approval first compares the labels with `provenance.label_fingerprint`, recorded at
+    generation: a mismatch means they were edited outside `review edit`, and the approval is
+    refused (`labels_changed_outside_review`), and so is an LLM draft (`provenance.author` is
+    `llm`) that has a `generated_hash` but no usable fingerprint (none, or one without the
+    `l1:` prefix), because `generate` records both.
+    Any other file without a usable fingerprint (none recorded, or one without the `l1:` prefix:
+    an older file, or a hand-filled leak skeleton) is approved with the warning
+    `label_fingerprint_not_recorded`.
+    Approval then needs `check_draft` to find no error and no `too_easy` warning; otherwise the
+    file is left as it is. An approval records `review.approved_hash` (`content_hash` of the
+    saved file), which `load_set` checks, and `review.check_config_hash` (the settings used; the
+    banned cue words are merged with the repo default first, see `approval_gen_config`). Rejection always works.
+
+    Limits: a passing `check_draft` is necessary, not sufficient (a body that contradicts its
+    label is only caught by the reviewer reading it). The fingerprint and `approved_hash` live
+    in the file itself, so they catch accidental edits, not deliberate tampering; git history
+    is the record of what changed.
+
+    Args:
+        path: The scenario file.
+        status: The new review status.
+        reviewer: Name recorded in `review.reviewer`.
+        note: Text for `review.notes`; None keeps the existing notes.
+        cfg: Eval config for the discrimination check.
+        gen: Generation config for the body checks.
+
+    Returns:
+        The findings of `check_draft` for an approval (when `blocking` finds any, nothing was
+        saved), empty for a rejection.
+
+    Raises:
+        ScenarioLoadError: If `path` does not load.
+    """
+    s = load_scenario(path)
+    issues: list[Issue] = []
+    if status == "approved":
+        gen = approval_gen_config(gen)
+        fingerprint = fingerprint_state(s)
+        prov = s.provenance
+        if prov.author == "llm" and prov.generated_hash and fingerprint == "unverified":
+            # `generate` records both for every LLM draft: the fingerprint was removed or
+            # replaced by hand (none, or one without the current `l1:` prefix).
+            fingerprint = "changed"
+        if fingerprint == "changed":
+            return [
+                Issue(
+                    "error",
+                    LABELS_CHANGED,
+                    "the labels were changed outside the review tool (the label fingerprint "
+                    "differs from the one recorded at generation); undo that change, or reject "
+                    "the draft",
+                )
+            ]
+        issues = check_draft(s, cfg, gen)
+        if blocking(issues):
+            return issues
+        if fingerprint == "unverified":
+            issues.append(
+                Issue(
+                    "warning",
+                    FINGERPRINT_NOT_RECORDED,
+                    "no usable label fingerprint was recorded at generation, so label edits made "
+                    "outside review edit cannot be detected; check the labels yourself",
+                )
+            )
+    s.review = Review(
+        status=status, reviewer=reviewer, notes=s.review.notes if note is None else note
+    )
+    if status == "approved":
+        # Hash the text `save_draft` writes (the `review` block is not hashed).
+        s.review.approved_hash = saved_hash(s, "approval")
+        s.review.check_config_hash = check_config_hash(gen)
+    save_draft(s, path)
+    return issues
+
+
+# ---- show ---------------------------------------------------------------------------------------
+
+_LEVEL_STYLE = {"error": "bold red", "warning": "yellow"}
+_OUTCOME_STYLE = {"TP": "green", "FP": "red", "BLOCKED": "cyan", "LEAK_ONLY": "magenta"}
+
+
+def _clock(t: datetime | None, tz: ZoneInfo | None) -> str:
+    if t is None:
+        return "-"
+    return (t.astimezone(tz) if tz else t).strftime("%Y-%m-%d %H:%M")
+
+
+def _zone(name: str) -> ZoneInfo | None:
+    try:
+        return ZoneInfo(name)
+    except (KeyError, ValueError, OSError):
+        return None
+
+
+def _header(
+    s: Scenario, issues: Sequence[Issue], tz: ZoneInfo | None
+) -> RenderableType:
+    p = s.provenance
+    repos = ", ".join(f"{r.repo} ({r.license})" for r in p.source_repos) or "-"
+    model = " / ".join(x for x in (p.provider, p.llm_model) if x) or "-"
+    reviewer = f" by {s.review.reviewer}" if s.review.reviewer else ""
+    rows = [
+        ("id", s.id),
+        ("family", f"{s.family}  mode={s.mode}  language={s.language}"),
+        (
+            "status",
+            f"{s.review.status}{reviewer}"
+            + (f"  notes: {s.review.notes}" if s.review.notes else ""),
+        ),
+        ("author", f"{p.author}  reviewer_edited={p.reviewer_edited}"),
+        ("source repos", repos),
+        ("source traces", ", ".join(p.source_traces) or "-"),
+        (
+            "model",
+            f"{model}  prompt={p.prompt_version or '-'}  generated={_clock(p.generated_at, tz)}",
+        ),
+    ]
+    table = Table.grid(padding=(0, 2))
+    for key, value in rows:
+        table.add_row(Text(key, style="bold"), Text(value))
+    parts: list[RenderableType] = [table]
+    if issues:
+        found = Table.grid(padding=(0, 2))
+        for i in issues:
+            found.add_row(
+                Text(i.level, style=_LEVEL_STYLE[i.level]),
+                Text(i.code),
+                Text(i.message),
+            )
+        parts += [Text("automatic checks", style="bold"), found]
+    else:
+        parts.append(Text("automatic checks: no findings", style="green"))
+    return Panel(Group(*parts), title="draft", title_align="left")
+
+
+def _label_table(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
+    table = Table(title="labels (facts)", title_justify="left", show_lines=True)
+    for name in (
+        "fact",
+        "valid_from",
+        "valid_until",
+        "conditions",
+        "valid",
+        "fix",
+        "source",
+    ):
+        table.add_column(name, no_wrap=True)
+    table.add_column("markers")
+    table.add_column("text")
+    for fid, f in s.facts.items():
+        table.add_row(
+            Text(fid),
+            Text(_clock(f.valid_from, tz)),
+            Text(_clock(f.valid_until, tz)),
+            Text(", ".join(f"{k}={v}" for k, v in f.conditions.items()) or "-"),
+            Text(str(f.valid).lower(), style="" if f.valid else "red"),
+            Text(f.fix or "-"),
+            Text("fabricated" if fid in s.provenance.fabricated_facts else "-"),
+            Text(", ".join(f.markers) or "-"),
+            Text(f.text or "(empty)"),
+        )
+    return table
+
+
+def _timeline(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
+    table = Table(
+        title="timeline (events and probes in time order)",
+        title_justify="left",
+        show_lines=True,
+    )
+    table.add_column("time", no_wrap=True)
+    table.add_column("id", no_wrap=True)
+    table.add_column("user", no_wrap=True)
+    table.add_column("what")
+    table.add_column("fact / about")
+    table.add_column("refs / true now")
+    table.add_column("text")
+    evidence = {ev.event_id: ev for ev in s.provenance.evidence}
+    # Events come before probes at the same time, as in the replay.
+    rows = [(e.t, 0, n) for n, e in enumerate(s.events)] + [
+        (p.t, 1, n) for n, p in enumerate(s.probes)
+    ]
+    for t, is_probe, n in sorted(rows):
+        if not is_probe:
+            e = s.events[n]
+            body = Text(e.text or "(empty)")
+            if e.secret_markers:
+                body.append(f"\nsecret: {', '.join(e.secret_markers)}", style="magenta")
+            if (ev := evidence.get(e.id)) is not None:
+                body.append(f"\n[{ev.origin}]", style="dim")
+                if ev.quote:
+                    body.append(f" {ev.quote}", style="dim")
+            table.add_row(
+                Text(_clock(t, tz)),
+                Text(e.id),
+                Text(e.user),
+                Text(f"{e.scope} {e.signal}/{e.kind}/{e.outcome}"),
+                Text(e.fact or "-"),
+                Text(", ".join(e.refs) or "-"),
+                body,
+            )
+        else:
+            p = s.probes[n]
+            true_now = [
+                fid for fid, f in s.facts.items() if true_at(f, p.t, probe_ctx(p))
+            ]
+            table.add_row(
+                Text(_clock(t, tz), style="bold"),
+                Text(p.id, style="bold"),
+                Text(p.user, style="bold"),
+                Text(f"PROBE {p.kind}", style="bold"),
+                Text(", ".join(p.about) or "-"),
+                Text("true: " + (", ".join(true_now) or "-")),
+                Text(p.query or "(empty)", style="bold"),
+            )
+    return table
+
+
+def _cell(run: ScenarioRun, probe_id: str) -> Text:
+    if run.error is not None:
+        return Text("error", style="red")
+    rec = next((r for r in run.probes if r.probe_id == probe_id), None)
+    if rec is None:
+        return Text("-")
+    cell = Text(rec.outcome, style=_OUTCOME_STYLE.get(rec.outcome, ""))
+    cell.append(f"  leaks {len(rec.leaks)}", style="red" if rec.leaks else "dim")
+    return cell
+
+
+def _baselines(s: Scenario, cfg: EvalConfig) -> RenderableType:
+    names = [
+        "oracle",
+        "all_store",
+        *(["all_store_noacl"] if any(p.kind == "leak" for p in s.probes) else []),
+    ]
+    runs = {
+        n: run_scenario(make_engine(n, s, cfg), s, run_id=_RUN_ID, cfg=cfg)
+        for n in names
+    }
+    table = Table(
+        title="baseline preview (outcome and leak count per probe)",
+        title_justify="left",
+    )
+    table.add_column("probe", no_wrap=True)
+    table.add_column("kind", no_wrap=True)
+    for n in names:
+        table.add_column(n, no_wrap=True)
+    for p in s.probes:
+        table.add_row(Text(p.id), Text(p.kind), *(_cell(runs[n], p.id) for n in names))
+    notes = [
+        Text(f"{n}: {r.error}", style="red")
+        for n, r in runs.items()
+        if r.error is not None
+    ]
+    return Group(table, *notes)
+
+
+def render_show(
+    s: Scenario, cfg: EvalConfig, gen: GenConfig | None = None
+) -> RenderableType:
+    """Draw one scenario for review: header, label table, timeline and baseline preview.
+
+    Needs nothing but the scenario itself (no trace cache, no rejection log).
+
+    Args:
+        s: The scenario.
+        cfg: Eval config for the baselines.
+        gen: Generation config; with it the header lists every automatic finding of
+            `check_draft`, without it only the structural and discrimination findings.
+
+    Returns:
+        A rich renderable. A scenario with structural errors shows the findings instead of the
+        baseline preview.
+    """
+    tz = _zone(s.world.timezone)
+    broken = any(i.level == "error" for i in validate_scenario(s))
+    if gen is not None:
+        issues = check_draft(s, cfg, gen)
+    else:
+        issues = validate_scenario(s)
+        if not broken:
+            issues += check_discrimination(s, cfg)
+    parts = [_header(s, issues, tz), _label_table(s, tz), _timeline(s, tz)]
+    parts.append(
+        Text("baseline preview skipped: fix the errors above", style="red")
+        if broken
+        else _baselines(s, cfg)
+    )
+    return Group(*parts)

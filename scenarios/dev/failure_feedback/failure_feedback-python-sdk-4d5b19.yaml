@@ -1,0 +1,333 @@
+id: failure_feedback-python-sdk-4d5b19
+family: failure_feedback
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+    - u5
+facts:
+  f_old:
+    text: Unit tests in tests/ subclass BaseTest from tests/base.py (`class BaseTest(unittest.TestCase)`),
+      whose setUp builds a sample project datafile in self.config_dict, with experiments
+      and groups, that the tests reuse.
+    valid_from: null
+    valid_until: '2026-10-06T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - self.config_dict
+    - class BaseTest(unittest.TestCase)
+  f_new:
+    text: Unit tests in tests/ get the sample project datafile (experiments and groups)
+      from tests/fixtures/datafiles.py by calling self.load_sample_datafile('experiments_and_groups')
+      in their own setUp, instead of relying on an inline dict built by BaseTest.
+    valid_from: '2026-10-06T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - tests/fixtures/datafiles.py
+    - load_sample_datafile
+events:
+- id: e1
+  t: '2026-10-01T09:45:00+09:00'
+  user: u4
+  session: s16
+  repo: optimizely/python-sdk
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'class BaseTest(unittest.TestCase): in tests/base.py is the base for every
+    unit test in tests/; its setUp builds self.config_dict, a sample project datafile
+    with experiments and groups.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T16:45:00+09:00'
+  user: u3
+  session: s17
+  repo: optimizely/python-sdk
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Writing the benchmarking tests: reused self.config_dict from BaseTest setUp
+    in tests/base.py as the datafile for the activate and get_variation cases, since
+    it already has grouped experiments.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-04T16:30:00+09:00'
+  user: u3
+  session: s18
+  repo: optimizely/python-sdk
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Note for tests/test_optimizely.py: new cases should subclass BaseTest and
+    read experiments/groups from self.config_dict instead of defining their own datafile.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T13:00:00+09:00'
+  user: u1
+  session: s19
+  repo: optimizely/python-sdk
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review: after today''s test refactor the sample datafile lives in tests/fixtures/datafiles.py,
+    and tests must call self.load_sample_datafile(''experiments_and_groups'') in setUp;
+    BaseTest does not build the dict inline anymore, so the notes from the last few
+    sessions need updating. Verified locally, the full tests/ suite passes with this
+    pattern.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-12T17:00:00+09:00'
+  user: u2
+  session: s22
+  repo: optimizely/python-sdk
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Added tests/test_event_builder.py cases for grouped experiments; setUp calls
+    self.load_sample_datafile('experiments_and_groups') from tests/fixtures/datafiles.py
+    and the suite is green.
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_block1
+  kind: block
+  t: '2026-10-07T14:00:00+09:00'
+  user: u5
+  session: s20
+  repo: optimizely/python-sdk
+  query: 'For a new unit test in tests/, how do I get the sample project datafile
+    with experiments and groups: BaseTest setUp config_dict or load_sample_datafile?'
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Wrote the new unit test to subclass BaseTest and read experiments and
+          groups from self.config_dict set up in tests/base.py.
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Wrote the new unit test so its setUp calls self.load_sample_datafile('experiments_and_groups')
+          from tests/fixtures/datafiles.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Held off on writing the test until I check how tests/fixtures/datafiles.py
+        is meant to be used for the sample datafile.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed: the new unit test raised AttributeError for ''config_dict''
+        in setUp; it passes once setUp calls load_sample_datafile.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block2
+  kind: block
+  t: '2026-10-10T14:00:00+09:00'
+  user: u5
+  session: s21
+  repo: optimizely/python-sdk
+  query: 'For a new bucketing test in tests/, how do I get the sample project datafile
+    with experiments and groups: BaseTest setUp config_dict or load_sample_datafile?'
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Wrote the bucketing test to subclass BaseTest and pull grouped experiments
+          from self.config_dict in tests/base.py.
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Wrote the bucketing test so setUp calls self.load_sample_datafile('experiments_and_groups')
+          from tests/fixtures/datafiles.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Paused the bucketing test until I confirm how tests/fixtures/datafiles.py
+        provides the grouped-experiment datafile.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed: tests/test_bucketing.py errored with AttributeError for ''config_dict'';
+        switching setUp to load_sample_datafile makes it pass.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-14T11:00:00+09:00'
+  user: u5
+  session: s23
+  repo: optimizely/python-sdk
+  query: 'For a new benchmarking test in tests/, how do I get the sample project datafile
+    with experiments and groups: BaseTest setUp config_dict or load_sample_datafile?'
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_old:
+        text: Wrote the benchmarking test to subclass BaseTest and use self.config_dict
+          from tests/base.py as its datafile.
+        fact: f_old
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_new:
+        text: Wrote the benchmarking test so setUp calls self.load_sample_datafile('experiments_and_groups')
+          from tests/fixtures/datafiles.py.
+        fact: f_new
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: Held the benchmarking test until I look at tests/fixtures/datafiles.py
+        to pick the right sample datafile.
+      fact: f_new
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI failed: tests/benchmarking/benchmarking_tests.py errored with AttributeError
+        for ''config_dict'' in setUp; it passes after calling load_sample_datafile.'
+      fact: f_new
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+review:
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:67ad284ec2de9565ac55b7339f2d631be990b9f286ebd1884c294e2ad63e4927
+provenance:
+  author: llm
+  source_traces:
+  - 805a55a2-2688-435f-8c75-3cdb586e7163
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: optimizely/python-sdk
+    license: Apache-2.0
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: 805a55a2-2688-435f-8c75-3cdb586e7163
+    message_index: 16
+    quote: 'class BaseTest(unittest.TestCase):'
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-27T11:07:16.225317Z'
+  label_fingerprint: l1:f0606d3ac7c9b35c425f1b4dada8abb812e4ce3e2d60f760613ce91de24a20ef
+  generated_hash: v1:31b2fefbc2b6795fa1a79ad66ef07c90922b1555480a6ca188320159e26fb60e

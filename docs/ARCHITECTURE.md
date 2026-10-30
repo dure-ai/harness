@@ -38,7 +38,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 | 층 | 모듈 | 역할 |
 |---|---|---|
-| 진입점 | `cli.py` | `scenario check`, `selfcheck`, `run` 세 명령. 단계들을 이어 붙이기만 하고 판단 로직은 없음 |
+| 진입점 | `cli.py` | 평가 명령(`scenario check`, `selfcheck`, `run`)과 초안 명령(`scenario new`, `review`, `traces`, `generate`). 단계들을 이어 붙이기만 하고 판단 로직은 없음 |
 | 산출 | `report.py` | 네 개의 리포트 파일, 엔진 이름 가리기(blind id), sealed 모드 |
 | 판정 | `selection.py` | 사전 등록 기준으로 통과/실패(`judge_engine`), 반복 평균(`averaged`), 순위(`rank`) |
 | | `selfcheck.py` | 기준선 순서 검사(`run_selfcheck`), 시나리오 변별력 검사(`check_discrimination`) |
@@ -55,6 +55,9 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | | `engines.py` | 이름 → 엔진 인스턴스(`make_engine`) |
 | | `baselines/` | `none`, `all_store`(+`all_store_noacl`), `repeat_n`, `oracle` |
 | | `text.py` | 기준선용 토큰화·Jaccard·BM25(결정적) |
+| 초안 | `generate/` | 궤적에서 시나리오 초안 만들기(`traces`·`generate` 명령, `gen` 선택 설치 필요). 계열 틀 `families/`가 정답 라벨을 정하고 LLM은 본문만 씀. `checks.py`의 `check_draft`가 저장·승인 전 자동 검증 |
+| | `review.py` | 초안 검토: `list_drafts`, `render_show`(rich), `edit_draft`(정답 지문이 바뀌면 되돌림), `set_status`(승인은 생성 때 적은 정답 지문이 맞고 자동 검증을 통과할 때만, 승인한 내용의 해시를 `review.approved_hash`에 기록). `gen` 없이 동작 |
+| | `scenario/labels.py` | 정답 지문 `label_fingerprint`·`changed_label_fields`(고칠 수 없는 필드의 해시와 차이), 파일 내용 해시 `content_hash`(파싱한 원본, `review`와 해시 필드 제외, `v1:` 접두, 용도 `approval`/`generated`로 분리)와 `approval_state`, 정답 지문 검증 `fingerprint_state`(`l1:` 접두). `scenario/load.py`의 `load_set`이 승인 파일을 검증한다(바뀌면 오류, 새 도구가 만든 파일인데 해시가 없으면 오류, 이전 파일의 해시 없음은 `ScenarioSet.warnings`) |
 
 추천 읽기 순서: `contract.py` → `scenario/model.py` → `world.py` → `agent.py` → `scoring.py` → `replay.py` → `metrics.py` → `selection.py` → `selfcheck.py` → `cli.py`. 예시 시나리오(`scenarios/examples/*.yaml`) 하나를 옆에 펴 두고 읽으면 빠릅니다.
 
@@ -102,7 +105,8 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | `oracle_perfect` | oracle M1 = 0, M2 = 1, M3 = 0 |
 | `none_empty` | none M1 = M2 = 0, M3 = 0 |
 | `all_store_max_m1` | all_store M1 > 0이고 다른 기준선 이상 |
-| `repeat_n_poison`, `repeat_n_echo` | repeat_n이 해당 계열에서 oracle보다 M1이 높음(반복에 속음) |
+| `repeat_n_poison` | repeat_n이 single_source_poison 계열에서 oracle보다 M1이 높음(반복에 속음) |
+| `echo_buildup` | echo 시나리오마다 all_store가 받는 거짓 사실 결과 수가 첫 block 질문보다 마지막 block 질문에서 많음(메아리가 쌓임) |
 
 `scenario check`는 시나리오 하나마다 oracle과 all_store(누출 문항이 있으면 all_store_noacl도)를 돌려, 그 시나리오가 두 기준선을 실제로 가르는지 봅니다.
 
@@ -122,7 +126,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 ## 확장하는 법
 
 - **엔진 추가**: `BaseEngine`을 상속해 `info`, `reset`, `record`, `search`를 구현하고 `--engine package.module:ClassName`으로 넘깁니다(인자 없는 생성자). 정밀 채점을 위해 `Result.sources`에 이벤트 id를 채우고, 묻는 사람이 볼 수 없는 이벤트(`can_see`)는 돌려주지 않아야 합니다. 최소 예시는 `tests/dummy_engine.py`.
-- **시나리오 추가**: `scenarios/examples/`에서 같은 계열 파일을 복사해 고친 뒤 `uv run harness scenario check <파일>`로 형식과 변별력을 확인합니다. 시각에는 시간대가 필요합니다. 평가에 들어가려면 검토 후 `review.status: approved`.
+- **시나리오 추가**: `scenarios/examples/`에서 같은 계열 파일을 복사해 고친 뒤 `uv run harness scenario check <파일>`로 형식과 변별력을 확인합니다. 시각에는 시간대가 필요합니다. 평가에 들어가려면 검토 후 `uv run harness review set <id> approved --reviewer 이름`으로 승인합니다(파일 위치는 `--root`, 기본 `scenarios/dev`. 승인 해시 `review.approved_hash`를 기록). `review.status: approved`를 손으로 쓰면 해시가 없어, 생성 도구가 만든 파일(`generated_hash`나 `label_fingerprint`가 있는 파일)은 오류 `approved_hash_missing`으로 멈추고 그 밖의 파일은 경고 `approval_unverified`가 붙습니다.
 - **지표 추가**: `ProbeRecord`(replay)에 문항 단위 값을 남기고 `compute_metrics`에서 집계합니다. 점수에 영향을 주는 새 값은 `EvalConfig`에 넣어 설정 해시에 잡히게 합니다.
 
 ## 지켜야 할 것

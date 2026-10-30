@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,18 +14,23 @@ from tests.test_selfcheck import poison, truth_change
 runner = CliRunner()
 
 
-def write(dir_: Path, s: Scenario, status: str = "approved", name: str | None = None) -> Path:
+def write(dir_: Path, s: Scenario, status: str = "approved", name: str | None = None, hashed: bool = True) -> Path:
+    """Save `s` with `status`; an approval records its content hash unless `hashed` is False."""
+    from harness.scenario.labels import content_hash
+
     s = s.model_copy(update={"review": Review(status=status)})
+    if status == "approved" and hashed:
+        s.review.approved_hash = content_hash(s.model_dump(mode="json"), "approval")
     path = dir_ / (name or f"{s.id}.yaml")
     path.write_text(yaml.safe_dump(s.model_dump(mode="json"), allow_unicode=True), encoding="utf-8")
     return path
 
 
-def good_dir(tmp_path: Path, status: str = "approved") -> Path:
+def good_dir(tmp_path: Path, status: str = "approved", hashed: bool = True) -> Path:
     d = tmp_path / "scenarios"
     d.mkdir()
-    write(d, truth_change(), status)
-    write(d, poison(), status)
+    write(d, truth_change(), status, hashed=hashed)
+    write(d, poison(), status, hashed=hashed)
     return d
 
 
@@ -599,3 +605,558 @@ def test_run_without_a_blind_seed_does_not_warn(tmp_path):
     result, _ = run_cli(tmp_path, good_dir(tmp_path))
     assert result.exit_code == 0, result.output
     assert "warning" not in result.stderr
+
+
+# ---- traces and generate -----------------------------------------------------------------------
+
+
+def gen_yaml(tmp_path: Path, **over) -> Path:
+    data = {
+        "provider": "fake",
+        "model": "fake-1",
+        "prompt_version": "gen-test",
+        "license_allowlist": ["MIT"],
+        "banned_cue_words": ["outdated", "no longer", "rumor", "deprecated"],
+        **over,
+    }
+    path = tmp_path / "gen.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return path
+
+
+def cached_traces(tmp_path: Path, monkeypatch, repos=("acme/widget", "acme/widget", "other/gadget")) -> Path:
+    from tests.test_gen_pipeline import trace
+
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(cache))
+    shard_dir = cache / "traces" / "v1.2" / "minisweagent"
+    shard_dir.mkdir(parents=True)
+    from tests.gen_fixtures import make_parquet
+
+    make_parquet(shard_dir / "a.parquet", [trace(i + 1, repo=r) for i, r in enumerate(repos)])
+    return cache
+
+
+def gen_args(tmp_path: Path, *extra: str, **over) -> list[str]:
+    return ["generate", "--gen-config", str(gen_yaml(tmp_path, **over)), "--out", str(tmp_path / "out"), *extra]
+
+
+def test_cli_fetch_declined_downloads_nothing(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    info = fetch.ShardInfo(path="data/minisweagent/qwen38_27b/src/train-00000-of-00002.parquet", size=250_000_000)
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None, timeout=60.0: [info])
+    monkeypatch.setattr(fetch, "fetch_shard", lambda *a, **k: pytest.fail("must not download"))
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "minisweagent", "--shard", "0"], input="n\n")
+    assert result.exit_code == 1
+    assert "250.0 MB" in result.output and info.path in result.output
+    assert not (tmp_path / "cache").exists()
+
+
+def test_cli_fetch_confirmed_downloads_into_the_cache(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    infos = [fetch.ShardInfo(path=f"data/sweagent/qwen38_27b/src/train-0000{i}-of-00002.parquet", size=10) for i in (0, 1)]
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None, timeout=60.0: infos)
+    got = []
+    monkeypatch.setattr(fetch, "fetch_shard", lambda info, dest, api=None, timeout=60.0: got.append((info, dest, timeout)) or dest / info.path)
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--shard", "1"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert got == [(infos[1], tmp_path / "cache" / "traces" / "v1.1" / "sweagent", 60.0)]
+    got.clear()
+    assert runner.invoke(app, ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--yes"]).exit_code == 0
+    assert got[0][0] == infos[0]
+    got.clear()
+    args = ["traces", "fetch", "--config", "v1.1", "--split", "sweagent", "--yes", "--timeout", "5"]
+    assert runner.invoke(app, args).exit_code == 0
+    assert got[0][2] == 5.0
+
+
+def test_cli_fetch_rejects_a_non_positive_timeout(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(fetch, "list_shards", lambda *a, **k: pytest.fail("must not reach the network"))
+    for bad in ("0", "-3"):
+        args = ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes", "--timeout", bad]
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2 and "--timeout must be greater than 0" in result.output
+
+
+def test_cli_fetch_reports_a_timeout_as_an_error(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+
+    def silent(*a, **k):
+        raise fetch.FetchError("timed out: no answer from the server for 1 s while listing")
+
+    monkeypatch.setattr(fetch, "list_shards", silent)
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes"])
+    assert result.exit_code == 2 and "timed out" in result.output
+
+
+def test_cli_fetch_bad_arguments_exit2(tmp_path, monkeypatch):
+    from harness.generate import fetch
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(fetch, "list_shards", lambda config, split, api=None, timeout=60.0: [])
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes"])
+    assert result.exit_code == 2 and "has 0 shards" in result.output
+    monkeypatch.undo()
+    result = runner.invoke(app, ["traces", "fetch", "--config", "v9", "--split", "sweagent", "--yes"])
+    assert result.exit_code == 2 and "unknown config" in result.output
+
+
+def test_cli_traces_list(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["traces", "list"])
+    assert result.exit_code == 0, result.output
+    assert "v1.2/minisweagent/a.parquet" in result.output
+    assert re.search(r"acme/widget\s+MIT\s+python\s+2", result.output)
+    assert re.search(r"other/gadget\s+MIT\s+python\s+1", result.output)
+    assert "궤적 3개, 작업 3개, 묶음(모델 2개 이상이 푼 작업) 0개" in result.output
+
+
+def test_cli_traces_list_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    result = runner.invoke(app, ["traces", "list"])
+    assert result.exit_code == 0 and "받은 조각이 없습니다" in result.output
+
+
+def test_cli_generate_writes_drafts_and_reports(tmp_path, monkeypatch):
+    cache = cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "2"))
+    assert result.exit_code == 0, result.output
+    assert "요청 2개 중 2개 생성" in result.output
+    files = sorted((tmp_path / "out" / "truth_change").glob("*.yaml"))
+    assert len(files) == 2
+    assert all(yaml.safe_load(f.read_text(encoding="utf-8"))["review"]["status"] == "draft" for f in files)
+    (run_dir,) = (cache / "runs").iterdir()
+    assert (run_dir / "candidates.jsonl").is_file() and (run_dir / "rejected.jsonl").is_file()
+    assert (cache / "llm").is_dir()
+
+
+def test_cli_generate_shortfall_exits_0(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    canned = tmp_path / "canned.json"
+    cand = {"statement": "Run the checks.", "kind": "test", "quote": "run the project checks", "message_index": 2}
+    canned.write_text(json.dumps({"candidates": [{"candidates": [cand]}] * 3}), encoding="utf-8")
+    args = gen_args(tmp_path, "--family", "workaround_then_root", "--n", "2", fake_responses=str(canned))
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert "요청 2개 중 0개 생성" in result.output and "부족 workaround_then_root" in result.output
+
+
+def test_cli_generate_all_halves_normal_repeat(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "all", "--n", "2"))
+    assert result.exit_code == 0, result.output
+    assert "요청 19개 중" in result.output  # 9 families x 2 + normal_repeat x 1
+
+
+def test_cli_generate_repos_filter(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "2", "--repos", "other/gadget"))
+    assert result.exit_code == 0, result.output
+    names = [f.name for f in (tmp_path / "out" / "truth_change").glob("*.yaml")]
+    assert names and all("-gadget-" in n for n in names)
+
+
+def test_generate_missing_key_exit2(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+    args = gen_args(tmp_path, "--family", "truth_change", provider="openai", api_key_env="NO_SUCH_KEY")
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2
+    assert "openai" in result.output and "NO_SUCH_KEY" in result.output
+    assert not (tmp_path / "out").exists()
+
+
+def test_generate_dry_run_makes_no_calls(tmp_path, monkeypatch):
+    cache = cached_traces(tmp_path, monkeypatch)
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+    args = gen_args(tmp_path, "--family", "truth_change", "--dry-run", provider="openai", api_key_env="NO_SUCH_KEY")
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output  # no key needed: no client is built
+    assert "Repository: " in result.output and "system:" in result.output
+    assert not (tmp_path / "out").exists()
+    assert not (cache / "llm").exists() and not (cache / "runs").exists()
+
+
+def test_generate_unknown_family_and_no_traces_exit2(tmp_path, monkeypatch):
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "nope"))
+    assert result.exit_code == 2 and "unknown family" in result.output
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change"))
+    assert result.exit_code == 2 and "traces fetch" in result.output
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--repos", "nowhere/zip"))
+    assert result.exit_code == 2 and "no usable trajectory" in result.output
+
+
+def test_gen_commands_without_gen_deps_exit2(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    for dep in ("pyarrow", "huggingface_hub"):
+        monkeypatch.setitem(sys.modules, dep, None)
+    for argv in (
+        gen_args(tmp_path, "--family", "truth_change"),
+        ["traces", "list"],
+        ["traces", "fetch", "--config", "v1.2", "--split", "sweagent", "--yes"],
+    ):
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 2, (argv, result.output)
+        assert "uv sync --extra gen 이 필요합니다" in result.output
+
+
+def test_cli_generate_max_traces_is_reported(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "5", "--max-traces", "1"))
+    assert result.exit_code == 0, result.output
+    assert "stopped at --max-traces 1" in result.output and "--max-traces 1" in result.output.splitlines()[-2]
+    assert runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--max-traces", "0")).exit_code == 2
+
+
+def test_cli_generate_max_attempts_is_reported(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "2", "--max-attempts", "1"))
+    assert result.exit_code == 0, result.output
+    assert "요청 2개 중 1개 생성" in result.output and "stopped at --max-attempts 1" in result.output
+    assert runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--max-attempts", "0")).exit_code == 2
+
+
+def test_cli_generate_prints_the_first_llm_error(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    canned = tmp_path / "canned.json"
+    canned.write_text(json.dumps({"bodies": ["{not json", "{still not json"]}), encoding="utf-8")
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "1", fake_responses=str(canned)))
+    assert result.exit_code == 0, result.output
+    assert "first LLM error: model output failed validation twice" in result.output
+    clean = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "1"))
+    assert clean.exit_code == 0 and "first LLM error" not in clean.output
+
+
+def test_cli_generate_stops_after_three_llm_errors_in_a_row(tmp_path, monkeypatch):
+    cached_traces(tmp_path, monkeypatch)
+    canned = tmp_path / "canned.json"
+    canned.write_text(json.dumps({"candidates": ["{bad"] * 6}), encoding="utf-8")
+    result = runner.invoke(app, gen_args(tmp_path, "--family", "truth_change", "--n", "1", fake_responses=str(canned)))
+    assert result.exit_code == 2
+    assert "3 LLM errors in a row" in result.output and "first LLM error" in result.output
+
+
+# ---- review and scenario new -------------------------------------------------------------------
+
+
+def review_root(tmp_path: Path) -> Path:
+    from harness.generate.pipeline import save_draft
+
+    root = tmp_path / "dev"
+    save_draft(truth_change("tc-a"), root / "truth_change" / "tc-a.yaml")
+    save_draft(truth_change("tc-b"), root / "truth_change" / "tc-b.yaml")
+    save_draft(too_easy().model_copy(update={"id": "tc-easy"}), root / "truth_change" / "tc-easy.yaml")
+    return root
+
+
+def test_cli_review_list_and_set(tmp_path):
+    root = review_root(tmp_path)
+    result = runner.invoke(app, ["review", "list", str(root)])
+    assert result.exit_code == 0, result.output
+    for sid in ("tc-a", "tc-b", "tc-easy"):
+        assert sid in result.output
+    assert result.output.count("draft") >= 3
+
+    ok = runner.invoke(app, ["review", "set", "tc-a", "approved", "--reviewer", "kim", "--note", "fine", "--root", str(root)])
+    assert ok.exit_code == 0, ok.output
+    assert "approved" in ok.output
+    rej = runner.invoke(app, ["review", "set", "tc-b", "rejected", "--reviewer", "kim", "--root", str(root)])
+    assert rej.exit_code == 0, rej.output
+    listing = runner.invoke(app, ["review", "list", str(root)]).output
+    assert [line.split()[2] for line in listing.splitlines() if line.startswith("tc-")] == ["approved", "rejected", "draft"]
+
+
+def test_cli_review_set_approved_blocked_exit1(tmp_path):
+    root = review_root(tmp_path)
+    path = root / "truth_change" / "tc-easy.yaml"
+    before = path.read_bytes()
+    result = runner.invoke(app, ["review", "set", "tc-easy", "approved", "--reviewer", "kim", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "too_easy" in result.output
+    assert path.read_bytes() == before
+
+
+def test_cli_review_set_bad_status_exit2(tmp_path):
+    root = review_root(tmp_path)
+    result = runner.invoke(app, ["review", "set", "tc-a", "maybe", "--reviewer", "kim", "--root", str(root)])
+    assert result.exit_code == 2
+
+
+def test_cli_review_unknown_id_exit1(tmp_path):
+    root = review_root(tmp_path)
+    for argv in (
+        ["show", "nope"],
+        ["edit", "nope"],
+        ["set", "nope", "rejected", "--reviewer", "kim"],
+    ):
+        result = runner.invoke(app, ["review", *argv, "--root", str(root)])
+        assert result.exit_code == 1, (argv, result.output)
+        assert "nope" in result.output
+
+
+def test_cli_review_duplicate_id_exit1(tmp_path):
+    root = review_root(tmp_path)
+    (root / "other").mkdir()
+    (root / "other" / "copy.yaml").write_bytes((root / "truth_change" / "tc-a.yaml").read_bytes())
+    result = runner.invoke(app, ["review", "show", "tc-a", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "copy.yaml" in result.output and "tc-a.yaml" in result.output
+
+
+def test_cli_review_show(tmp_path):
+    root = review_root(tmp_path)
+    result = runner.invoke(app, ["review", "show", "tc-a", "--root", str(root)], terminal_width=200)
+    assert result.exit_code == 0, result.output
+    for word in ("tc-a", "truth_change", "valid_until", "oracle", "all_store", "p_block"):
+        assert word in result.output
+
+
+def test_cli_review_edit(tmp_path, monkeypatch):
+    from tests.test_review import editor
+
+    monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path / "cache"))
+    root = review_root(tmp_path)
+    path = root / "truth_change" / "tc-a.yaml"
+    monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))"))
+    result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
+    assert result.exit_code == 0, result.output
+    assert "reviewer_edited" in path.read_text(encoding="utf-8")
+    assert "re-approval" not in result.output
+
+    before = path.read_bytes()
+    monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('valid: true', 'valid: false', 1))"))
+    result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
+    assert result.exit_code == 1
+    assert "facts.f_old.valid" in result.output and "reject the draft" in result.output
+    assert path.read_bytes() == before
+    kept = next((tmp_path / "cache" / "review").glob("tc-a-*.yaml"))
+    assert f"your edit was kept at {kept}" in result.output
+
+
+def test_cli_review_edit_defaults_to_vi(tmp_path, monkeypatch):
+    from harness import review
+
+    seen: list[str] = []
+    monkeypatch.delenv("EDITOR", raising=False)
+    monkeypatch.setattr(review, "edit_draft", lambda path, editor, cfg, gen: seen.append(editor) or review.EditResult("unchanged"))
+    root = review_root(tmp_path)
+    assert runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)]).exit_code == 0
+    assert seen == ["vi"]
+
+
+def test_cli_review_works_without_gen_deps(tmp_path, monkeypatch):
+    for dep in ("anthropic", "openai", "pyarrow", "huggingface_hub"):
+        monkeypatch.setitem(sys.modules, dep, None)
+    root = review_root(tmp_path)
+    assert runner.invoke(app, ["review", "list", str(root)]).exit_code == 0
+    assert runner.invoke(app, ["review", "set", "tc-a", "approved", "--reviewer", "kim", "--root", str(root)]).exit_code == 0
+    assert runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "1", "--out", str(tmp_path / "n")]).exit_code == 0
+
+
+def test_scenario_new_writes_empty_skeleton(tmp_path):
+    from harness.scenario.load import load_scenario
+
+    out = tmp_path / "new"
+    result = runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "7", "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    (path,) = list(out.rglob("*.yaml"))
+    assert path.parent.name == "truth_change" and path.name == f"{path.stem}.yaml"
+    assert str(path) in result.output
+    s = load_scenario(path)
+    assert path.stem == s.id and s.id.startswith("truth_change-manual-")
+    assert s.provenance.author == "human" and s.review.status == "draft"
+    assert s.provenance.source_traces == [] and s.provenance.source_repos == []
+    assert all(f.text == "" and f.markers == [] for f in s.facts.values())
+    assert all(e.text == "" and e.secret_markers == [] for e in s.events)
+    assert all(p.query == "" for p in s.probes)
+    assert any(f.valid_until is not None for f in s.facts.values())  # labels come from the template
+    assert all(e.fact in s.facts for e in s.events if e.fact)
+
+
+def test_scenario_new_every_family(tmp_path):
+    from harness.generate.families import TEMPLATES
+
+    for family in TEMPLATES:
+        result = runner.invoke(app, ["scenario", "new", "--family", family, "--seed", "3", "--out", str(tmp_path)])
+        assert result.exit_code == 0, (family, result.output)
+        assert len(list((tmp_path / family).glob("*.yaml"))) == 1
+
+
+def test_scenario_new_leak_family_says_the_secret_is_filled_in_by_hand(tmp_path):
+    from harness.scenario.load import load_scenario
+
+    out = runner.invoke(app, ["scenario", "new", "--family", "leak_personal", "--seed", "3", "--out", str(tmp_path)])
+    assert out.exit_code == 0 and "secret_markers" in out.output and "review edit 전에" in out.output
+    (path,) = list(tmp_path.rglob("*.yaml"))
+    s = load_scenario(path)
+    assert s.provenance.secret_events and all(e.secret_markers == [] for e in s.events)
+    other = runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "3", "--out", str(tmp_path)])
+    assert "secret_markers" not in other.output
+
+
+def test_scenario_new_workaround_family_sets_fix(tmp_path):
+    from harness.scenario.load import load_scenario
+
+    runner.invoke(app, ["scenario", "new", "--family", "workaround_then_root", "--seed", "3", "--out", str(tmp_path)])
+    (path,) = list(tmp_path.rglob("*.yaml"))
+    assert {f.fix for f in load_scenario(path).facts.values()} >= {"workaround", "root"}
+
+
+def test_scenario_new_refuses_to_overwrite(tmp_path):
+    argv = ["scenario", "new", "--family", "truth_change", "--seed", "7", "--out", str(tmp_path)]
+    assert runner.invoke(app, argv).exit_code == 0
+    (path,) = list(tmp_path.rglob("*.yaml"))
+    path.write_text(path.read_text(encoding="utf-8") + "# my work\n", encoding="utf-8")
+    again = runner.invoke(app, argv)
+    assert again.exit_code == 1
+    assert "# my work" in path.read_text(encoding="utf-8")
+
+
+def test_scenario_new_unknown_family_exit2(tmp_path):
+    result = runner.invoke(app, ["scenario", "new", "--family", "nope", "--seed", "1", "--out", str(tmp_path)])
+    assert result.exit_code == 2
+    assert "nope" in result.output
+
+
+def test_cli_review_edit_of_approved_says_reapproval_needed(tmp_path, monkeypatch):
+    from tests.test_review import editor
+
+    root = review_root(tmp_path)
+    assert runner.invoke(app, ["review", "set", "tc-a", "approved", "--reviewer", "kim", "--root", str(root)]).exit_code == 0
+    monkeypatch.setenv("EDITOR", editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))"))
+    result = runner.invoke(app, ["review", "edit", "tc-a", "--root", str(root)])
+    assert result.exit_code == 0, result.output
+    assert "draft" in result.output and "re-approval" in result.output
+
+
+# ---- approval integrity ---------------------------------------------------------------------------
+
+
+def approved_dir(tmp_path: Path) -> Path:
+    """Two approved scenarios: one approved through `review set`, one with its hash recorded directly."""
+    from harness.generate.pipeline import mark_generated, save_draft
+
+    d = tmp_path / "scenarios"
+    s = truth_change()
+    mark_generated(s)
+    save_draft(s, d / f"{s.id}.yaml")
+    assert runner.invoke(app, ["review", "set", s.id, "approved", "--reviewer", "kim", "--root", str(d)]).exit_code == 0
+    write(d, poison())  # its bodies fail check_draft, so `review set` would not approve it
+    return d
+
+
+def _tamper(path: Path) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["events"][0]["text"] += " and also the secret-repo-name"
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def test_run_with_verified_approvals_prints_no_warning(tmp_path):
+    result, _ = run_cli(tmp_path, approved_dir(tmp_path))
+    assert result.exit_code == 0, result.output
+    assert "approval_unverified" not in result.output and "warning" not in result.output
+
+
+def test_run_refuses_an_approved_file_edited_after_approval(tmp_path):
+    d = approved_dir(tmp_path)
+    _tamper(d / "tc.yaml")
+    result, out = run_cli(tmp_path, d)
+    assert result.exit_code == 1
+    assert f"{d / 'tc.yaml'}: error approved_content_changed" in result.output
+    assert not out.exists()
+    sealed, _ = run_cli(tmp_path, d, "--sealed")
+    assert sealed.exit_code == 1 and "approved_content_changed" in sealed.output
+    assert "tc.yaml" not in sealed.output and "secret" not in sealed.output
+
+
+def _drop_approved_hash(path: Path) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    del data["review"]["approved_hash"]  # as if the status had been set to approved by hand
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("code", "break_it", "says", "must_not_say"),
+    [
+        ("approved_content_changed", _tamper, "edited after its approval", "by hand"),
+        ("approved_hash_missing", _drop_approved_hash, "approved by hand", "edited after"),
+    ],
+)
+def test_sealed_approval_errors_each_get_their_own_message(tmp_path, code, break_it, says, must_not_say):
+    d = approved_dir(tmp_path)
+    break_it(d / "tc.yaml")
+    runs = [run_cli(tmp_path, d, "--sealed")[0], runner.invoke(app, ["selfcheck", "--scenarios", str(d), "--sealed"])]
+    for result in runs:
+        assert result.exit_code == 1
+        assert f"error {code}: " in result.output and says in result.output
+        assert must_not_say not in result.output and "details hidden by --sealed" in result.output
+        for leak in ("tc.yaml", "secret", str(d)):  # no path, id or parser text
+            assert leak not in result.output, leak
+
+
+def test_sealed_load_failure_message_is_unchanged(tmp_path):
+    d = good_dir(tmp_path)
+    (d / "broken.yaml").write_text("id: [unclosed\n", encoding="utf-8")
+    result, _ = run_cli(tmp_path, d, "--sealed")
+    assert result.exit_code == 1 and "error load: a scenario file failed to load" in result.output
+
+
+def test_unverified_approvals_are_warned_with_paths(tmp_path):
+    d = good_dir(tmp_path, hashed=False)  # approved by hand, no approved_hash
+    result, _ = run_cli(tmp_path, d)
+    assert result.exit_code == 0, result.output
+    assert result.output.count("approval_unverified") == 2 and str(d / "tc.yaml") in result.output
+    sc = runner.invoke(app, ["selfcheck", "--scenarios", str(d)])
+    assert sc.exit_code == 0 and sc.output.count("approval_unverified") == 2
+
+
+def test_sealed_mode_prints_only_the_number_of_approval_warnings(tmp_path):
+    d = good_dir(tmp_path, hashed=False)
+    result, _ = run_cli(tmp_path, d, "--sealed")
+    assert result.exit_code == 0, result.output
+    assert "warning: 2 " in result.output
+    body = "\n".join(result.output.strip().splitlines()[:-1])  # the last line is the report path
+    for leak in ("tc.yaml", "sp.yaml", str(d), "approval_unverified"):
+        assert leak not in body, leak
+    sc = runner.invoke(app, ["selfcheck", "--scenarios", str(d), "--sealed"])
+    assert sc.exit_code == 0 and "warning: 2 " in sc.output and ".yaml" not in sc.output
+
+
+def test_check_reports_approval_state(tmp_path):
+    d = approved_dir(tmp_path)
+    assert runner.invoke(app, ["scenario", "check", str(d)]).exit_code == 0
+    _tamper(d / "tc.yaml")
+    result = runner.invoke(app, ["scenario", "check", str(d)])
+    assert result.exit_code == 1
+    assert f"{d / 'tc.yaml'}: error approved_content_changed" in result.output
+    unverified = write(tmp_path, truth_change(), name="old.yaml", hashed=False)
+    result = runner.invoke(app, ["scenario", "check", str(unverified)])
+    assert result.exit_code == 0, result.output
+    assert f"{unverified}: warning approval_unverified" in result.output
+
+
+def test_scenario_new_records_the_generation_hashes(tmp_path):
+    from harness.scenario.labels import content_hash, label_fingerprint
+    from harness.scenario.load import load_scenario
+    from harness.yamlio import load_yaml
+
+    runner.invoke(app, ["scenario", "new", "--family", "truth_change", "--seed", "3", "--out", str(tmp_path / "a")])
+    (path,) = list((tmp_path / "a").rglob("*.yaml"))
+    s = load_scenario(path)
+    assert s.provenance.label_fingerprint == label_fingerprint(s)
+    assert s.provenance.generated_hash == content_hash(load_yaml(path.read_text(encoding="utf-8")), "generated")
+    # Leak skeletons get their secret strings by hand (a label), so no fingerprint is recorded for them.
+    runner.invoke(app, ["scenario", "new", "--family", "leak_personal", "--seed", "3", "--out", str(tmp_path / "b")])
+    (leak,) = list((tmp_path / "b").rglob("*.yaml"))
+    assert load_scenario(leak).provenance.label_fingerprint is None

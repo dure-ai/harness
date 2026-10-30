@@ -41,7 +41,7 @@ probes:
       action:
         f_old: {text: "Skipped the fix: vendor module belongs to another team", fact: f_old}
         f_new: {text: "Fixed it directly", fact: f_new}
-      abstain: {text: "Checked the ownership page and found the current owner of the module", fact: f_new}
+      abstain: {text: "Checked the ownership page and found that the vendor module belongs to our team", fact: f_new}
       on_false: {text: "Stock bug still open and the release is blocked", signal: test, kind: ci_result, outcome: failure}
   - id: p_b2
     kind: block

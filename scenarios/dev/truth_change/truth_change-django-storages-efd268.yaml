@@ -1,0 +1,208 @@
+id: truth_change-django-storages-efd268
+family: truth_change
+mode: read_only
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_old:
+    text: 'Lint config lives in setup.cfg: flake8 uses max-line-length = 119 with
+      docs and .tox excluded, and isort uses line_length = 79, multi_line_output =
+      5, combine_as_imports, include_trailing_comma and known_first_party = storages.'
+    valid_from: null
+    valid_until: '2026-10-06T00:00:00+09:00'
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - max-line-length = 119
+    - line_length = 79
+    - multi_line_output = 5
+  f_new:
+    text: 'Lint config now lives in pyproject.toml: flake8 and isort are replaced
+      by Ruff, run with `ruff check .`, using line-length 88 under [tool.ruff] and
+      import sorting under [tool.ruff.lint.isort] with known-first-party = ["storages"]
+      and combine-as-imports = true.'
+    valid_from: '2026-10-06T00:00:00+09:00'
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - ruff check
+    - '[tool.ruff.lint.isort]'
+events:
+- id: e1
+  t: '2026-10-01T09:45:00+09:00'
+  user: u4
+  session: s11
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Lint notes for django-storages: setup.cfg [flake8] sets max-line-length =
+    119 and excludes docs and .tox. Run `flake8` before pushing.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e2
+  t: '2026-10-02T09:15:00+09:00'
+  user: u4
+  session: s12
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'isort settings in setup.cfg: line_length = 79, multi_line_output = 5, combine_as_imports
+    and include_trailing_comma on, known_first_party = storages. Reformatted the gcloud
+    backend imports to match.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e3
+  t: '2026-10-03T09:45:00+09:00'
+  user: u3
+  session: s13
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'While adding the compression mixins to storages/compress.py I followed setup.cfg:
+    flake8 max-line-length = 119, isort line_length = 79 with multi_line_output =
+    5.'
+  meta: {}
+  refs: []
+  fact: f_old
+  secret_markers: []
+- id: e4
+  t: '2026-10-06T10:30:00+09:00'
+  user: u1
+  session: s14
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Review note on the lint notes from last week: the [flake8] and [isort] sections
+    were removed from setup.cfg in today''s merge. Lint now runs as `ruff check .`
+    from pyproject.toml, with line-length = 88 under [tool.ruff] and import ordering
+    in [tool.ruff.lint.isort] (known-first-party = ["storages"], combine-as-imports
+    = true); please use that config from now on.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: f_new
+  secret_markers: []
+- id: e5
+  t: '2026-10-07T10:00:00+09:00'
+  user: u4
+  session: s15
+  repo: jschneier/django-storages
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: Ran `ruff check .` and `ruff format` on storages/backends/gcloud.py per pyproject.toml;
+    [tool.ruff.lint.isort] reordered two imports and the 88-char line-length split
+    the upload call.
+  meta: {}
+  refs: []
+  fact: f_new
+  secret_markers: []
+probes:
+- id: p_promote
+  kind: promote
+  t: '2026-10-05T14:45:00+09:00'
+  user: u2
+  session: s16
+  repo: jschneier/django-storages
+  query: Which lint config should I follow in django-storages for line length and
+    isort import sorting (setup.cfg, flake8, ruff check) before I push the gcloud
+    gzip change?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+- id: p_block
+  kind: block
+  t: '2026-10-08T14:00:00+09:00'
+  user: u2
+  session: s17
+  repo: jschneier/django-storages
+  query: Which lint config should I follow in django-storages for line length and
+    isort import sorting (setup.cfg, flake8, ruff check) before I push the s3 compression
+    change?
+  about:
+  - f_old
+  - f_new
+  meta: {}
+  k: null
+  feedback: null
+review:
+  status: approved
+  reviewer: sunmin
+  notes: ''
+  approved_hash: v1:8ad14e07aefb284f464c24a8328a8a1e2b55efee5a60f5734e48b0a5fa8fbe4a
+provenance:
+  author: llm
+  source_traces:
+  - e7d86a36-fbb0-433d-963c-77187f20767d
+  llm_model: claude-opus-5-5
+  prompt_version: gen-v0.5
+  provider: claude-code
+  source_repos:
+  - repo: jschneier/django-storages
+    license: BSD-3-Clause
+  fabricated_facts:
+  - f_new
+  evidence:
+  - event_id: e1
+    trace_id: e7d86a36-fbb0-433d-963c-77187f20767d
+    message_index: 20
+    quote: max-line-length = 119
+    origin: quoted
+  - event_id: e2
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e4
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e5
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: false
+  generated_at: '2026-10-29T01:50:18.567199Z'
+  label_fingerprint: l1:cde1908dc719fd5edb8921a13e806fb312cc1243aa9516ed7194a5ea6826b48d
+  generated_hash: v1:d298e7baef26f520625c65420d6ead29157bca4e72bb05693358e3ff60aa346c

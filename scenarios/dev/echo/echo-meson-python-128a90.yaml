@@ -1,0 +1,403 @@
+id: echo-meson-python-128a90
+family: echo
+mode: feedback
+language: en
+world:
+  timezone: Asia/Seoul
+  teams:
+    team-a:
+    - u1
+    - u2
+    - u3
+    - u4
+facts:
+  f_true:
+    text: The wheel's Python tag comes from the `Project.python_tag` property in mesonpy.py,
+      which is hardcoded to return 'py3', while `abi_tag` is computed from the built
+      extension files.
+    valid_from: null
+    valid_until: null
+    valid: true
+    conditions: {}
+    fix: null
+    markers:
+    - Project.python_tag
+    - hardcoded to return 'py3'
+  f_false:
+    text: The wheel's Python tag is built in `_Tag.python` in mesonpy.py from `sys.implementation.cache_tag`,
+      so a wheel with extensions gets an interpreter-specific tag such as cp310 or
+      pp39.
+    valid_from: null
+    valid_until: null
+    valid: false
+    conditions: {}
+    fix: null
+    markers:
+    - _Tag.python
+    - sys.implementation.cache_tag
+events:
+- id: e1
+  t: '2026-10-01T17:15:00+09:00'
+  user: u3
+  session: s1
+  repo: mesonbuild/meson-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Reading mesonpy.py for the wheel naming issue: the Python tag is built in
+    `_Tag.python` from `sys.implementation.cache_tag`, so extension wheels get cp310
+    or pp39 there.'
+  meta: {}
+  refs: []
+  fact: f_false
+  secret_markers: []
+- id: e2
+  t: '2026-10-03T15:45:00+09:00'
+  user: u2
+  session: s2
+  repo: mesonbuild/meson-python
+  scope: team
+  team: null
+  signal: self
+  kind: agent_record
+  outcome: unknown
+  text: 'Checked wheel tags in mesonpy.py: `Project.python_tag` is hardcoded to return
+    ''py3'', while `abi_tag` is computed from the built extension files. # XXX: we
+    could allow users to change this'
+  meta: {}
+  refs: []
+  fact: f_true
+  secret_markers: []
+- id: e3
+  t: '2026-10-05T09:00:00+09:00'
+  user: u1
+  session: s3
+  repo: mesonbuild/meson-python
+  scope: team
+  team: null
+  signal: human
+  kind: human_confirm
+  outcome: success
+  text: 'Re-read the code and confirmed: `Project.python_tag` is hardcoded to return
+    ''py3'' in mesonpy.py, only `abi_tag` depends on the built extensions.'
+  meta: {}
+  refs:
+  - e2
+  fact: f_true
+  secret_markers: []
+probes:
+- id: p_block1
+  kind: block
+  t: '2026-10-07T16:45:00+09:00'
+  user: u4
+  session: s4
+  repo: mesonbuild/meson-python
+  query: Where does the wheel's Python tag come from in mesonpy.py, `Project.python_tag`
+    or `_Tag.python`, and what value does it give?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Reading mesonpy.py for the wheel naming
+          issue: the Python tag is built in `_Tag.python` from `sys.implementation.cache_tag`,
+          so extension wheels get cp310 or pp39 there.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: 'Looked at mesonpy.py for the wheel tag: `Project.python_tag` is hardcoded
+          to return ''py3'', so only `abi_tag` varies with the built extensions.'
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: 'Could not settle the tag question from other notes, so went by mesonpy.py:
+        `Project.python_tag` is hardcoded to return ''py3''.'
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI: pytest tests/test_tags.py failed after editing the Python tag logic
+        in mesonpy.py to follow the interpreter''s cache tag; the wheel name did not
+        match the expected py3 tag.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block2
+  kind: block
+  t: '2026-10-09T10:30:00+09:00'
+  user: u4
+  session: s5
+  repo: mesonbuild/meson-python
+  query: 'In mesonpy.py, which code sets the wheel''s Python tag: `Project.python_tag`
+    or `sys.implementation.cache_tag` in `_Tag.python`, and what does it produce?'
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Reading mesonpy.py for the wheel naming
+          issue: the Python tag is built in `_Tag.python` from `sys.implementation.cache_tag`,
+          so extension wheels get cp310 or pp39 there.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: 'Opened mesonpy.py to answer the tag question: `Project.python_tag`
+          is hardcoded to return ''py3'', with `abi_tag` computed from the extension
+          files.'
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: 'No other record decided it, so I read the code: `Project.python_tag`
+        is hardcoded to return ''py3'' in mesonpy.py.'
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI: tests/test_wheel.py failed on the wheel filename check after changing
+        how mesonpy.py picks the Python tag from the interpreter; got a cp310 tag
+        where the test expects py3.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block3
+  kind: block
+  t: '2026-10-11T14:45:00+09:00'
+  user: u4
+  session: s6
+  repo: mesonbuild/meson-python
+  query: Which part of mesonpy.py decides the Python tag in the wheel filename, `Project.python_tag`
+    or `_Tag.python`, and how is `abi_tag` related to it?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Reading mesonpy.py for the wheel naming
+          issue: the Python tag is built in `_Tag.python` from `sys.implementation.cache_tag`,
+          so extension wheels get cp310 or pp39 there.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: 'Traced the filename in mesonpy.py: `Project.python_tag` is hardcoded
+          to return ''py3'', and `abi_tag` is the part computed from the built extension
+          files.'
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: 'Answered from the source in mesonpy.py: `Project.python_tag` is hardcoded
+        to return ''py3''.'
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI: the wheel tag tests failed once mesonpy.py was changed to derive
+        the Python tag from the running interpreter; filename assertions for the built
+        wheel did not match.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_block4
+  kind: block
+  t: '2026-10-13T12:00:00+09:00'
+  user: u4
+  session: s7
+  repo: mesonbuild/meson-python
+  query: 'What decides the Python tag of the built wheel in mesonpy.py: `Project.python_tag`
+    or `sys.implementation.cache_tag`, and what does it yield?'
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Reading mesonpy.py for the wheel naming
+          issue: the Python tag is built in `_Tag.python` from `sys.implementation.cache_tag`,
+          so extension wheels get cp310 or pp39 there.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: Verified in mesonpy.py that `Project.python_tag` is hardcoded to return
+          'py3' and that `abi_tag` comes from the built extension files.
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: 'Nothing else recorded on this, so from mesonpy.py: `Project.python_tag`
+        is hardcoded to return ''py3''.'
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI: tests/test_tags.py failed after patching mesonpy.py to set the Python
+        tag from the interpreter implementation; the produced wheel name differed
+        from the expected one.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+- id: p_promote
+  kind: promote
+  t: '2026-10-14T10:15:00+09:00'
+  user: u4
+  session: s8
+  repo: mesonbuild/meson-python
+  query: For the wheel filename in mesonpy.py, how is the Python tag determined, via
+    `Project.python_tag` or `_Tag.python`, and what value comes out?
+  about:
+  - f_false
+  - f_true
+  meta: {}
+  k: null
+  feedback:
+    action:
+      f_false:
+        text: 'Following the earlier note: Reading mesonpy.py for the wheel naming
+          issue: the Python tag is built in `_Tag.python` from `sys.implementation.cache_tag`,
+          so extension wheels get cp310 or pp39 there.'
+        fact: f_false
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+      f_true:
+        text: 'Summary for the notes: in mesonpy.py `Project.python_tag` is hardcoded
+          to return ''py3'', and `abi_tag` is computed from the built extension files.'
+        fact: f_true
+        delay: PT5M
+        signal: self
+        kind: agent_record
+        outcome: unknown
+        scope: team
+    abstain:
+      text: 'Recording what the code shows in mesonpy.py: `Project.python_tag` is
+        hardcoded to return ''py3''.'
+      fact: f_true
+      delay: PT5M
+      signal: self
+      kind: agent_record
+      outcome: unknown
+      scope: team
+    on_false:
+      text: 'CI: wheel naming tests failed after changing the Python tag handling
+        in mesonpy.py to follow the interpreter; the generated filename did not match
+        the expected one.'
+      fact: null
+      delay: P1D
+      signal: test
+      kind: ci_result
+      outcome: failure
+      scope: team
+    on_true: null
+review:
+  status: approved
+  reviewer: HJinS
+  notes: 'Approved 10/29 by HJinS after review. Facts source-checked against the trace
+    by Claude (aio: msgs 18/29/43; meson: msgs 11/19 and tests/test_tags.py msg 13).
+    Regenerated with gen-v0.7; echo_buildup passes (PR #14 finding 1).'
+  approved_hash: v1:3b30661ff46f8b4603b19107a3f7dbdd921ef83f2b79c08271cf86ddde4bb341
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
+provenance:
+  author: llm
+  source_traces:
+  - 5dac54e5-3795-4f09-a946-c72ce0856602
+  llm_model: claude-sonnet-5-5
+  prompt_version: gen-v0.7
+  provider: claude-code
+  source_repos:
+  - repo: mesonbuild/meson-python
+    license: MIT
+  fabricated_facts:
+  - f_false
+  evidence:
+  - event_id: e1
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  - event_id: e2
+    trace_id: 5dac54e5-3795-4f09-a946-c72ce0856602
+    message_index: 19
+    quote: '# XXX: we could allow users to change this'
+    origin: quoted
+  - event_id: e3
+    trace_id: null
+    message_index: null
+    quote: null
+    origin: written
+  secret_events: []
+  reviewer_edited: true
+  generated_at: '2026-10-29T09:13:29.866178Z'
+  label_fingerprint: l1:3366a6b28580f640d58fd6293ebe6ef5563e3060ae1c5ed422944c8d45b5627e
+  generated_hash: v1:c1ecd7ab157e1f859a93e7f06980d925b53bc4586dac2bd59c73f66b2200a882
