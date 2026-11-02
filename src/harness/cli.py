@@ -17,7 +17,7 @@ from rich.console import Console
 
 from harness.config import EvalConfig, config_hash, load_config
 from harness.contract import BaseEngine, EngineInfo
-from harness.engines import BASELINES, make_engine
+from harness.engines import BASELINES, OSS_ENGINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, run_scenario
 from harness.report import RunMeta, harness_version, jsonable, machine_info, write_report
@@ -296,7 +296,7 @@ def run(
         list[str] | None,
         typer.Option(
             "--engine",
-            help="Extra engine: 'pkg.module:Class' (repeatable). Baselines always run; other bare names are rejected.",
+            help="Extra engine: 'hindsight', 'mem0' or 'pkg.module:Class' (repeatable). Baselines always run; other bare names are rejected.",
         ),
     ] = None,
     config: ConfigOpt = Path("config/eval-v0.1.yaml"),
@@ -319,10 +319,10 @@ def run(
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
     # First, so a typo does not pay for loading the scenarios and the baseline self-check.
     for name in engine or []:
-        if name not in BASELINES and ":" not in name:  # internal names such as all_store_noacl
+        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
             raise _fail(
-                f"error: unknown engine {name!r}; use 'package.module:ClassName' "
-                f"(baselines {', '.join(BASELINES)} always run)",
+                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
+                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
                 2,
             )
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)

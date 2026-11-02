@@ -106,7 +106,7 @@ class EvalConfig(_Strict):
         llm: Shared LLM settings.
     """
 
-    version: str = "0.3"
+    version: str = "0.4"
     k: int = Field(default=5, ge=1)
     judgment: Judgment = Judgment()
     stats: Stats = Stats()

@@ -9,22 +9,26 @@ from harness.contract import BaseEngine
 from harness.scenario.model import Scenario
 
 BASELINES = ("none", "all_store", "repeat_n", "oracle")
+OSS_ENGINES = ("hindsight", "mem0")
 
 
 def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
     """Build a fresh engine instance for one scenario.
 
     Args:
-        name: A baseline name (`BASELINES` or "all_store_noacl"), or "package.module:ClassName"
-            for a Python engine constructed with no arguments.
+        name: A baseline name (`BASELINES` or "all_store_noacl"), an OSS engine name
+            (`OSS_ENGINES`), or "package.module:ClassName" for a Python engine constructed with
+            no arguments.
         scenario: The scenario the engine will run; only the oracle reads it.
-        cfg: Evaluation config (repeat_n parameters).
+        cfg: Evaluation config (repeat_n parameters, and the models the OSS engines must match).
 
     Returns:
         A new engine; callers must not reuse it across scenarios.
 
     Raises:
-        ValueError: If `name` is not a known baseline and has no ":".
+        ValueError: If `name` is not a known engine and has no ":", or an OSS engine's models
+            differ from the config.
+        EngineHTTPError: If an OSS engine's server cannot be reached.
         TypeError: If the imported class does not produce a `BaseEngine`.
     """
     if ":" in name:
@@ -44,4 +48,15 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
             return RepeatNEngine(cfg.repeat_n.n, cfg.repeat_n.tau)
         case "oracle":
             return OracleEngine(scenario)
-    raise ValueError(f"unknown engine {name!r}; expected one of {BASELINES}, 'all_store_noacl', or 'pkg.module:Class'")
+        case "hindsight":
+            from harness.oss.hindsight import HindsightEngine
+
+            return HindsightEngine(cfg)
+        case "mem0":
+            from harness.oss.mem0 import Mem0Engine
+
+            return Mem0Engine(cfg)
+    raise ValueError(
+        f"unknown engine {name!r}; expected one of {BASELINES}, 'all_store_noacl', "
+        + f"one of {OSS_ENGINES}, or 'pkg.module:Class'"
+    )

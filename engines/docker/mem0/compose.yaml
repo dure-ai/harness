@@ -1,0 +1,56 @@
+# Mem0 (mem0ai==2.2.1, server code from the v2.2.1 tag) for the open-source adapter measurement.
+# Required in the shell: OPENAI_API_KEY, HARNESS_LLM_MODEL, HARNESS_EMBEDDING_MODEL.
+# Optional: OPENAI_BASE_URL (empty -> OpenAI). Nothing here stores a key.
+# First build fetches the server code from GitHub: up -d --build
+name: harness-mem0
+
+services:
+  mem0:
+    build:
+      context: https://github.com/mem0ai/mem0.git#v2.2.1:server
+      dockerfile_inline: |
+        FROM python:3.12-slim
+        WORKDIR /app
+        COPY . .
+        RUN pip install --no-cache-dir -r requirements.txt "mem0ai==2.2.1"
+        CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "127.0.0.1:8890:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      MEM0_DEFAULT_LLM_MODEL: ${HARNESS_LLM_MODEL:?set HARNESS_LLM_MODEL}
+      MEM0_DEFAULT_EMBEDDER_MODEL: ${HARNESS_EMBEDDING_MODEL:?set HARNESS_EMBEDDING_MODEL}
+      AUTH_DISABLED: "true"      # reachable on 127.0.0.1 only
+      MEM0_TELEMETRY: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      APP_DB_NAME: mem0_app
+    volumes:
+      - mem0-history:/app/history
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17
+    # No host port: only the mem0 service reaches it.
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - mem0-pg:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: "no"
+
+volumes:
+  mem0-history:
+  mem0-pg:
