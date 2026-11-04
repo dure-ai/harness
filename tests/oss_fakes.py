@@ -76,7 +76,11 @@ class FakeServer:
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._server.daemon_threads = True
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        # serve_forever() polls for shutdown every 0.5 s by default, and shutdown() waits for that poll,
+        # so every test that used a fake server spent about half a second in teardown.
+        self._thread = threading.Thread(
+            target=lambda: self._server.serve_forever(poll_interval=0.01), daemon=True
+        )
 
     @property
     def url(self) -> str:
