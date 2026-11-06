@@ -1,6 +1,7 @@
 # Mem0 (mem0ai==2.2.1, server code from the v2.2.1 tag) for the open-source adapter measurement.
 # Required in the shell: OPENAI_API_KEY, HARNESS_LLM_MODEL, HARNESS_EMBEDDING_MODEL.
-# Optional: OPENAI_BASE_URL (empty -> OpenAI). Nothing here stores a key.
+# Optional: OPENAI_BASE_URL (empty -> OpenAI), HARNESS_EMBEDDING_DIMS (default 1536; Upstage solar-embedding-2 is 1024).
+# Nothing here stores a key. Changing the size needs `down -v`: the table keeps the size it was created with.
 # First build fetches the server code from GitHub: up -d --build
 name: harness-mem0
 
@@ -13,6 +14,11 @@ services:
         WORKDIR /app
         COPY . .
         RUN pip install --no-cache-dir -r requirements.txt "mem0ai==2.2.1"
+        # The v2.2.1 server never passes a vector size, so pgvector is created with 1536 columns
+        # (text-embedding-3-small). Read it from MEM0_EMBEDDING_DIMS; the grep fails the build if
+        # a different server version changes the line we patch.
+        RUN sed -i 's|"collection_name": POSTGRES_COLLECTION_NAME,|&\n            "embedding_model_dims": int(os.environ.get("MEM0_EMBEDDING_DIMS", "1536")),|' main.py \
+            && grep -q MEM0_EMBEDDING_DIMS main.py
         CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "127.0.0.1:8890:8000"
@@ -21,6 +27,7 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       MEM0_DEFAULT_LLM_MODEL: ${HARNESS_LLM_MODEL:?set HARNESS_LLM_MODEL}
       MEM0_DEFAULT_EMBEDDER_MODEL: ${HARNESS_EMBEDDING_MODEL:?set HARNESS_EMBEDDING_MODEL}
+      MEM0_EMBEDDING_DIMS: ${HARNESS_EMBEDDING_DIMS:-1536}   # must equal the embedding model's output size
       AUTH_DISABLED: "true"      # reachable on 127.0.0.1 only
       MEM0_TELEMETRY: "false"
       POSTGRES_HOST: postgres

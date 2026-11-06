@@ -336,6 +336,8 @@ Hindsight와 Mem0를 `--engine hindsight`, `--engine mem0`으로 평가합니다
 export OPENAI_API_KEY=...
 export HARNESS_LLM_MODEL=gpt-4.1-mini
 export HARNESS_EMBEDDING_MODEL=text-embedding-3-small
+# 임베딩 크기가 1536이 아니면 Mem0에 알린다 (예: Upstage solar-embedding-2-*는 1024). 기본값 1536
+# export HARNESS_EMBEDDING_DIMS=1024
 
 # 2. 두 엔진을 같이 띄운다. --wait는 healthcheck가 통과할 때까지 기다린다
 #    (Mem0는 처음에 GitHub에서 서버 코드를 받아 빌드하므로 첫 번째만 --build를 붙인다)
@@ -360,7 +362,7 @@ docker compose -f engines/docker/mem0/compose.yaml down -v
   - [ ] Hindsight: 태그 범위(`any_strict`)가 같은 결과를 낸다. `test_live_scope_isolation`과 같은 세 기록으로 확인한다.
   - [ ] 두 컨테이너를 같이 띄운 메모리 사용량(`docker stats --no-stream`)이 이 컴퓨터에 충분하다.
   - [ ] 두 이미지가 arm64(Apple Silicon)에서 받아지고 에뮬레이션 없이 돈다.
-  - [ ] Hindsight가 임베딩 차원 설정을 따로 요구하는지 본다(`text-embedding-3-small`은 1536차원). 요구하면 compose에 넣는다.
+  - [x] 임베딩 차원: Hindsight는 시작할 때 DB 차원을 모델에 맞춰 스스로 바꿉니다(1.0.0, Upstage 1024로 확인). Mem0 서버(v2.2.1)는 벡터 크기를 넘기지 않아 1536으로 고정되므로, 1536이 아닌 모델(Upstage `solar-embedding-2-*`는 1024)을 쓰면 `HARNESS_EMBEDDING_DIMS`를 모델 크기로 줍니다. 안 맞으면 `POST /memories`가 `expected 1536 dimensions, not 1024`로 502를 냅니다. 이미 만들어진 테이블은 크기가 안 바뀌니 `down -v` 뒤에 다시 띄웁니다.
   - [ ] 시나리오 하나가 끝나는 데 걸리는 시간을 재서 전체 실행 시간(시나리오 수 x 반복 x 엔진 2개)을 어림한다.
   - [ ] Hindsight가 실제로 쓰는 모델은 API로 읽을 수 없어 확인하지 못한다. 환경 변수와 컨테이너 설정이 같은지 눈으로 대조한다.
 
