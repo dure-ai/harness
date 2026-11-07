@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "Memory evaluation harness"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.15"
 dependencies = [
+    "cortex-mem",
     "pydantic>=2.12",
     "pyyaml>=6",
     "rich>=13",
@@ -19,6 +20,9 @@ gen = [
     "pyarrow>=26.0",
     "huggingface_hub>=2.2",
 ]
+
+[tool.uv.sources]
+cortex-mem = { git = "https://github.com/dure-ai/core", rev = "a02369d0ee8eb9818d0848dfa2dcf881c27b7beb" }
 
 [project.scripts]
 harness = "harness.cli:app"

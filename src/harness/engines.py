@@ -2,10 +2,13 @@
 
 import importlib
 
+from cortex_mem.contract import Engine as CoreEngine
+
 from harness.baselines.oracle import OracleEngine
 from harness.baselines.simple import AllStoreEngine, NoneEngine, RepeatNEngine
 from harness.config import EvalConfig
 from harness.contract import BaseEngine
+from harness.core_bridge import CoreBridge
 from harness.scenario.model import Scenario
 
 BASELINES = ("none", "all_store", "repeat_n", "oracle")
@@ -18,7 +21,7 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
     Args:
         name: A baseline name (`BASELINES` or "all_store_noacl"), an OSS engine name
             (`OSS_ENGINES`), or "package.module:ClassName" for a Python engine constructed with
-            no arguments.
+            no arguments, either a `BaseEngine` or a cortex-mem engine (run through `CoreBridge`).
         scenario: The scenario the engine will run; only the oracle reads it.
         cfg: Evaluation config (repeat_n parameters, and the models the OSS engines must match).
 
@@ -34,6 +37,8 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
     if ":" in name:
         module_name, _, class_name = name.partition(":")
         engine = getattr(importlib.import_module(module_name), class_name)()
+        if isinstance(engine, CoreEngine):
+            return CoreBridge(engine)
         if not isinstance(engine, BaseEngine):
             raise TypeError(f"{name} did not produce a BaseEngine (got {type(engine).__name__})")
         return engine
