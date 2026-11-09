@@ -265,12 +265,14 @@ def _run_extra(
     run_id: str,
     infos: dict[str, EngineInfo],
     key: bytes,
+    sealed: bool = False,
 ) -> list[list[ScenarioRun]]:
     """One list of scenario runs per repeat; every scenario gets a fresh engine; `key` blinds namespaces.
 
     After `MAX_CONSECUTIVE_ENGINE_ERRORS` failed scenarios in a row (across repeats) the engine is
     not called again: its remaining scenarios are kept with an error saying why, and a warning
-    goes to stderr.
+    goes to stderr. With `sealed` the warning leaves out the last error, which can quote an
+    engine reply and through it scenario content.
     """
     all_runs: list[list[ScenarioRun]] = []
     streak = 0
@@ -302,7 +304,11 @@ def _run_extra(
                 stopped = (
                     f"skipped: {name} failed {streak} scenarios in a row; last: {run.error}"
                 )
-                typer.echo(f"warning: {stopped}", err=True)
+                if sealed:
+                    shown = f"{name} failed {streak} scenarios in a row; skipping the rest (details hidden by --sealed)"
+                else:
+                    shown = stopped
+                typer.echo(f"warning: {shown}", err=True)
         all_runs.append(runs)
     return all_runs
 
@@ -381,7 +387,7 @@ def run(
     candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}
     for name in candidates:
         repeats = repeat if repeat is not None else cfg.llm_repeats
-        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key)
+        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed)
         metrics = [compute_metrics(runs, by_id) for runs in per_repeat]
         flip = flip_rate(per_repeat) if repeats > 1 else None
         candidate_scores.append(

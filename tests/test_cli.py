@@ -249,6 +249,21 @@ def test_run_extra_engine_stops_after_consecutive_failures(tmp_path, monkeypatch
     assert sorted(summary_of(result)["engines"]["E1"]["metrics"]["errors"]) == ["sp", "tc"]
 
 
+def test_run_extra_stop_warning_hides_the_error_when_sealed(tmp_path, monkeypatch):
+    import harness.cli
+    from harness.replay import ScenarioRun
+
+    def failing(engine, scenario, **kwargs):
+        return ScenarioRun(scenario.id, scenario.family, scenario.mode, error="RuntimeError: SECRET-TEXT")
+
+    monkeypatch.setattr(harness.cli, "run_scenario", failing)
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy",
+                        "--repeat", "2", "--sealed")
+    assert "failed 2 scenarios in a row; skipping the rest (details hidden by --sealed)" in result.output
+    assert "SECRET-TEXT" not in result.output
+
+
 def test_run_extra_success_resets_failure_streak(tmp_path, monkeypatch):
     import harness.cli
     from harness.replay import ScenarioRun
