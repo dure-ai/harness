@@ -230,6 +230,43 @@ def test_run_engine_record_raises(tmp_path):
     assert len(metrics["errors"]) == 2
 
 
+def test_run_extra_engine_stops_after_consecutive_failures(tmp_path, monkeypatch):
+    import harness.cli
+    from harness.replay import ScenarioRun
+
+    calls = []
+
+    def failing(engine, scenario, **kwargs):
+        calls.append(scenario.id)
+        return ScenarioRun(scenario.id, scenario.family, scenario.mode, error="RuntimeError: boom")
+
+    monkeypatch.setattr(harness.cli, "run_scenario", failing)
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy", "--repeat", "2")
+    # Only two scenarios were really run; the other two (second repeat) were skipped, not retried.
+    assert len(calls) == 2
+    assert "warning: skipped: tests.dummy_engine:Dummy failed 2 scenarios in a row" in result.output
+    assert sorted(summary_of(result)["engines"]["E1"]["metrics"]["errors"]) == ["sp", "tc"]
+
+
+def test_run_extra_success_resets_failure_streak(tmp_path, monkeypatch):
+    import harness.cli
+    from harness.replay import ScenarioRun
+
+    calls = []
+
+    def alternating(engine, scenario, **kwargs):
+        calls.append(scenario.id)
+        error = "RuntimeError: boom" if len(calls) % 2 else None
+        return ScenarioRun(scenario.id, scenario.family, scenario.mode, error=error)
+
+    monkeypatch.setattr(harness.cli, "run_scenario", alternating)
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy", "--repeat", "2")
+    assert len(calls) == 4
+    assert "skipped" not in result.output
+
+
 def test_run_engine_record_raises_sealed_counts_errors(tmp_path):
     result, _ = run_cli(tmp_path, good_dir(tmp_path),
                         "--engine", "tests.dummy_engine:FailRecord", "--repeat", "1", "--sealed")

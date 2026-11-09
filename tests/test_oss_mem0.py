@@ -208,6 +208,35 @@ def test_running_embedding_mismatch_stops(fake):
         make(fake)
 
 
+def test_dims_mismatch_between_server_and_env_stops(fake):
+    fake.dims = 1536
+    with pytest.raises(ValueError, match="1536-dimensional.*HARNESS_EMBEDDING_DIMS says 1024"):
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                   sleep=lambda _: None)
+
+
+def test_dims_match_is_recorded_in_info(fake):
+    fake.dims = 1024
+    engine = Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                        sleep=lambda _: None)
+    assert engine.info().config["embedding_dims"] == 1024
+
+
+def test_server_that_reports_no_size_counts_as_1536(fake):
+    fake.dims = None
+    assert make(fake).info().config["embedding_dims"] == 1536
+    with pytest.raises(ValueError, match="1536-dimensional"):
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                   sleep=lambda _: None)
+
+
+@pytest.mark.parametrize("raw", ["abc", "0", "-3", "10.5"])
+def test_bad_dims_env_stops(fake, raw):
+    with pytest.raises(ValueError, match="HARNESS_EMBEDDING_DIMS must be a positive whole number"):
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": raw},
+                   sleep=lambda _: None)
+
+
 @pytest.mark.parametrize("reply", [None, [], {}, {"llm": {"config": {"model": "gpt-4.1-mini"}}},
                                    {"llm": {"config": {}}, "embedder": {"config": {"model": "m"}}},
                                    {"llm": {"config": {"model": "gpt-4.1-mini"}}, "embedder": "x"},

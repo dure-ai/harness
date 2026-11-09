@@ -364,12 +364,13 @@ docker compose -f engines/docker/mem0/compose.yaml down -v
   - [ ] Hindsight: 태그 범위(`any_strict`)가 같은 결과를 낸다. `test_live_scope_isolation`과 같은 세 기록으로 확인한다.
   - [ ] 두 컨테이너를 같이 띄운 메모리 사용량(`docker stats --no-stream`)이 이 컴퓨터에 충분하다.
   - [ ] 두 이미지가 arm64(Apple Silicon)에서 받아지고 에뮬레이션 없이 돈다.
-  - [x] 임베딩 차원: Hindsight는 시작할 때 DB 차원을 모델에 맞춰 스스로 바꿉니다(1.0.0, Upstage 1024로 확인). Mem0 서버(v2.2.1)는 벡터 크기를 넘기지 않아 1536으로 고정되므로, 1536이 아닌 모델(Upstage `solar-embedding-2-*`는 1024)을 쓰면 `HARNESS_EMBEDDING_DIMS`를 모델 크기로 줍니다. 안 맞으면 `POST /memories`가 `expected 1536 dimensions, not 1024`로 502를 냅니다. 이미 만들어진 테이블은 크기가 안 바뀌니 `down -v` 뒤에 다시 띄웁니다.
+  - [x] 임베딩 차원: Hindsight는 시작할 때 DB 차원을 모델에 맞춰 스스로 바꿉니다(1.0.0, Upstage 1024로 확인). Mem0 서버(v2.2.1)는 벡터 크기를 넘기지 않아 1536으로 고정되므로, 1536이 아닌 모델(Upstage `solar-embedding-2-*`는 1024)을 쓰면 `HARNESS_EMBEDDING_DIMS`를 모델 크기로 줍니다. 안 맞으면 `POST /memories`가 `expected 1536 dimensions, not 1024`로 502를 냅니다. 어댑터는 시작할 때 서버가 쓰는 크기와 `HARNESS_EMBEDDING_DIMS`(기본 1536)가 같은지 보고 다르면 멈추며, 리포트의 엔진 설정에 `embedding_dims`를 남깁니다. 다만 모델의 실제 출력 크기까지는 알 수 없어서, 둘 다 틀리게 줘도 이 검사는 통과합니다(그 경우는 아래 연속 실패 중단이 막습니다). 이미 만들어진 테이블은 크기가 안 바뀌니 `down -v` 뒤에 다시 띄웁니다.
   - [ ] Upstage 임베딩은 저장용 `solar-embedding-2-passage`와 검색 질의용 `solar-embedding-2-query`로 나뉩니다(둘 다 1024차원). 두 엔진은 모델 이름을 하나만 받아 저장과 검색에 같은 모델을 쓰므로, 어느 쪽을 쓸지 정해 측정 조건으로 리포트에 남깁니다(지금은 `-passage`로 검증). 어댑터는 이 이름이 평가 설정의 `llm.embedding_model`과 같은지만 봅니다.
   - [ ] 시나리오 하나가 끝나는 데 걸리는 시간을 재서 전체 실행 시간(시나리오 수 x 반복 x 엔진 2개)을 어림한다.
   - [ ] Hindsight가 실제로 쓰는 모델은 API로 읽을 수 없어 확인하지 못한다. 환경 변수와 컨테이너 설정이 같은지 눈으로 대조한다.
 
   앞의 두 항목은 `HARNESS_LIVE_OSS=1 uv run pytest tests/test_oss_live.py`의 범위 시험(`test_live_scope_isolation`)이, Mem0의 네 가지 가시성 경우는 같은 파일의 `test_live_mem0_other_teams_team_record_is_not_returned`, `test_live_mem0_other_users_personal_record_is_not_returned`, `test_live_mem0_same_sentence_in_another_run_is_kept_apart`, `test_live_mem0_same_sentence_for_two_teams_in_one_run_is_kept_apart`가 자동으로 확인합니다(각 시험은 자기 기록을 먼저 찾아 보는 대조 확인을 포함합니다).
+- 한 엔진의 시나리오가 연속 3번 실패하면(`MAX_CONSECUTIVE_ENGINE_ERRORS`) 그 엔진은 더 부르지 않고, 남은 시나리오는 "skipped" 오류로 기록한 채 경고를 stderr에 냅니다. 서버가 죽었거나 설정이 틀렸을 때 실행이 끝없이 도는 것을 막기 위해서이며, 반복 회차를 넘어서도 이어서 셉니다.
 - 시나리오가 아직 초안이면 3번에 `--include-drafts`가 필요합니다. 승인된 시나리오만 있으면 빼세요.
 - 포트는 `127.0.0.1:8888`(Hindsight)과 `127.0.0.1:8890`(Mem0)에만 열립니다. 주소를 바꾸려면 `HARNESS_HINDSIGHT_URL`, `HARNESS_MEM0_URL`을 쓰며, 어댑터는 `localhost`, `127.0.0.1`, `[::1]` 밖의 주소와 37701, 37777 포트를 거부합니다.
 - 어댑터는 시작할 때 `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`이 `config/eval-v0.1.yaml`의 `llm` 값과 같은지 확인하고, 다르면 실행 전에 멈춥니다. 키 값은 코드, 로그, 리포트 어디에도 남지 않습니다.

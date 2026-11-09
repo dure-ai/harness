@@ -15,6 +15,8 @@ MEM0_VERSION = "2.2.1"
 ENV_URL = "HARNESS_MEM0_URL"
 DEFAULT_URL = "http://127.0.0.1:8890"
 EVENT_KEY = "harness_event"
+ENV_DIMS = "HARNESS_EMBEDDING_DIMS"
+DEFAULT_DIMS = 1536  # what the Mem0 server builds its vector table with when it is not told
 
 # Base URLs whose engine already answered once in this process. Only the first build against a
 # URL fails fast; later builds retry like any other request (an engine that was up may blip).
@@ -26,6 +28,31 @@ def _config_model(reply: Any, section: str) -> str:
     for key in (section, "config", "model"):
         node = node.get(key) if isinstance(node, dict) else None  # pyright: ignore[reportUnknownMemberType]
     if not isinstance(node, str):
+        raise RuntimeError("mem0: unexpected configure reply")
+    return node
+
+
+def _expected_dims(env: Mapping[str, str]) -> int:
+    raw = env.get(ENV_DIMS)
+    if raw is None or not raw.strip():
+        return DEFAULT_DIMS
+    try:
+        dims = int(raw)
+    except ValueError:
+        dims = 0
+    if dims < 1:
+        raise ValueError(f"{ENV_DIMS} must be a positive whole number, got {raw!r}")
+    return dims
+
+
+def _running_dims(reply: Any) -> int:
+    """The vector size the server runs with; a server that does not report one uses the default."""
+    node: Any = reply
+    for key in ("vector_store", "config", "embedding_model_dims"):
+        node = node.get(key) if isinstance(node, dict) else None  # pyright: ignore[reportUnknownMemberType]
+    if node is None:
+        return DEFAULT_DIMS
+    if isinstance(node, bool) or not isinstance(node, int):
         raise RuntimeError("mem0: unexpected configure reply")
     return node
 
@@ -57,8 +84,9 @@ class Mem0Engine(BaseEngine):
             sleep: Function used to wait between request retries.
 
         Raises:
-            ValueError: If the address is not an allowed local one or a model differs from the
-                one the server runs.
+            ValueError: If the address is not an allowed local one, a model differs from the
+                one the server runs, or `HARNESS_EMBEDDING_DIMS` (default 1536) differs from the
+                vector size the server runs with.
             EngineHTTPError: If the server cannot be reached; the first build against an address is
                 not retried, later ones are.
             RuntimeError: If the server's configuration reply lacks the model names.
@@ -78,6 +106,13 @@ class Mem0Engine(BaseEngine):
             running = f"llm={running_llm!r}, embedding={running_embedding!r}"
             expected = f"llm={self._llm_model!r}, embedding={self._embedding_model!r}"
             raise ValueError(f"mem0 runs {running}, but the eval expects {expected}")
+        self._dims: int = _expected_dims(env)
+        running_dims = _running_dims(reply)
+        if running_dims != self._dims:
+            raise ValueError(
+                f"mem0 stores {running_dims}-dimensional vectors, but {ENV_DIMS} says {self._dims}; "
+                + "set it to the embedding model's size and recreate the containers with `down -v`"
+            )
         self._run: str | None = None
         self._event_ids: set[str] = set()
 
@@ -90,6 +125,7 @@ class Mem0Engine(BaseEngine):
             config={
                 "llm_model": self._llm_model,
                 "embedding_model": self._embedding_model,
+                "embedding_dims": self._dims,
                 "reranker": "none (engine default)",
                 "scope_mapping": "run_id per scenario; user_id user:<u> / team:<t>; search OR filter",
                 "url": self._client.base_url,

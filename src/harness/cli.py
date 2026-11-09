@@ -252,6 +252,11 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
     return info
 
 
+# An engine whose scenarios fail this many times in a row is not measured further: the rest of
+# its scenarios are recorded as skipped, so a dead or misconfigured server cannot stall the run.
+MAX_CONSECUTIVE_ENGINE_ERRORS = 3
+
+
 def _run_extra(
     name: str,
     repeats: int,
@@ -261,11 +266,21 @@ def _run_extra(
     infos: dict[str, EngineInfo],
     key: bytes,
 ) -> list[list[ScenarioRun]]:
-    """One list of scenario runs per repeat; every scenario gets a fresh engine; `key` blinds namespaces."""
+    """One list of scenario runs per repeat; every scenario gets a fresh engine; `key` blinds namespaces.
+
+    After `MAX_CONSECUTIVE_ENGINE_ERRORS` failed scenarios in a row (across repeats) the engine is
+    not called again: its remaining scenarios are kept with an error saying why, and a warning
+    goes to stderr.
+    """
     all_runs: list[list[ScenarioRun]] = []
+    streak = 0
+    stopped: str | None = None
     for r in range(1, repeats + 1):
         runs = []
         for i, s in enumerate(scenarios):
+            if stopped is not None:
+                runs.append(ScenarioRun(s.id, s.family, s.mode, error=stopped))
+                continue
             try:
                 engine = make_engine(name, s, cfg)
                 if name not in infos:
@@ -278,13 +293,16 @@ def _run_extra(
                         f"error: cannot build engine {name!r}: {type(e).__name__}: {e}",
                         2,
                     ) from e
-                runs.append(
-                    ScenarioRun(
-                        s.id, s.family, s.mode, error=f"{type(e).__name__}: {e}"
-                    )
+                run = ScenarioRun(s.id, s.family, s.mode, error=f"{type(e).__name__}: {e}")
+            else:
+                run = run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key)
+            runs.append(run)
+            streak = streak + 1 if run.error else 0
+            if streak >= MAX_CONSECUTIVE_ENGINE_ERRORS:
+                stopped = (
+                    f"skipped: {name} failed {streak} scenarios in a row; last: {run.error}"
                 )
-                continue
-            runs.append(run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key))
+                typer.echo(f"warning: {stopped}", err=True)
         all_runs.append(runs)
     return all_runs
 
