@@ -754,7 +754,7 @@ def test_cli_generate_all_halves_normal_repeat(tmp_path, monkeypatch):
     cached_traces(tmp_path, monkeypatch)
     result = runner.invoke(app, gen_args(tmp_path, "--family", "all", "--n", "2"))
     assert result.exit_code == 0, result.output
-    assert "요청 19개 중" in result.output  # 9 families x 2 + normal_repeat x 1
+    assert "요청 21개 중" in result.output  # 10 families x 2 + normal_repeat x 1
 
 
 def test_cli_generate_repos_filter(tmp_path, monkeypatch):

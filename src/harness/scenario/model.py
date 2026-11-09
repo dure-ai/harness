@@ -17,6 +17,7 @@ Family = Literal[
     "normal_repeat",
     "coincidence",
     "single_source_poison",
+    "unconfirmed_poison",
     "echo",
     "failure_feedback",
     "truth_change",

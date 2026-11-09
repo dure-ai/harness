@@ -1,4 +1,4 @@
-"""Templates of the six read-only families, one function per row of the design table (spec 5.3).
+"""Templates of the seven read-only families, one function per row of the design table (spec 5.3).
 
 Each takes (candidate, traces of its bundle, seed) and returns a skeleton with empty text, or
 None when the candidate does not fit. Rules shared by all of them (generation design 5.4):
@@ -126,6 +126,32 @@ def single_source_poison(
             b.event(b.at(day), source, true)
         else:
             confirm(b, day, confirmer, true, b.events_of(true))
+    for kind, day in _probes_in_random_order(b):
+        b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
+    return b.build()
+
+
+def unconfirmed_poison(
+    cand: FactCandidate, traces: Sequence[Trace], seed: int
+) -> Skeleton | None:
+    """`single_source_poison` with nothing confirmed: only who wrote each record tells the facts apart.
+
+    One user injects the false fact over 3-4 sessions and days; three other users record the
+    true one once each. Nobody runs a test or reviews, so every event is `self` and a rule that
+    trusts outside confirmations has nothing to go on. Independent sources count by user.
+    """
+    b = SkeletonBuilder("unconfirmed_poison", cand, traces, seed)
+    true = b.fact("f_true")
+    false = b.fact("f_false", fabricated=True, valid=False)
+    poisoner, *sources, asker = b.users(5)
+    order = ["poison"] * (3 + b.rng.randint(0, 1)) + ["true"] * len(sources)
+    b.rng.shuffle(order)
+    for slot in order:
+        day = b.next_day()
+        if slot == "poison":
+            b.event(b.at(day), poisoner, false)
+        else:
+            b.event(b.at(day), sources.pop(0), true)
     for kind, day in _probes_in_random_order(b):
         b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
     return b.build()
