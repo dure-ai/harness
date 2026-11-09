@@ -36,12 +36,13 @@ def _expected_dims(env: Mapping[str, str]) -> int:
     raw = env.get(ENV_DIMS)
     if raw is None or not raw.strip():
         return DEFAULT_DIMS
+    msg = f"{ENV_DIMS} must be a positive whole number, got {raw!r}"
     try:
-        dims = int(raw)
+        dims = int(raw)  # like the server's own int(): accepts 1_024 and full-width digits
     except ValueError:
-        dims = 0
+        raise ValueError(msg) from None
     if dims < 1:
-        raise ValueError(f"{ENV_DIMS} must be a positive whole number, got {raw!r}")
+        raise ValueError(msg)
     return dims
 
 

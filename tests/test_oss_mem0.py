@@ -230,6 +230,14 @@ def test_server_that_reports_no_size_counts_as_1536(fake):
                    sleep=lambda _: None)
 
 
+@pytest.mark.parametrize("raw", ["1_024", "１０２４", " 1024 "])
+def test_dims_env_spellings_that_int_accepts(fake, raw):
+    fake.dims = 1024
+    engine = Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": raw},
+                        sleep=lambda _: None)
+    assert engine.info().config["embedding_dims"] == 1024
+
+
 @pytest.mark.parametrize("raw", ["abc", "0", "-3", "10.5"])
 def test_bad_dims_env_stops(fake, raw):
     with pytest.raises(ValueError, match="HARNESS_EMBEDDING_DIMS must be a positive whole number"):
