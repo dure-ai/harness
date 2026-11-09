@@ -338,6 +338,8 @@ export HARNESS_LLM_MODEL=gpt-4.1-mini
 export HARNESS_EMBEDDING_MODEL=text-embedding-3-small
 # 임베딩 크기가 1536이 아니면 Mem0에 알린다 (예: Upstage solar-embedding-2-*는 1024). 기본값 1536
 # export HARNESS_EMBEDDING_DIMS=1024
+# Upstage 예: OPENAI_BASE_URL=https://api.upstage.ai/v1, HARNESS_LLM_MODEL=solar-pro4 (solar-mini4도 가능; solar-pro2는 종료),
+#   HARNESS_EMBEDDING_MODEL=solar-embedding-2-passage, HARNESS_EMBEDDING_DIMS=1024
 
 # 2. 두 엔진을 같이 띄운다. --wait는 healthcheck가 통과할 때까지 기다린다
 #    (Mem0는 처음에 GitHub에서 서버 코드를 받아 빌드하므로 첫 번째만 --build를 붙인다)
@@ -363,6 +365,7 @@ docker compose -f engines/docker/mem0/compose.yaml down -v
   - [ ] 두 컨테이너를 같이 띄운 메모리 사용량(`docker stats --no-stream`)이 이 컴퓨터에 충분하다.
   - [ ] 두 이미지가 arm64(Apple Silicon)에서 받아지고 에뮬레이션 없이 돈다.
   - [x] 임베딩 차원: Hindsight는 시작할 때 DB 차원을 모델에 맞춰 스스로 바꿉니다(1.0.0, Upstage 1024로 확인). Mem0 서버(v2.2.1)는 벡터 크기를 넘기지 않아 1536으로 고정되므로, 1536이 아닌 모델(Upstage `solar-embedding-2-*`는 1024)을 쓰면 `HARNESS_EMBEDDING_DIMS`를 모델 크기로 줍니다. 안 맞으면 `POST /memories`가 `expected 1536 dimensions, not 1024`로 502를 냅니다. 이미 만들어진 테이블은 크기가 안 바뀌니 `down -v` 뒤에 다시 띄웁니다.
+  - [ ] Upstage 임베딩은 저장용 `solar-embedding-2-passage`와 검색 질의용 `solar-embedding-2-query`로 나뉩니다(둘 다 1024차원). 두 엔진은 모델 이름을 하나만 받아 저장과 검색에 같은 모델을 쓰므로, 어느 쪽을 쓸지 정해 측정 조건으로 리포트에 남깁니다(지금은 `-passage`로 검증). 어댑터는 이 이름이 평가 설정의 `llm.embedding_model`과 같은지만 봅니다.
   - [ ] 시나리오 하나가 끝나는 데 걸리는 시간을 재서 전체 실행 시간(시나리오 수 x 반복 x 엔진 2개)을 어림한다.
   - [ ] Hindsight가 실제로 쓰는 모델은 API로 읽을 수 없어 확인하지 못한다. 환경 변수와 컨테이너 설정이 같은지 눈으로 대조한다.
 
