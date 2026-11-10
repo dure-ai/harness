@@ -262,14 +262,14 @@ def test_errored_scenarios_fail_verdict():
     v = judge_engine(m, BASE, CFG)
     assert (v.m1_ok, v.m2_ok, v.m3_ok) == (True, True, True)
     assert v.passed is False
-    assert "판정 불가: 오류 시나리오 2개" in v.reasons
+    assert "판정 불가: 오류·건너뜀 시나리오 2개" in v.reasons
 
 
 def test_averaged_errors_union_over_repeats():
     repeats = [M(), replace(M(), errors=["s2"]), replace(M(), errors=["s1", "s2"])]
     assert averaged(repeats).errors == ["s1", "s2"]
     s = EngineScore.from_repeats("e", repeats, BASE, CFG)
-    assert not s.verdict.passed and "판정 불가: 오류 시나리오 2개" in s.verdict.reasons
+    assert not s.verdict.passed and "판정 불가: 오류·건너뜀 시나리오 2개" in s.verdict.reasons
 
 
 def test_engine_score_flip():

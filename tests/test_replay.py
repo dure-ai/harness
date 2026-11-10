@@ -550,14 +550,39 @@ def test_scenario_run_status_defaults_and_invariant():
         ScenarioRun("s", "f", "read_only", status="error")
 
 
-def test_unavailable_engine_marks_status_unavailable_and_other_errors_error():
+@pytest.mark.parametrize("where", ["reset", "record", "search"])
+def test_run_scenario_classifies_exceptions_from_every_engine_call(where):
     from harness.contract import EngineUnavailable
 
-    class Down(Recorder):
-        def search(self, query):
-            raise EngineUnavailable("gone")
+    def failing(exc):
+        class Failing(Recorder):
+            pass
 
-    down = run_scenario(Down(), _same_time(), run_id="r", cfg=CFG)
+        def boom(self, *args):
+            raise exc
+
+        setattr(Failing, where, boom)
+        return Failing()
+
+    down = run_scenario(failing(EngineUnavailable("gone")), _same_time(), run_id="r", cfg=CFG)
     assert down.status == "unavailable" and down.error == "EngineUnavailable: gone"
-    broken = run_scenario(Recorder(fail_on="search"), _same_time(), run_id="r", cfg=CFG)
+    broken = run_scenario(failing(RuntimeError("boom")), _same_time(), run_id="r", cfg=CFG)
     assert broken.status == "error"
+
+
+def test_flush_timeout_is_unavailable():
+    from harness.oss.hindsight import FlushTimeout
+
+    class Stuck(Recorder):
+        def flush(self):
+            raise FlushTimeout("stuck")
+
+    run = run_scenario(Stuck(), _same_time(), run_id="r", cfg=CFG)
+    assert run.status == "unavailable"
+
+
+def test_scenario_run_rejects_unknown_status():
+    from harness.replay import ScenarioRun
+
+    with pytest.raises(ValueError):
+        ScenarioRun("s", "f", "read_only", error="X", status="bogus")  # pyright: ignore[reportArgumentType]

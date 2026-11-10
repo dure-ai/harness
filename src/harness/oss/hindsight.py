@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, override
 
 from harness.config import EvalConfig
-from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
+from harness.contract import BaseEngine, EngineInfo, EngineUnavailable, Event, Query, Result
 from harness.oss.http import JsonClient, check_local_url
 from harness.oss.models import expected_models
 from harness.oss.text import engine_ns, event_unit, format_event, format_query, query_units
@@ -20,6 +20,10 @@ _BANKS = "/v1/default/banks"
 # Base URLs whose engine already answered once in this process. Only the first build against a
 # URL fails fast; later builds retry like any other request (an engine that was up may blip).
 _verified_urls: set[str] = set()
+
+
+class FlushTimeout(TimeoutError, EngineUnavailable):  # pyright: ignore[reportUnsafeMultipleInheritance]  # EngineUnavailable is a pure marker with no __init__
+    """Hindsight's background work did not finish within the flush timeout; counts as unreachable."""
 
 
 class HindsightEngine(BaseEngine):
@@ -145,7 +149,7 @@ class HindsightEngine(BaseEngine):
         """Wait until Hindsight has no pending or processing background operations.
 
         Raises:
-            TimeoutError: If the work does not finish within the flush timeout.
+            FlushTimeout: If the work does not finish within the flush timeout.
             RuntimeError: If any background operation failed.
         """
         start = self._clock()
@@ -154,7 +158,7 @@ class HindsightEngine(BaseEngine):
             if busy == 0:
                 break
             if self._clock() - start > self._flush_timeout:
-                raise TimeoutError(f"hindsight: background work not finished after {self._flush_timeout}s")
+                raise FlushTimeout(f"hindsight: background work not finished after {self._flush_timeout}s")
             self._sleep(self._poll_interval)
         failed = self._total("failed")
         if failed > 0:

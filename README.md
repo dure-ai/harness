@@ -75,7 +75,7 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 | 순위 | 판정을 통과한 후보 엔진의 순위와 차이의 신뢰구간 |
 | 성능 | `record`·`search` 응답 시간과 질문당 건넨 글자 수(표시만 하고 판정에는 쓰지 않음) |
 | 엔진 한계 | 가상 시계·출처·범위 지원 여부와 설정. 가상 시계를 지원하지 않으면 시간 계열 결과에 주석이 붙습니다 |
-| 오류 시나리오 | 엔진이 예외를 낸 시나리오(반복 실행이면 회차와 함께). 하나라도 있으면 그 엔진은 판정을 통과할 수 없습니다 |
+| 오류 시나리오 | 끝까지 돌지 못한 시나리오와 상태(오류, 응답 없음, 건너뜀. 반복 실행이면 회차와 함께). `--sealed`에서는 개수만 나뉘어 나옵니다. 하나라도 있으면 그 엔진은 판정을 통과할 수 없습니다 |
 | 자가 검증 | 2단계와 같은 표 |
 
 **판정 기준** (`config/eval-v0.1.yaml`의 `judgment`):
@@ -370,7 +370,7 @@ docker compose -f engines/docker/mem0/compose.yaml down -v
   - [ ] Hindsight가 실제로 쓰는 모델은 API로 읽을 수 없어 확인하지 못한다. 환경 변수와 컨테이너 설정이 같은지 눈으로 대조한다.
 
   앞의 두 항목은 `HARNESS_LIVE_OSS=1 uv run pytest tests/test_oss_live.py`의 범위 시험(`test_live_scope_isolation`)이, Mem0의 네 가지 가시성 경우는 같은 파일의 `test_live_mem0_other_teams_team_record_is_not_returned`, `test_live_mem0_other_users_personal_record_is_not_returned`, `test_live_mem0_same_sentence_in_another_run_is_kept_apart`, `test_live_mem0_same_sentence_for_two_teams_in_one_run_is_kept_apart`가 자동으로 확인합니다(각 시험은 자기 기록을 먼저 찾아 보는 대조 확인을 포함합니다).
-- 한 엔진이 시나리오 3개(`MAX_CONSECUTIVE_ENGINE_ERRORS`)를 연달아 "응답 없음"으로 끝내면(서버에 닿지 못하거나, 재시도 뒤에도 429·502·503·504가 계속 오는 경우) 그 회차의 남은 시나리오는 부르지 않고 "skipped"로 기록하며 경고를 stderr에 냅니다. 서버가 오류 응답(400, 500 등)을 빨리 돌려주는 경우는 세지 않고 계속 측정하며, 연속 횟수는 회차마다 0에서 다시 셉니다. 중단된 엔진은 다음 회차의 첫 시나리오를 실제로 한 번 불러 보고, 응답하면 그 회차를 이어서 돌립니다. 리포트는 오류, 응답 없음, 건너뜀을 따로 세며, 건너뛴 시나리오도 판정에서는 오류로 칩니다.
+- 한 엔진이 시나리오 3개(`MAX_CONSECUTIVE_ENGINE_ERRORS`)를 연달아 "응답 없음"으로 끝내면(서버에 닿지 못하거나, 재시도 뒤에도 429·502·503·504가 계속 오는 경우) 그 회차의 남은 시나리오는 부르지 않고 "skipped"로 기록하며 경고를 stderr에 냅니다. 서버가 오류 응답(400, 500 등)을 빨리 돌려주는 경우는 세지 않고 계속 측정하며, 연속 횟수는 회차마다 0에서 다시 셉니다. 중단된 엔진은 다음 회차의 첫 시나리오를 실제로 한 번 불러 보고, 응답하면 그 회차를 이어서 돌립니다. Hindsight의 `flush`가 시간 안에 끝나지 않는 경우도 응답 없음으로 칩니다. 연속 횟수가 한 회차의 시나리오 수보다 크면 엔진은 중단되지 않습니다. 리포트는 오류, 응답 없음, 건너뜀을 따로 세며, 건너뛴 시나리오도 판정에서는 오류로 칩니다.
 - 시나리오가 아직 초안이면 3번에 `--include-drafts`가 필요합니다. 승인된 시나리오만 있으면 빼세요.
 - 포트는 `127.0.0.1:8888`(Hindsight)과 `127.0.0.1:8890`(Mem0)에만 열립니다. 주소를 바꾸려면 `HARNESS_HINDSIGHT_URL`, `HARNESS_MEM0_URL`을 쓰며, 어댑터는 `localhost`, `127.0.0.1`, `[::1]` 밖의 주소와 37701, 37777 포트를 거부합니다.
 - 어댑터는 시작할 때 `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`이 `config/eval-v0.1.yaml`의 `llm` 값과 같은지 확인하고, 다르면 실행 전에 멈춥니다. 키 값은 코드, 로그, 리포트 어디에도 남지 않습니다.

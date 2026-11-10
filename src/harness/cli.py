@@ -317,14 +317,18 @@ def _run_extra(
             if tripped and i == 0:  # the check of a tripped engine
                 if run.status == "unavailable":
                     typer.echo(f"warning: {name} still unreachable in repeat {r}; skipping it", err=True)
-                    skip_reason = _skip_reason(name, streak, run.error)
+                    skip_reason = f"skipped: {name} still unreachable in repeat {r}; last: {run.error}"
                 else:
                     tripped = False
                     typer.echo(f"warning: {name} answered again in repeat {r}; resuming", err=True)
             elif not tripped and streak >= MAX_CONSECUTIVE_ENGINE_ERRORS:
                 tripped = True
                 skip_reason = _skip_reason(name, streak, run.error)
-                if sealed:
+                if i == len(scenarios) - 1:  # nothing left to skip in this repeat
+                    tail = "will check again next repeat"
+                    shown = f"{name} was unreachable for {streak} scenarios in a row; "
+                    shown += f"{tail} (details hidden by --sealed)" if sealed else f"last: {run.error}; {tail}"
+                elif sealed:
                     shown = f"{name} was unreachable for {streak} scenarios in a row; skipping the rest of the repeat (details hidden by --sealed)"
                 else:
                     shown = skip_reason

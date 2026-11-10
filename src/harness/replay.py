@@ -8,12 +8,16 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import count
+from typing import Literal
 
 from harness.agent import Choice, choose, result_basis
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineUnavailable, Event, Result
 from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, Scenario
 from harness.scoring import Leak, ProbeOutcome, find_leaks, is_wrong, judge
+
+Status = Literal["ok", "error", "unavailable", "skipped"]
+STATUSES: frozenset[str] = frozenset({"ok", "error", "unavailable", "skipped"})
 
 EVENT, PROBE = 0, 1  # tie-break order: events at the same time come before probes
 
@@ -163,16 +167,18 @@ class ScenarioRun:
     generated: list[LabeledEvent] = field(default_factory=list)
     error: str | None = None
     generated_ids: dict[tuple[str, str], str] = field(default_factory=dict)
-    status: str | None = None
+    status: Status | None = None
 
     def __post_init__(self) -> None:
         if self.status is None:
             self.status = "ok" if self.error is None else "error"
+        if self.status not in STATUSES:
+            raise ValueError(f"unknown status {self.status!r}")
         if (self.status == "ok") != (self.error is None):
             raise ValueError(f"status {self.status!r} does not match error {self.error!r}")
 
 
-def _failure_status(e: Exception) -> str:
+def _failure_status(e: Exception) -> Status:
     """The `ScenarioRun.status` for an engine exception."""
     return "unavailable" if isinstance(e, EngineUnavailable) else "error"
 

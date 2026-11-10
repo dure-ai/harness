@@ -42,7 +42,7 @@ class EngineHTTPError(RuntimeError):
         self.body: str = body
 
 
-class EngineUnavailableError(EngineHTTPError, EngineUnavailable):
+class EngineUnavailableError(EngineHTTPError, EngineUnavailable):  # pyright: ignore[reportUnsafeMultipleInheritance]  # EngineUnavailable is a pure marker with no __init__
     """The engine could not be reached, or kept answering 429/502/503/504 until the retries ran out.
 
     The run loop counts these toward stopping the engine, see `EngineUnavailable`.

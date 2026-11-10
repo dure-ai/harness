@@ -5,7 +5,7 @@ import pytest
 
 from harness.config import LLM, EvalConfig
 from harness.contract import Event, Query
-from harness.oss.hindsight import HindsightEngine
+from harness.oss.hindsight import FlushTimeout, HindsightEngine
 from harness.oss.http import EngineHTTPError
 from harness.oss.models import ENV_EMBEDDING, ENV_LLM
 from harness.oss.text import engine_ns
@@ -71,7 +71,7 @@ def test_flush_timeout(fake):
     fake.pending_rounds = 10**6
     eng = make(fake, clock=iter(range(0, 10**6, 100)).__next__, flush_timeout=600)
     eng.reset("ns"); eng.record(ev("e1"))
-    with pytest.raises(TimeoutError):
+    with pytest.raises(FlushTimeout):
         eng.flush()
 
 
