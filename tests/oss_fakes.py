@@ -4,10 +4,13 @@ import json
 import re
 import socket
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
+
+from harness.oss.http import _CLAUDE_MEM_PORTS  # pyright: ignore[reportPrivateUsage]
 
 
 @dataclass
@@ -27,10 +30,29 @@ class Recorded:
     body: Any
 
 
+def allowed_port[T](open_: Callable[[], T], port: Callable[[T], int], close: Callable[[T], None]) -> T:
+    """Open with `open_` until the OS hands out a port the adapters accept.
+
+    `check_local_url` refuses the claude-mem ports, and port 0 can land on them, which failed a
+    test at random.
+    """
+    while True:
+        opened = open_()
+        if port(opened) not in _CLAUDE_MEM_PORTS:
+            return opened
+        close(opened)
+
+
+def _bound_socket() -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    return sock
+
+
 def free_port() -> int:
     """Return a local port nobody is listening on."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
+    sock = allowed_port(_bound_socket, lambda s: s.getsockname()[1], lambda s: s.close())
+    with sock:
         return sock.getsockname()[1]
 
 
@@ -74,7 +96,11 @@ class FakeServer:
 
             do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = _serve
 
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._server = allowed_port(
+            lambda: ThreadingHTTPServer(("127.0.0.1", 0), Handler),
+            lambda s: s.server_address[1],
+            lambda s: s.server_close(),
+        )
         self._server.daemon_threads = True
         # serve_forever() polls for shutdown every 0.5 s by default, and shutdown() waits for that poll,
         # so every test that used a fake server spent about half a second in teardown.
