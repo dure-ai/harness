@@ -4,7 +4,8 @@ from typing import Any
 import pytest
 
 from harness.config import LLM
-from harness.oss.http import EngineHTTPError, JsonClient, check_local_url
+from harness.contract import EngineUnavailable
+from harness.oss.http import EngineHTTPError, EngineUnavailableError, JsonClient, check_local_url
 from harness.oss.models import ENV_EMBEDDING, ENV_LLM, expected_models
 from tests.oss_fakes import FakeServer, RawResponse, free_port
 
@@ -166,3 +167,26 @@ def test_truncated_error_body_keeps_status():
             JsonClient(s.url, sleep=lambda _: None).request("GET", "/x")
         assert len(s.requests) == 1
     assert ei.value.status == 500 and ei.value.body
+
+
+def test_unavailable_error_after_retries_on_503_and_connection_failure():
+    with Echo() as s:
+        s.fail_next(503, 4)
+        with pytest.raises(EngineUnavailableError) as ei:
+            JsonClient(s.url, sleep=lambda _: None).request("GET", "/x")
+    assert isinstance(ei.value, EngineHTTPError) and isinstance(ei.value, EngineUnavailable)
+    assert ei.value.status == 503
+    with pytest.raises(EngineUnavailableError) as ei2:
+        JsonClient(f"http://127.0.0.1:{free_port()}", sleep=lambda _: None).request("GET", "/x")
+    assert ei2.value.status is None
+
+
+def test_retry_false_on_503_is_unavailable_but_400_is_plain():
+    with Echo() as s:
+        s.fail_next(503, 1)
+        with pytest.raises(EngineUnavailableError):
+            JsonClient(s.url).request("GET", "/x", retry=False)
+        s.fail_next(400, 1)
+        with pytest.raises(EngineHTTPError) as ei:
+            JsonClient(s.url, sleep=lambda _: None).request("GET", "/x")
+    assert type(ei.value) is EngineHTTPError

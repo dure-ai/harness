@@ -535,3 +535,29 @@ def test_refs_reach_the_engine_as_opaque_ids():
     run_scenario(eng, s, run_id="r", cfg=CFG)
     events = [e for e in eng.received if isinstance(e, Event)]
     assert events[1].refs == (engine_event_id(s.id, "e1", DEFAULT_BLIND_KEY),)
+
+
+def test_scenario_run_status_defaults_and_invariant():
+    from harness.replay import ScenarioRun
+
+    assert ScenarioRun("s", "f", "read_only").status == "ok"
+    assert ScenarioRun("s", "f", "read_only", error="X: y").status == "error"
+    assert ScenarioRun("s", "f", "read_only", error="X: y", status="unavailable").status == "unavailable"
+    assert ScenarioRun("s", "f", "read_only", error="skipped: x", status="skipped").status == "skipped"
+    with pytest.raises(ValueError):
+        ScenarioRun("s", "f", "read_only", error="X: y", status="ok")
+    with pytest.raises(ValueError):
+        ScenarioRun("s", "f", "read_only", status="error")
+
+
+def test_unavailable_engine_marks_status_unavailable_and_other_errors_error():
+    from harness.contract import EngineUnavailable
+
+    class Down(Recorder):
+        def search(self, query):
+            raise EngineUnavailable("gone")
+
+    down = run_scenario(Down(), _same_time(), run_id="r", cfg=CFG)
+    assert down.status == "unavailable" and down.error == "EngineUnavailable: gone"
+    broken = run_scenario(Recorder(fail_on="search"), _same_time(), run_id="r", cfg=CFG)
+    assert broken.status == "error"

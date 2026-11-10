@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 
 from harness.config import EvalConfig, config_hash, load_config
-from harness.contract import BaseEngine, EngineInfo
+from harness.contract import BaseEngine, EngineInfo, EngineUnavailable
 from harness.engines import BASELINES, OSS_ENGINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, run_scenario
@@ -252,8 +252,12 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
     return info
 
 
-# An engine whose scenarios fail this many times in a row is not measured further: the rest of
-# its scenarios are recorded as skipped, so a dead or misconfigured server cannot stall the run.
+# An engine that could not be reached for this many scenarios in a row is tripped: the rest of
+# that repeat is recorded as skipped, so a dead server cannot stall the run (each unreachable
+# scenario costs the HTTP client its retries, up to minutes). Only `unavailable` runs count; a
+# scenario that fails fast (the server answered, with an error) resets the count and the engine
+# keeps being measured. The count restarts every repeat, and a tripped engine is tried again with
+# the first scenario of each later repeat.
 MAX_CONSECUTIVE_ENGINE_ERRORS = 3
 
 
@@ -265,23 +269,27 @@ def _run_extra(
     run_id: str,
     infos: dict[str, EngineInfo],
     key: bytes,
-    sealed: bool = False,
+    *,
+    sealed: bool,
 ) -> list[list[ScenarioRun]]:
     """One list of scenario runs per repeat; every scenario gets a fresh engine; `key` blinds namespaces.
 
-    After `MAX_CONSECUTIVE_ENGINE_ERRORS` failed scenarios in a row (across repeats) the engine is
-    not called again: its remaining scenarios are kept with an error saying why, and a warning
-    goes to stderr. With `sealed` the warning leaves out the last error, which can quote an
-    engine reply and through it scenario content.
+    After `MAX_CONSECUTIVE_ENGINE_ERRORS` `unavailable` runs in a row within a repeat the engine
+    is tripped: the rest of that repeat is kept as `skipped` runs saying why, and a warning goes
+    to stderr. Runs that are `ok` or `error` reset the count. Each later repeat runs its first
+    scenario for real; if the engine answers (`ok` or `error`) it resumes, otherwise the rest of
+    that repeat is skipped again. With `sealed` the warnings leave out engine error text, which
+    can quote an engine reply and through it scenario content.
     """
     all_runs: list[list[ScenarioRun]] = []
-    streak = 0
-    stopped: str | None = None
+    tripped = False
     for r in range(1, repeats + 1):
-        runs = []
+        runs: list[ScenarioRun] = []
+        streak = 0
+        skip_reason: str | None = None
         for i, s in enumerate(scenarios):
-            if stopped is not None:
-                runs.append(ScenarioRun(s.id, s.family, s.mode, error=stopped))
+            if skip_reason is not None:
+                runs.append(ScenarioRun(s.id, s.family, s.mode, error=skip_reason, status="skipped"))
                 continue
             try:
                 engine = make_engine(name, s, cfg)
@@ -295,22 +303,38 @@ def _run_extra(
                         f"error: cannot build engine {name!r}: {type(e).__name__}: {e}",
                         2,
                     ) from e
-                run = ScenarioRun(s.id, s.family, s.mode, error=f"{type(e).__name__}: {e}")
+                run = ScenarioRun(
+                    s.id,
+                    s.family,
+                    s.mode,
+                    error=f"{type(e).__name__}: {e}",
+                    status="unavailable" if isinstance(e, EngineUnavailable) else "error",
+                )
             else:
                 run = run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key)
             runs.append(run)
-            streak = streak + 1 if run.error else 0
-            if streak >= MAX_CONSECUTIVE_ENGINE_ERRORS:
-                stopped = (
-                    f"skipped: {name} failed {streak} scenarios in a row; last: {run.error}"
-                )
-                if sealed:
-                    shown = f"{name} failed {streak} scenarios in a row; skipping the rest (details hidden by --sealed)"
+            streak = streak + 1 if run.status == "unavailable" else 0
+            if tripped and i == 0:  # the check of a tripped engine
+                if run.status == "unavailable":
+                    typer.echo(f"warning: {name} still unreachable in repeat {r}; skipping it", err=True)
+                    skip_reason = _skip_reason(name, streak, run.error)
                 else:
-                    shown = stopped
+                    tripped = False
+                    typer.echo(f"warning: {name} answered again in repeat {r}; resuming", err=True)
+            elif not tripped and streak >= MAX_CONSECUTIVE_ENGINE_ERRORS:
+                tripped = True
+                skip_reason = _skip_reason(name, streak, run.error)
+                if sealed:
+                    shown = f"{name} was unreachable for {streak} scenarios in a row; skipping the rest of the repeat (details hidden by --sealed)"
+                else:
+                    shown = skip_reason
                 typer.echo(f"warning: {shown}", err=True)
         all_runs.append(runs)
     return all_runs
+
+
+def _skip_reason(name: str, streak: int, last: str | None) -> str:
+    return f"skipped: {name} was unreachable for {streak} scenarios in a row; last: {last}"
 
 
 @app.command()
@@ -387,7 +411,7 @@ def run(
     candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}
     for name in candidates:
         repeats = repeat if repeat is not None else cfg.llm_repeats
-        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed)
+        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed=sealed)
         metrics = [compute_metrics(runs, by_id) for runs in per_repeat]
         flip = flip_rate(per_repeat) if repeats > 1 else None
         candidate_scores.append(

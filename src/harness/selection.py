@@ -164,7 +164,8 @@ def averaged(repeats: list[Metrics]) -> Metrics:
     Only the M1/M2 intervals (and the ranking bootstrap, which uses the first repeat's runs)
     are based on the first repeat. Everything else covers every repeat:
 
-    - M1/M2 `value` is the mean over repeats; M3 is the worst repeat's; `errors` is the union.
+    - M1/M2 `value` is the mean over repeats; M3 is the worst repeat's; `errors` is the union; `n_unavailable` and
+      `n_skipped` are summed over the repeats.
     - Rate-like metrics (promote FN/FP, shallow fix, reach, contamination, sourceless) and
       every cell of the family and author tables are pooled as rate(sum k, sum n). Their
       intervals come from the pooled counts and are for reference. `worst_family` is
@@ -203,6 +204,8 @@ def averaged(repeats: list[Metrics]) -> Metrics:
         record_ms_p95=_mean_present([r.record_ms_p95 for r in repeats]),
         search_ms_p50=_mean_present([r.search_ms_p50 for r in repeats]),
         search_ms_p95=_mean_present([r.search_ms_p95 for r in repeats]),
+        n_unavailable=sum(r.n_unavailable for r in repeats),
+        n_skipped=sum(r.n_skipped for r in repeats),
     )
 
 

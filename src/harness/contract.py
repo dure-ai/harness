@@ -79,6 +79,14 @@ class EngineInfo(BaseModel):
     scopes: bool = False
 
 
+class EngineUnavailable(Exception):
+    """Raised by an engine when its backend could not be reached or kept answering with a retryable status after retries.
+
+    The run loop counts these toward stopping the engine (`MAX_CONSECUTIVE_ENGINE_ERRORS`); any
+    other exception means the backend answered and does not count.
+    """
+
+
 class BaseEngine(ABC):
     """A memory engine under evaluation, treated as a black box.
 

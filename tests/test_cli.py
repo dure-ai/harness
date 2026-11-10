@@ -230,54 +230,132 @@ def test_run_engine_record_raises(tmp_path):
     assert len(metrics["errors"]) == 2
 
 
-def test_run_extra_engine_stops_after_consecutive_failures(tmp_path, monkeypatch):
+def _scripted(monkeypatch, statuses):
+    """Patch `run_scenario` to return the next status of `statuses` per call; returns the list of called ids."""
     import harness.cli
     from harness.replay import ScenarioRun
 
-    calls = []
+    calls: list[str] = []
+    script = iter(statuses)
 
-    def failing(engine, scenario, **kwargs):
+    def fake(engine, scenario, **kwargs):
         calls.append(scenario.id)
-        return ScenarioRun(scenario.id, scenario.family, scenario.mode, error="RuntimeError: boom")
+        status = next(script, "ok")
+        error = None if status == "ok" else "RuntimeError: SECRET-TEXT"
+        return ScenarioRun(scenario.id, scenario.family, scenario.mode, error=error, status=status)
 
-    monkeypatch.setattr(harness.cli, "run_scenario", failing)
-    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
-    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy", "--repeat", "2")
-    # Only two scenarios were really run; the other two (second repeat) were skipped, not retried.
-    assert len(calls) == 2
-    assert "warning: skipped: tests.dummy_engine:Dummy failed 2 scenarios in a row" in result.output
-    assert sorted(summary_of(result)["engines"]["E1"]["metrics"]["errors"]) == ["sp", "tc"]
+    monkeypatch.setattr(harness.cli, "run_scenario", fake)
+    return calls
 
 
-def test_run_extra_stop_warning_hides_the_error_when_sealed(tmp_path, monkeypatch):
+def _statuses(result) -> list[list[str]]:
+    engine = summary_of(result)["engines"]["E1"]
+    return engine["metrics"]
+
+
+def _run_dummy(tmp_path, *extra):
+    return run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy", *extra)
+
+
+def test_run_extra_unavailable_in_a_row_skips_the_rest_of_the_repeat(tmp_path, monkeypatch):
     import harness.cli
-    from harness.replay import ScenarioRun
 
-    def failing(engine, scenario, **kwargs):
-        return ScenarioRun(scenario.id, scenario.family, scenario.mode, error="RuntimeError: SECRET-TEXT")
+    calls = _scripted(monkeypatch, ["unavailable", "ok", "ok"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    result, _ = _run_dummy(tmp_path, "--repeat", "1")
+    assert len(calls) == 1  # the second scenario was skipped, not run
+    assert "warning: skipped: tests.dummy_engine:Dummy was unreachable for 1 scenarios in a row; last: RuntimeError: SECRET-TEXT" in result.output
+    metrics = _statuses(result)
+    assert sorted(metrics["errors"]) == ["sp", "tc"]
+    assert metrics["n_unavailable"] == 1 and metrics["n_skipped"] == 1
 
-    monkeypatch.setattr(harness.cli, "run_scenario", failing)
+
+def test_run_extra_fast_errors_never_stop_the_engine(tmp_path, monkeypatch):
+    import harness.cli
+
+    calls = _scripted(monkeypatch, ["error"] * 3)
     monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
-    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy",
-                        "--repeat", "2", "--sealed")
-    assert "failed 2 scenarios in a row; skipping the rest (details hidden by --sealed)" in result.output
+    result, _ = _run_dummy(tmp_path, "--repeat", "3")
+    assert len(calls) == 6  # every scenario of every repeat ran
+    assert "skipped" not in result.output
+    metrics = _statuses(result)
+    assert metrics["n_skipped"] == 0 and metrics["n_unavailable"] == 0
+
+
+def test_run_extra_streak_does_not_cross_the_repeat_boundary(tmp_path, monkeypatch):
+    import harness.cli
+
+    # repeat 1: ok, unavailable; repeat 2: unavailable, ok; repeat 3: ok, ok. MAX is 2.
+    calls = _scripted(monkeypatch, ["ok", "unavailable", "unavailable", "ok"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
+    result, _ = _run_dummy(tmp_path, "--repeat", "3")
+    assert len(calls) == 6
+    assert "warning" not in result.output
+    assert _statuses(result)["n_skipped"] == 0
+
+
+def test_run_extra_error_between_unavailable_resets_the_streak(tmp_path, monkeypatch):
+    import harness.cli
+
+    calls = _scripted(monkeypatch, ["unavailable", "error", "unavailable", "error"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
+    result, _ = _run_dummy(tmp_path, "--repeat", "2")
+    assert len(calls) == 4 and "warning" not in result.output
+
+
+def test_run_extra_tripped_engine_recovers_in_the_next_repeat(tmp_path, monkeypatch):
+    import harness.cli
+
+    # repeat 1 trips after the first scenario; repeat 2 and 3 get answers.
+    calls = _scripted(monkeypatch, ["unavailable", "ok", "ok", "ok", "ok"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    result, _ = _run_dummy(tmp_path, "--repeat", "3")
+    assert len(calls) == 5  # repeat 1: one run, one skipped; repeats 2 and 3: all
+    assert "warning: tests.dummy_engine:Dummy answered again in repeat 2; resuming" in result.output
+    metrics = _statuses(result)
+    assert metrics["n_unavailable"] == 1 and metrics["n_skipped"] == 1
+
+
+def test_run_extra_tripped_engine_that_answers_with_an_error_resumes(tmp_path, monkeypatch):
+    import harness.cli
+
+    calls = _scripted(monkeypatch, ["unavailable", "error", "ok"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    result, _ = _run_dummy(tmp_path, "--repeat", "2")
+    assert len(calls) == 3  # repeat 2 runs both scenarios
+    assert "answered again in repeat 2; resuming" in result.output
+
+
+def test_run_extra_tripped_engine_still_down_runs_one_check_per_repeat(tmp_path, monkeypatch):
+    import harness.cli
+
+    calls = _scripted(monkeypatch, ["unavailable", "unavailable"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    result, _ = _run_dummy(tmp_path, "--repeat", "2")
+    assert len(calls) == 2  # the first scenario of each repeat; the second scenarios were skipped
+    assert "warning: tests.dummy_engine:Dummy still unreachable in repeat 2; skipping it" in result.output
+    metrics = _statuses(result)
+    assert metrics["n_unavailable"] == 2 and metrics["n_skipped"] == 2
+
+
+def test_run_extra_warnings_hide_engine_error_text_when_sealed(tmp_path, monkeypatch):
+    import harness.cli
+
+    _scripted(monkeypatch, ["unavailable", "unavailable", "ok", "ok"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    result, _ = _run_dummy(tmp_path, "--repeat", "3", "--sealed")
+    assert "was unreachable for 1 scenarios in a row; skipping the rest of the repeat (details hidden by --sealed)" in result.output
+    assert "still unreachable in repeat 2; skipping it" in result.output
+    assert "answered again in repeat 3; resuming" in result.output
     assert "SECRET-TEXT" not in result.output
 
 
 def test_run_extra_success_resets_failure_streak(tmp_path, monkeypatch):
     import harness.cli
-    from harness.replay import ScenarioRun
 
-    calls = []
-
-    def alternating(engine, scenario, **kwargs):
-        calls.append(scenario.id)
-        error = "RuntimeError: boom" if len(calls) % 2 else None
-        return ScenarioRun(scenario.id, scenario.family, scenario.mode, error=error)
-
-    monkeypatch.setattr(harness.cli, "run_scenario", alternating)
+    calls = _scripted(monkeypatch, ["unavailable", "ok", "unavailable", "ok"])
     monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 2)
-    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:Dummy", "--repeat", "2")
+    result, _ = _run_dummy(tmp_path, "--repeat", "2")
     assert len(calls) == 4
     assert "skipped" not in result.output
 
@@ -1212,3 +1290,25 @@ def test_scenario_new_records_the_generation_hashes(tmp_path):
     runner.invoke(app, ["scenario", "new", "--family", "leak_personal", "--seed", "3", "--out", str(tmp_path / "b")])
     (leak,) = list((tmp_path / "b").rglob("*.yaml"))
     assert load_scenario(leak).provenance.label_fingerprint is None
+
+
+def test_run_sealed_report_splits_unavailable_and_skipped(tmp_path, monkeypatch):
+    import harness.cli
+
+    _scripted(monkeypatch, ["unavailable"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    result, _ = _run_dummy(tmp_path, "--repeat", "1", "--sealed")
+    errors = _errors_section(result)
+    assert "오류가 난 시나리오 수: 1 (그중 서버 응답 없음 1)" in errors
+    assert "건너뛴 시나리오 수: 1" in errors
+
+
+def test_run_report_table_has_a_status_column(tmp_path, monkeypatch):
+    import harness.cli
+
+    _scripted(monkeypatch, ["unavailable"])
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    result, _ = _run_dummy(tmp_path, "--repeat", "1")
+    errors = _errors_section(result)
+    assert "| 엔진 | 회차 | 시나리오 | 상태 | 오류 |" in errors
+    assert "| 응답 없음 |" in errors and "| 건너뜀 |" in errors
