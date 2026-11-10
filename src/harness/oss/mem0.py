@@ -23,10 +23,16 @@ DEFAULT_DIMS = 1536  # what the Mem0 server builds its vector table with when it
 _verified_urls: set[str] = set()
 
 
-def _config_model(reply: Any, section: str) -> str:
+def _nested(reply: Any, *keys: str) -> Any:
+    """Follow `keys` down nested dicts; `None` when a level is missing or not a dict."""
     node: Any = reply
-    for key in (section, "config", "model"):
+    for key in keys:
         node = node.get(key) if isinstance(node, dict) else None  # pyright: ignore[reportUnknownMemberType]
+    return node
+
+
+def _config_model(reply: Any, section: str) -> str:
+    node = _nested(reply, section, "config", "model")
     if not isinstance(node, str):
         raise RuntimeError("mem0: unexpected configure reply")
     return node
@@ -34,11 +40,11 @@ def _config_model(reply: Any, section: str) -> str:
 
 def _expected_dims(env: Mapping[str, str]) -> int:
     raw = env.get(ENV_DIMS)
-    if raw is None or not raw.strip():
+    if raw is None or raw == "":  # like compose's ${VAR:-default}: only unset or empty is the default
         return DEFAULT_DIMS
     msg = f"{ENV_DIMS} must be a positive whole number, got {raw!r}"
     try:
-        dims = int(raw)  # like the server's own int(): accepts 1_024 and full-width digits
+        dims = int(raw)  # like the server's own int(): accepts 1_024, " 1024" and full-width digits
     except ValueError:
         raise ValueError(msg) from None
     if dims < 1:
@@ -46,13 +52,11 @@ def _expected_dims(env: Mapping[str, str]) -> int:
     return dims
 
 
-def _running_dims(reply: Any) -> int:
-    """The vector size the server runs with; a server that does not report one uses the default."""
-    node: Any = reply
-    for key in ("vector_store", "config", "embedding_model_dims"):
-        node = node.get(key) if isinstance(node, dict) else None  # pyright: ignore[reportUnknownMemberType]
+def _running_dims(reply: Any) -> int | None:
+    """The vector size the server reports, or `None` when the reply has none."""
+    node = _nested(reply, "vector_store", "config", "embedding_model_dims")
     if node is None:
-        return DEFAULT_DIMS
+        return None
     if isinstance(node, bool) or not isinstance(node, int):
         raise RuntimeError("mem0: unexpected configure reply")
     return node
@@ -85,9 +89,10 @@ class Mem0Engine(BaseEngine):
             sleep: Function used to wait between request retries.
 
         Raises:
-            ValueError: If the address is not an allowed local one, a model differs from the
-                one the server runs, or `HARNESS_EMBEDDING_DIMS` (default 1536) differs from the
-                vector size the server runs with.
+            ValueError: If the address is not an allowed local one, `HARNESS_EMBEDDING_DIMS`
+                (default 1536) is not a positive whole number (checked before the server is
+                contacted), a model differs from the one the server runs, or that variable
+                differs from the vector size the server runs with.
             EngineHTTPError: If the server cannot be reached; the first build against an address is
                 not retried, later ones are.
             RuntimeError: If the server's configuration reply lacks the model names.
@@ -97,6 +102,7 @@ class Mem0Engine(BaseEngine):
         self._llm_model: str
         self._embedding_model: str
         self._llm_model, self._embedding_model = expected_models(cfg.llm, env)
+        self._dims: int = _expected_dims(env)
         self._client: JsonClient = JsonClient(url, sleep=sleep)
         # The reply holds the server's whole configuration; only the two model names are read.
         reply: Any = self._client.request("GET", "/configure", retry=url in _verified_urls)
@@ -107,12 +113,20 @@ class Mem0Engine(BaseEngine):
             running = f"llm={running_llm!r}, embedding={running_embedding!r}"
             expected = f"llm={self._llm_model!r}, embedding={self._embedding_model!r}"
             raise ValueError(f"mem0 runs {running}, but the eval expects {expected}")
-        self._dims: int = _expected_dims(env)
-        running_dims = _running_dims(reply)
+        reported = _running_dims(reply)
+        running_dims = DEFAULT_DIMS if reported is None else reported
         if running_dims != self._dims:
+            seen = (
+                f"mem0 runs with {running_dims}-dimensional vectors"
+                if reported is not None
+                else f"mem0 did not report its vector size, so it is taken to be the server default {DEFAULT_DIMS}"
+            )
+            unset_note = " (unset, so the default)" if env.get(ENV_DIMS, "") == "" else ""
             raise ValueError(
-                f"mem0 stores {running_dims}-dimensional vectors, but {ENV_DIMS} says {self._dims}; "
-                + "set it to the embedding model's size and recreate the containers with `down -v`"
+                f"{seen}, but {ENV_DIMS} for the harness is {self._dims}{unset_note}. "
+                + f"If the server is right, set {ENV_DIMS}={running_dims} where you run the harness; "
+                + "if the server must change, set it where you start the containers and recreate them "
+                + "with `down -v` (an existing table keeps its size)."
             )
         self._run: str | None = None
         self._event_ids: set[str] = set()
