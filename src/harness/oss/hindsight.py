@@ -23,7 +23,7 @@ _verified_urls: set[str] = set()
 
 
 class FlushTimeout(TimeoutError, EngineUnavailable):  # pyright: ignore[reportUnsafeMultipleInheritance]  # EngineUnavailable is a pure marker with no __init__
-    """Hindsight's background work did not finish within the flush timeout; counts as unreachable."""
+    """Hindsight's background work did not finish within the flush timeout; counts as unavailable."""
 
 
 class HindsightEngine(BaseEngine):

@@ -536,11 +536,11 @@ def _split_fixture(tmp_path, sealed):
 
 def test_sealed_errors_section_splits_unavailable_and_skipped(tmp_path):
     section = _split_fixture(tmp_path, sealed=True)
-    assert "오류가 난 시나리오 수: 2 (그중 서버 응답 없음 1)" in section
+    assert "오류가 난 시나리오 수: 2 (그중 사용 불가 1)" in section
     assert "건너뛴 시나리오 수: 1" in section
 
 
 def test_errors_table_has_a_status_column(tmp_path):
     section = _split_fixture(tmp_path, sealed=False)
     assert "| 엔진 | 회차 | 시나리오 | 상태 | 오류 |" in section
-    assert "| sc_a | 오류 |" in section and "| sc_b | 응답 없음 |" in section and "| sc_c | 건너뜀 |" in section
+    assert "| sc_a | 오류 |" in section and "| sc_b | 사용 불가 |" in section and "| sc_c | 건너뜀 |" in section

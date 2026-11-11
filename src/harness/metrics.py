@@ -47,13 +47,13 @@ class Metrics:
         retraction: Per fact with `valid_until`, how long it kept showing up in the basis.
         reflection: Per fact with `valid_from`, how long until it first showed up.
         worst_family: (family, M1) of the family with the highest M1, or None.
-        errors: Distinct ids of scenarios that did not run to the end: errored, unreachable or skipped.
+        errors: Distinct ids of scenarios that did not run to the end: errored, unavailable or skipped.
         context_chars_mean: Mean characters handed over per probe.
         record_ms_p50: Median `record` latency.
         record_ms_p95: 95th-percentile `record` latency.
         search_ms_p50: Median `search` latency.
         search_ms_p95: 95th-percentile `search` latency.
-        n_error_runs: Scenario runs that did not finish (errored, unreachable or skipped), counted
+        n_error_runs: Scenario runs that did not finish (errored, unavailable or skipped), counted
             over all repeats. `errors` lists distinct scenario ids, so `len(errors)` can be smaller.
         n_unavailable: Scenario runs, over all repeats, that ended because the engine could not
             be reached.

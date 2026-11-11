@@ -19,7 +19,7 @@ from harness.config import EvalConfig, config_hash, load_config
 from harness.contract import BaseEngine, EngineInfo, EngineUnavailable
 from harness.engines import BASELINES, OSS_ENGINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
-from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, run_scenario
+from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, error_kind_of, run_scenario
 from harness.report import RunMeta, harness_version, jsonable, machine_info, write_report
 from harness.scenario.load import (
     ScenarioLoadError,
@@ -252,13 +252,20 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
     return info
 
 
-# An engine that could not be reached for this many scenarios in a row is tripped: the rest of
-# that repeat is recorded as skipped, so a dead server cannot stall the run (each unreachable
+# An engine that was unavailable (no answer, or retryable errors after retries) for this many scenarios in a row is tripped: the rest of
+# that repeat is recorded as skipped, so a dead server cannot stall the run (each unavailable
 # scenario costs the HTTP client its retries, up to minutes). Only `unavailable` runs count; a
 # scenario that fails fast (the server answered, with an error) resets the count and the engine
 # keeps being measured. The count restarts every repeat, and a tripped engine is tried again with
 # the first scenario of each later repeat.
 MAX_CONSECUTIVE_ENGINE_ERRORS = 3
+
+
+UNAVAILABLE = "unavailable (no answer, or retryable errors after retries)"
+
+
+def _scenarios(n: int) -> str:
+    return f"{n} scenario" if n == 1 else f"{n} scenarios"
 
 
 def _run_extra(
@@ -278,8 +285,8 @@ def _run_extra(
     is tripped: the rest of that repeat is kept as `skipped` runs saying why, and a warning goes
     to stderr. Runs that are `ok` or `error` reset the count. Each later repeat runs its first
     scenario for real; if the engine answers (`ok` or `error`) it resumes, otherwise the rest of
-    that repeat is skipped again. With `sealed` the warnings leave out engine error text, which
-    can quote an engine reply and through it scenario content.
+    that repeat is skipped again. With `sealed` the warnings show only the kind of the last failure (`ScenarioRun.error_kind`),
+    never engine error text, which can quote an engine reply and through it scenario content.
     """
     all_runs: list[list[ScenarioRun]] = []
     tripped = False
@@ -287,9 +294,12 @@ def _run_extra(
         runs: list[ScenarioRun] = []
         streak = 0
         skip_reason: str | None = None
+        skip_kind: str | None = None
         for i, s in enumerate(scenarios):
             if skip_reason is not None:
-                runs.append(ScenarioRun(s.id, s.family, s.mode, error=skip_reason, status="skipped"))
+                runs.append(
+                    ScenarioRun(s.id, s.family, s.mode, error=skip_reason, status="skipped", error_kind=skip_kind)
+                )
                 continue
             try:
                 engine = make_engine(name, s, cfg)
@@ -308,6 +318,7 @@ def _run_extra(
                     s.family,
                     s.mode,
                     error=f"{type(e).__name__}: {e}",
+                    error_kind=error_kind_of(e),
                     status="unavailable" if isinstance(e, EngineUnavailable) else "error",
                 )
             else:
@@ -316,20 +327,23 @@ def _run_extra(
             streak = streak + 1 if run.status == "unavailable" else 0
             if tripped and i == 0:  # the check of a tripped engine
                 if run.status == "unavailable":
-                    typer.echo(f"warning: {name} still unreachable in repeat {r}; skipping it", err=True)
-                    skip_reason = f"skipped: {name} still unreachable in repeat {r}; last: {run.error}"
+                    last = f" (last: {run.error_kind})" if sealed else ""
+                    typer.echo(f"warning: {name} still unavailable in repeat {r}{last}; skipping it", err=True)
+                    skip_reason = f"skipped: {name} still unavailable in repeat {r}; last: {run.error}"
+                    skip_kind = run.error_kind
                 else:
                     tripped = False
                     typer.echo(f"warning: {name} answered again in repeat {r}; resuming", err=True)
             elif not tripped and streak >= MAX_CONSECUTIVE_ENGINE_ERRORS:
                 tripped = True
                 skip_reason = _skip_reason(name, streak, run.error)
+                skip_kind = run.error_kind
                 if i == len(scenarios) - 1:  # nothing left to skip in this repeat
                     tail = "will check again next repeat"
-                    shown = f"{name} was unreachable for {streak} scenarios in a row; "
-                    shown += f"{tail} (details hidden by --sealed)" if sealed else f"last: {run.error}; {tail}"
+                    shown = f"{name} was {UNAVAILABLE} for {_scenarios(streak)} in a row"
+                    shown += f" (last: {run.error_kind}); {tail} (details hidden by --sealed)" if sealed else f"; last: {run.error}; {tail}"
                 elif sealed:
-                    shown = f"{name} was unreachable for {streak} scenarios in a row; skipping the rest of the repeat (details hidden by --sealed)"
+                    shown = f"{name} was {UNAVAILABLE} for {_scenarios(streak)} in a row (last: {run.error_kind}); skipping the rest of the repeat (details hidden by --sealed)"
                 else:
                     shown = skip_reason
                 typer.echo(f"warning: {shown}", err=True)
@@ -338,7 +352,7 @@ def _run_extra(
 
 
 def _skip_reason(name: str, streak: int, last: str | None) -> str:
-    return f"skipped: {name} was unreachable for {streak} scenarios in a row; last: {last}"
+    return f"skipped: {name} was {UNAVAILABLE} for {_scenarios(streak)} in a row; last: {last}"
 
 
 @app.command()

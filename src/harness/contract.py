@@ -92,8 +92,11 @@ class BaseEngine(ABC):
 
     Per scenario the replay calls `reset(namespace)` once, then `record(event)` and
     `search(query)` in virtual-time order. With a virtual clock, `tick(t)` comes before each
-    call; `flush()` comes before each search. An exception from any of these ends that
-    scenario as errored and the engine cannot pass the verdict.
+    call; `flush()` comes before each search. An exception from any of these ends that scenario.
+    One that derives from `EngineUnavailable` marks it `unavailable` (it counts toward stopping
+    the engine after `MAX_CONSECUTIVE_ENGINE_ERRORS` in a row, see `harness.cli`), any other
+    marks it `error`; either way the engine cannot pass the verdict. An engine whose backend
+    times out or is down should raise (or wrap in) an `EngineUnavailable` subclass.
     """
 
     @abstractmethod

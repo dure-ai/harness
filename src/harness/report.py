@@ -482,7 +482,7 @@ def _section_limits(meta: RunMeta, ids: Mapping[str, str], scrub: Callable[[str]
     return ["## 엔진 한계", "", *_table(headers, rows)]
 
 
-_STATUS_LABEL = {"error": "오류", "unavailable": "응답 없음", "skipped": "건너뜀"}
+_STATUS_LABEL = {"error": "오류", "unavailable": "사용 불가", "skipped": "건너뜀"}
 
 
 def _section_errors(
@@ -505,7 +505,7 @@ def _section_errors(
         n_unavailable = sum(run.status == "unavailable" for _, _, run in failed)
         line = f"오류가 난 시나리오 수: {len(failed) - n_skipped}"
         if n_unavailable:
-            line += f" (그중 서버 응답 없음 {n_unavailable})"
+            line += f" (그중 사용 불가 {n_unavailable})"
         lines = [line]
         if n_skipped:
             lines.append(f"건너뛴 시나리오 수: {n_skipped}")

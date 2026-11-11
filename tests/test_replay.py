@@ -568,6 +568,23 @@ def test_run_scenario_classifies_exceptions_from_every_engine_call(where):
     assert down.status == "unavailable" and down.error == "EngineUnavailable: gone"
     broken = run_scenario(failing(RuntimeError("boom")), _same_time(), run_id="r", cfg=CFG)
     assert broken.status == "error"
+    assert down.error_kind == "EngineUnavailable" and broken.error_kind == "RuntimeError"
+
+
+@pytest.mark.parametrize("where", ["reset", "record", "search"])
+def test_error_kind_has_the_class_and_status_but_not_the_message(where):
+    class Http(Exception):
+        status = 502
+
+    class Failing(Recorder):
+        pass
+
+    def boom(self, *args):
+        raise Http("SECRET-TEXT")
+
+    setattr(Failing, where, boom)
+    run = run_scenario(Failing(), _same_time(), run_id="r", cfg=CFG)
+    assert run.error_kind == "Http 502"
 
 
 def test_flush_timeout_is_unavailable():
@@ -578,7 +595,7 @@ def test_flush_timeout_is_unavailable():
             raise FlushTimeout("stuck")
 
     run = run_scenario(Stuck(), _same_time(), run_id="r", cfg=CFG)
-    assert run.status == "unavailable"
+    assert run.status == "unavailable" and run.error_kind == "FlushTimeout"
 
 
 def test_scenario_run_rejects_unknown_status():
