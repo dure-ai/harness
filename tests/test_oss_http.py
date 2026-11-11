@@ -22,6 +22,17 @@ def test_rejects_non_local_or_claude_mem(url):
         check_local_url(url)
 
 
+def test_fake_servers_never_take_a_claude_mem_port():
+    # The OS can hand out 37701 or 37777 for port 0; the adapters refuse those, so a fake server
+    # there failed a test at random (seen once in CI).
+    from tests.oss_fakes import allowed_port
+
+    handed_out = iter([37701, 37777, 5000])
+    closed: list[int] = []
+    assert allowed_port(lambda: next(handed_out), lambda p: p, closed.append) == 5000
+    assert closed == [37701, 37777]
+
+
 def test_accepts_local_and_strips_slash():
     assert check_local_url("http://127.0.0.1:8888/") == "http://127.0.0.1:8888"
     assert check_local_url("http://localhost:8890") == "http://localhost:8890"

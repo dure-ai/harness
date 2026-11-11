@@ -148,7 +148,8 @@ def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
                 return
             held.append(conn)  # keep it open, never reply
 
-    threading.Thread(target=accept, daemon=True).start()
+    acceptor = threading.Thread(target=accept, daemon=True)
+    acceptor.start()
     url = f"http://127.0.0.1:{srv.getsockname()[1]}"
     from huggingface_hub import constants
 
@@ -179,7 +180,16 @@ def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     no_wait = SimpleNamespace(**{k: getattr(time, k) for k in dir(time) if not k.startswith("_")})
     no_wait.sleep = lambda _s: None
     monkeypatch.setattr(_http, "time", no_wait)
+    # On Linux, close() does not wake a thread blocked in accept(), so the listener would keep
+    # taking the retries and hold them open; shutdown() wakes it. macOS refuses to shut down a
+    # listening socket, and there close() alone does the job.
+    try:
+        srv.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
     srv.close()
+    acceptor.join(10)
+    assert not acceptor.is_alive(), "the test server kept accepting connections"
     for c in held:
         c.close()
     for t in set(threading.enumerate()) - before:
