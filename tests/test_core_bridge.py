@@ -1,3 +1,4 @@
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -88,15 +89,19 @@ def test_search_hides_another_users_personal_record():
     assert engine.search(query(user="u2")) == []
 
 
-def test_search_is_logged_as_a_recall_the_engine_can_observe():
+def test_search_shows_the_callers_own_personal_record():
+    engine = bridge()
+    engine.record(event(scope="personal"))
+    assert [r.sources for r in engine.search(query())] == [["e1"]]
+
+
+def test_search_logs_no_recall():
+    # Design 4.5: a recall event would differ per engine, and engines must all see the same events.
     engine = bridge()
     engine.record(event())
     engine.search(query())
     engine.search(query())
-    log = [e for _, e in engine.runtime.events.since(0)]
-    assert [e.kind for e in log] == ["record", "recall", "recall"]
-    assert log[1].refs == ("k-e1",)
-    assert log[1].repo == "acme/api"
+    assert [e.kind for _, e in engine.runtime.events.since(0)] == ["record"]
 
 
 def test_reset_starts_empty():
@@ -117,10 +122,19 @@ def test_engine_failure_reaches_the_replay():
         engine.record(event())
 
 
+def test_flush_fails_when_the_runtime_skipped_an_event():
+    engine = bridge()
+    engine.runtime.skipped.append("stand-in")
+    with pytest.raises(RuntimeError, match="skipped"):
+        engine.flush()
+
+
 def test_info_names_the_wrapped_engine_and_its_capabilities():
     info = CoreBridge(PromoteAllEngine()).info()
     assert info.name == "PromoteAllEngine"
     assert info.virtual_clock and info.sources and info.scopes
+    assert info.config["store"] == "InMemoryDatabase"
+    assert len(info.config["core_commit"]) == 40  # the git pin in pyproject.toml
 
 
 @pytest.mark.parametrize("name", [PROMOTE_ALL, NO_MEMORY])
@@ -146,3 +160,12 @@ def test_bridge_reproduces_all_store_probe_by_probe():
         assert [(p.probe_id, p.outcome, [r.sources for r in p.results]) for p in got.probes] == [
             (p.probe_id, p.outcome, [r.sources for r in p.results]) for p in want.probes
         ], scenario.id
+
+
+def test_a_core_engine_without_the_core_extra_says_how_to_install_it(monkeypatch):
+    for name in [m for m in sys.modules if m == "cortex_mem" or m.startswith("cortex_mem.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "cortex_mem", None)
+    cfg = load_config(ROOT / "config/eval-v0.1.yaml")
+    with pytest.raises(ModuleNotFoundError, match="uv sync --extra core"):
+        make_engine(PROMOTE_ALL, None, cfg)

@@ -6,7 +6,6 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "cortex-mem",
     "pydantic>=2.12",
     "pyyaml>=6",
     "rich>=13",
@@ -19,6 +18,10 @@ gen = [
     "openai>=3.35",
     "pyarrow>=26.0",
     "huggingface_hub>=2.2",
+]
+# Engines written to the cortex-mem port (harness.core_bridge); baselines and OSS engines do not need it.
+core = [
+    "cortex-mem",
 ]
 
 [tool.uv.sources]

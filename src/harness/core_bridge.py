@@ -6,6 +6,9 @@ checks and handoff filter included. Comparisons stay on the in-memory store beca
 implementations score search differently (core `docs/contract.md` section 4).
 """
 
+import json
+from importlib.metadata import PackageNotFoundError, distribution
+
 from cortex_mem.contract import CONTRACT_VERSION, Caller
 from cortex_mem.contract import Engine as CoreEngine
 from cortex_mem.contract import Event as CoreEvent
@@ -17,6 +20,15 @@ from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
 # The harness has no org scope, and "team" sees what `can_see` allows: own records and the team's.
 _QUERY_SCOPE = "team"
 _KINDS = {"agent_record": "record", "ci_result": "outcome", "human_confirm": "human_confirm", "commit": "commit"}
+
+
+def _core_commit() -> str:
+    """The cortex-mem commit pinned by the install, or "unknown" (e.g. an editable checkout)."""
+    try:
+        direct_url = distribution("cortex-mem").read_text("direct_url.json")
+    except PackageNotFoundError:
+        return "unknown"
+    return json.loads(direct_url or "{}").get("vcs_info", {}).get("commit_id", "unknown")
 
 
 def to_core_event(event: Event) -> CoreEvent:
@@ -62,13 +74,13 @@ class CoreBridge(BaseEngine):
     def __init__(self, engine: CoreEngine) -> None:
         self.engine = engine
         self.runtime: Runtime | None = None
-        self._recalls = 0
 
     def info(self) -> EngineInfo:
         """Describe the wrapped engine: the runtime gives it a virtual clock, sources and scopes."""
         return EngineInfo(
             name=type(self.engine).__name__,
             version=f"contract-{CONTRACT_VERSION}",
+            config={"core_commit": _core_commit(), "store": InMemoryDatabase.__name__},
             virtual_clock=True,
             sources=True,
             scopes=True,
@@ -77,16 +89,21 @@ class CoreBridge(BaseEngine):
     def reset(self, namespace: str) -> None:
         """Start a new database and runtime; `namespace` is not needed since nothing is shared."""
         db = InMemoryDatabase()
-        self.runtime = Runtime(self.engine, db.events, db.knowledge, db.state("engine"), db.transaction)
-        self._recalls = 0
+        # Explicit: a skipped event would score an engine around its own failure.
+        self.runtime = Runtime(
+            self.engine, db.events, db.knowledge, db.state("engine"), db.transaction, max_failures=None
+        )
 
     def record(self, event: Event) -> None:
         """Append the event; the runtime delivers it to the engine."""
         self.runtime.append(to_core_event(event))
 
     def search(self, query: Query) -> list[Result]:
-        """Recall through the runtime, as the server does, so the engine observes what it handed off."""
-        self._recalls += 1
+        """Hand off through the runtime without logging a recall (design 4.5).
+
+        A recall event would differ per engine, so engines would no longer see the same events,
+        and read-only probes would change the memory they measure.
+        """
         caller = Caller(
             user=query.user,
             team=query.team,
@@ -95,7 +112,7 @@ class CoreBridge(BaseEngine):
             repo=query.repo,
             context=query.meta,
         )
-        handoffs = self.runtime.recall(query.text, caller, _QUERY_SCOPE, f"recall-{self._recalls}", query.k)
+        handoffs = self.runtime.handoff(query.text, caller, _QUERY_SCOPE, query.k)
         return [Result(text=h.content, sources=list(h.sources)) for h in handoffs]
 
     def tick(self, t) -> None:
@@ -103,5 +120,11 @@ class CoreBridge(BaseEngine):
         self.runtime.tick(t)
 
     def flush(self) -> None:
-        """Deliver anything still pending."""
+        """Deliver anything still pending; replay calls this before every probe.
+
+        Raises:
+            RuntimeError: If the runtime skipped an event (design 4.5).
+        """
         self.runtime.sync()
+        if self.runtime.skipped:
+            raise RuntimeError(f"the runtime skipped events: {self.runtime.skipped}")
