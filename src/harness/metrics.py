@@ -47,12 +47,18 @@ class Metrics:
         retraction: Per fact with `valid_until`, how long it kept showing up in the basis.
         reflection: Per fact with `valid_from`, how long until it first showed up.
         worst_family: (family, M1) of the family with the highest M1, or None.
-        errors: Ids of scenarios that errored.
+        errors: Distinct ids of scenarios that did not run to the end: errored, unavailable or skipped.
         context_chars_mean: Mean characters handed over per probe.
         record_ms_p50: Median `record` latency.
         record_ms_p95: 95th-percentile `record` latency.
         search_ms_p50: Median `search` latency.
         search_ms_p95: 95th-percentile `search` latency.
+        n_error_runs: Scenario runs that did not finish (errored, unavailable or skipped), counted
+            over all repeats. `errors` lists distinct scenario ids, so `len(errors)` can be smaller.
+        n_unavailable: Scenario runs, over all repeats, that ended because the engine could not
+            be reached.
+        n_skipped: Scenario runs, over all repeats, never run because the engine was stopped.
+            Always `n_error_runs >= n_unavailable + n_skipped`.
     """
 
     m1: Rate
@@ -76,6 +82,9 @@ class Metrics:
     record_ms_p95: float | None
     search_ms_p50: float | None
     search_ms_p95: float | None
+    n_error_runs: int = 0
+    n_unavailable: int = 0
+    n_skipped: int = 0
 
 
 def _count(runs: Iterable[ScenarioRun], kind: str, hit: str) -> tuple[int, int]:
@@ -257,6 +266,9 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
         record_ms_p95=_percentile([ms for r in ok for ms in r.record_ms], 95),
         search_ms_p50=_percentile([rec.search_ms for rec in all_records], 50),
         search_ms_p95=_percentile([rec.search_ms for rec in all_records], 95),
+        n_error_runs=sum(r.status != "ok" for r in runs),
+        n_unavailable=sum(r.status == "unavailable" for r in runs),
+        n_skipped=sum(r.status == "skipped" for r in runs),
     )
 
 

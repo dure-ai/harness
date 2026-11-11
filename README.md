@@ -75,7 +75,7 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 | 순위 | 판정을 통과한 후보 엔진의 순위와 차이의 신뢰구간 |
 | 성능 | `record`·`search` 응답 시간과 질문당 건넨 글자 수(표시만 하고 판정에는 쓰지 않음) |
 | 엔진 한계 | 가상 시계·출처·범위 지원 여부와 설정. 가상 시계를 지원하지 않으면 시간 계열 결과에 주석이 붙습니다 |
-| 오류 시나리오 | 엔진이 예외를 낸 시나리오(반복 실행이면 회차와 함께). 하나라도 있으면 그 엔진은 판정을 통과할 수 없습니다 |
+| 오류 시나리오 | 끝까지 돌지 못한 시나리오와 상태(오류, 사용 불가, 건너뜀. 반복 실행이면 회차와 함께). `--sealed`에서는 개수만 나뉘어 나옵니다. 하나라도 있으면 그 엔진은 판정을 통과할 수 없습니다 |
 | 자가 검증 | 2단계와 같은 표 |
 
 **판정 기준** (`config/eval-v0.1.yaml`의 `judgment`):
@@ -133,7 +133,7 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
   --engine tests.dummy_engine:LatestWins --repeat 2 --out runs
 ```
 
-엔진은 `harness.contract.BaseEngine`을 구현합니다(`info`, `reset`, `record`, `search`, 선택으로 `tick`·`flush`). 결과의 `sources`에 근거 이벤트 id를 채우면 출처로 정밀 채점되고, 비우면 사실의 판정 문자열(`markers`)로 채점됩니다.
+엔진은 `harness.contract.BaseEngine`을 구현합니다(`info`, `reset`, `record`, `search`, 선택으로 `tick`·`flush`). 백엔드에 닿지 못하거나 재시도할 만한 실패가 계속되면 `harness.contract.EngineUnavailable`을 상속한 예외를 던지면 연속 중단 대상이 되고, 그 밖의 예외는 그 시나리오만 오류로 끝납니다. 결과의 `sources`에 근거 이벤트 id를 채우면 출처로 정밀 채점되고, 비우면 사실의 판정 문자열(`markers`)로 채점됩니다.
 
 ### 종료 코드
 
@@ -336,6 +336,10 @@ Hindsight와 Mem0를 `--engine hindsight`, `--engine mem0`으로 평가합니다
 export OPENAI_API_KEY=...
 export HARNESS_LLM_MODEL=gpt-4.1-mini
 export HARNESS_EMBEDDING_MODEL=text-embedding-3-small
+# 임베딩 크기가 1536이 아니면 Mem0에 알린다 (예: Upstage solar-embedding-2-*는 1024). 기본값 1536
+# export HARNESS_EMBEDDING_DIMS=1024
+# Upstage 예: OPENAI_BASE_URL=https://api.upstage.ai/v1, HARNESS_LLM_MODEL=solar-pro4 (solar-mini4도 가능; solar-pro2는 종료),
+#   HARNESS_EMBEDDING_MODEL=solar-embedding-2-passage, HARNESS_EMBEDDING_DIMS=1024
 
 # 2. 두 엔진을 같이 띄운다. --wait는 healthcheck가 통과할 때까지 기다린다
 #    (Mem0는 처음에 GitHub에서 서버 코드를 받아 빌드하므로 첫 번째만 --build를 붙인다)
@@ -360,11 +364,13 @@ docker compose -f engines/docker/mem0/compose.yaml down -v
   - [ ] Hindsight: 태그 범위(`any_strict`)가 같은 결과를 낸다. `test_live_scope_isolation`과 같은 세 기록으로 확인한다.
   - [ ] 두 컨테이너를 같이 띄운 메모리 사용량(`docker stats --no-stream`)이 이 컴퓨터에 충분하다.
   - [ ] 두 이미지가 arm64(Apple Silicon)에서 받아지고 에뮬레이션 없이 돈다.
-  - [ ] Hindsight가 임베딩 차원 설정을 따로 요구하는지 본다(`text-embedding-3-small`은 1536차원). 요구하면 compose에 넣는다.
+  - [x] 임베딩 차원: Hindsight는 시작할 때 DB 차원을 모델에 맞춰 스스로 바꿉니다(1.0.0, Upstage 1024로 확인). Mem0 서버(v2.2.1)는 벡터 크기를 넘기지 않아 1536으로 고정되므로, 1536이 아닌 모델(Upstage `solar-embedding-2-*`는 1024)을 쓰면 `HARNESS_EMBEDDING_DIMS`를 모델 크기로 줍니다. 안 맞으면 `POST /memories`가 `expected 1536 dimensions, not 1024`로 502를 냅니다. 어댑터는 시작할 때 서버가 쓰는 크기와 `HARNESS_EMBEDDING_DIMS`(기본 1536)가 같은지 보고, 다르면 두 값을 함께 알려 주며 멈춥니다. 서버가 크기를 알려 주지 않으면 기본값 1536으로 봅니다. 서버 쪽이 맞으면 하네스를 돌리는 곳의 변수만 서버 크기로 고치면 되고, `down -v` 뒤에 다시 띄우는 것은 서버의 크기를 바꿔야 할 때만 필요합니다(이미 만들어진 테이블은 크기가 안 바뀝니다). 공백만 있는 값은 잘못된 값으로 거절하며, 빈 값은 기본값입니다. 리포트의 엔진 설정에 `embedding_dims`를 남깁니다. 다만 모델의 실제 출력 크기까지는 알 수 없어서, 둘 다 틀리게 줘도 이 검사는 통과합니다(그 경우는 아래 사용 불가 중단이 시간 낭비를 줄여 줍니다).
+  - [ ] Upstage 임베딩은 저장용 `solar-embedding-2-passage`와 검색 질의용 `solar-embedding-2-query`로 나뉩니다(둘 다 1024차원). 두 엔진은 모델 이름을 하나만 받아 저장과 검색에 같은 모델을 쓰므로, 어느 쪽을 쓸지 정해 측정 조건으로 리포트에 남깁니다(지금은 `-passage`로 검증). 어댑터는 이 이름이 평가 설정의 `llm.embedding_model`과 같은지만 봅니다.
   - [ ] 시나리오 하나가 끝나는 데 걸리는 시간을 재서 전체 실행 시간(시나리오 수 x 반복 x 엔진 2개)을 어림한다.
   - [ ] Hindsight가 실제로 쓰는 모델은 API로 읽을 수 없어 확인하지 못한다. 환경 변수와 컨테이너 설정이 같은지 눈으로 대조한다.
 
   앞의 두 항목은 `HARNESS_LIVE_OSS=1 uv run pytest tests/test_oss_live.py`의 범위 시험(`test_live_scope_isolation`)이, Mem0의 네 가지 가시성 경우는 같은 파일의 `test_live_mem0_other_teams_team_record_is_not_returned`, `test_live_mem0_other_users_personal_record_is_not_returned`, `test_live_mem0_same_sentence_in_another_run_is_kept_apart`, `test_live_mem0_same_sentence_for_two_teams_in_one_run_is_kept_apart`가 자동으로 확인합니다(각 시험은 자기 기록을 먼저 찾아 보는 대조 확인을 포함합니다).
+- 한 엔진이 시나리오 3개(`MAX_CONSECUTIVE_ENGINE_ERRORS`)를 연달아 "사용 불가"(응답이 없거나 재시도 뒤에도 429·502·503·504 같은 재시도할 만한 오류가 계속 오는 경우)로 끝내면 그 회차의 남은 시나리오는 부르지 않고 "skipped"로 기록하며 경고를 stderr에 냅니다. 서버가 오류 응답(400, 500 등)을 빨리 돌려주는 경우는 세지 않고 계속 측정하며, 연속 횟수는 회차마다 0에서 다시 셉니다. 중단된 엔진은 다음 회차의 첫 시나리오를 실제로 한 번 불러 보고, 응답하면 그 회차를 이어서 돌립니다. Hindsight의 `flush`가 시간 안에 끝나지 않는 경우(flush 시간 초과)도 사용 불가로 칩니다. 연속 횟수가 한 회차의 시나리오 수보다 크면 엔진은 중단되지 않습니다. 리포트는 오류, 사용 불가, 건너뜀을 따로 세며, 건너뛴 시나리오도 판정에서는 오류로 칩니다.
 - 시나리오가 아직 초안이면 3번에 `--include-drafts`가 필요합니다. 승인된 시나리오만 있으면 빼세요.
 - 포트는 `127.0.0.1:8888`(Hindsight)과 `127.0.0.1:8890`(Mem0)에만 열립니다. 주소를 바꾸려면 `HARNESS_HINDSIGHT_URL`, `HARNESS_MEM0_URL`을 쓰며, 어댑터는 `localhost`, `127.0.0.1`, `[::1]` 밖의 주소와 37701, 37777 포트를 거부합니다.
 - 어댑터는 시작할 때 `HARNESS_LLM_MODEL`, `HARNESS_EMBEDDING_MODEL`이 `config/eval-v0.1.yaml`의 `llm` 값과 같은지 확인하고, 다르면 실행 전에 멈춥니다. 키 값은 코드, 로그, 리포트 어디에도 남지 않습니다.

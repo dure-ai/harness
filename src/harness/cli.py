@@ -16,10 +16,10 @@ import typer
 from rich.console import Console
 
 from harness.config import EvalConfig, config_hash, load_config
-from harness.contract import BaseEngine, EngineInfo
+from harness.contract import BaseEngine, EngineInfo, EngineUnavailable
 from harness.engines import BASELINES, OSS_ENGINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
-from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, run_scenario
+from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, error_kind_of, run_scenario
 from harness.report import RunMeta, harness_version, jsonable, machine_info, write_report
 from harness.scenario.load import (
     ScenarioLoadError,
@@ -252,6 +252,22 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
     return info
 
 
+# An engine that was unavailable (no answer, or retryable errors after retries) for this many
+# scenarios in a row is tripped: the rest of that repeat is recorded as skipped, so a dead server
+# cannot stall the run (each unavailable scenario costs the HTTP client its retries, up to
+# minutes). Only `unavailable` runs count; a scenario that fails fast (the server answered, with
+# an error) resets the count and the engine keeps being measured. The count restarts every
+# repeat, and a tripped engine is tried again with the first scenario of each later repeat.
+MAX_CONSECUTIVE_ENGINE_ERRORS = 3
+
+
+UNAVAILABLE = "unavailable (no answer, or retryable errors after retries)"
+
+
+def _scenarios(n: int) -> str:
+    return f"{n} scenario" if n == 1 else f"{n} scenarios"
+
+
 def _run_extra(
     name: str,
     repeats: int,
@@ -260,12 +276,32 @@ def _run_extra(
     run_id: str,
     infos: dict[str, EngineInfo],
     key: bytes,
+    *,
+    sealed: bool,
 ) -> list[list[ScenarioRun]]:
-    """One list of scenario runs per repeat; every scenario gets a fresh engine; `key` blinds namespaces."""
+    """One list of scenario runs per repeat; every scenario gets a fresh engine; `key` blinds namespaces.
+
+    After `MAX_CONSECUTIVE_ENGINE_ERRORS` `unavailable` runs in a row within a repeat the engine
+    is tripped: the rest of that repeat is kept as `skipped` runs saying why, and a warning goes
+    to stderr. Runs that are `ok` or `error` reset the count. Each later repeat runs its first
+    scenario for real; if the engine answers (`ok` or `error`) it resumes, otherwise the rest of
+    that repeat is skipped again. With `sealed` the warnings show only the kind of the last
+    failure (`ScenarioRun.error_kind`), never engine error text, which can quote an engine reply
+    and through it scenario content.
+    """
     all_runs: list[list[ScenarioRun]] = []
+    tripped = False
     for r in range(1, repeats + 1):
-        runs = []
+        runs: list[ScenarioRun] = []
+        streak = 0
+        skip_reason: str | None = None
+        skip_kind: str | None = None
         for i, s in enumerate(scenarios):
+            if skip_reason is not None:
+                runs.append(
+                    ScenarioRun(s.id, s.family, s.mode, error=skip_reason, status="skipped", error_kind=skip_kind)
+                )
+                continue
             try:
                 engine = make_engine(name, s, cfg)
                 if name not in infos:
@@ -278,15 +314,50 @@ def _run_extra(
                         f"error: cannot build engine {name!r}: {type(e).__name__}: {e}",
                         2,
                     ) from e
-                runs.append(
-                    ScenarioRun(
-                        s.id, s.family, s.mode, error=f"{type(e).__name__}: {e}"
-                    )
+                run = ScenarioRun(
+                    s.id,
+                    s.family,
+                    s.mode,
+                    error=f"{type(e).__name__}: {e}",
+                    error_kind=error_kind_of(e),
+                    status="unavailable" if isinstance(e, EngineUnavailable) else "error",
                 )
-                continue
-            runs.append(run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key))
+            else:
+                run = run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key)
+            runs.append(run)
+            streak = streak + 1 if run.status == "unavailable" else 0
+            if tripped and i == 0:  # the check of a tripped engine
+                if run.status == "unavailable":
+                    last = f" (last: {run.error_kind})" if sealed else ""
+                    typer.echo(f"warning: {name} still unavailable in repeat {r}{last}; skipping it", err=True)
+                    skip_reason = f"skipped: {name} still unavailable in repeat {r}; last: {run.error}"
+                    skip_kind = run.error_kind
+                else:
+                    tripped = False
+                    typer.echo(f"warning: {name} answered again in repeat {r}; resuming", err=True)
+            elif not tripped and streak >= MAX_CONSECUTIVE_ENGINE_ERRORS:
+                tripped = True
+                skip_reason = _skip_reason(name, streak, run.error)
+                skip_kind = run.error_kind
+                tail = (
+                    "will check again next repeat"  # nothing left to skip in this repeat
+                    if i == len(scenarios) - 1
+                    else "skipping the rest of the repeat"
+                )
+                shown = f"{name} was {UNAVAILABLE} for {_scenarios(streak)} in a row"
+                if sealed:
+                    shown += f" (last: {run.error_kind}); {tail} (details hidden by --sealed)"
+                elif i == len(scenarios) - 1:
+                    shown += f"; last: {run.error}; {tail}"
+                else:
+                    shown = skip_reason
+                typer.echo(f"warning: {shown}", err=True)
         all_runs.append(runs)
     return all_runs
+
+
+def _skip_reason(name: str, streak: int, last: str | None) -> str:
+    return f"skipped: {name} was {UNAVAILABLE} for {_scenarios(streak)} in a row; last: {last}"
 
 
 @app.command()
@@ -363,7 +434,7 @@ def run(
     candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}
     for name in candidates:
         repeats = repeat if repeat is not None else cfg.llm_repeats
-        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key)
+        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed=sealed)
         metrics = [compute_metrics(runs, by_id) for runs in per_repeat]
         flip = flip_rate(per_repeat) if repeats > 1 else None
         candidate_scores.append(
