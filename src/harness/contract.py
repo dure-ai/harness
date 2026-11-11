@@ -79,13 +79,24 @@ class EngineInfo(BaseModel):
     scopes: bool = False
 
 
+class EngineUnavailable(Exception):
+    """Raised by an engine when its backend could not be reached or kept answering with a retryable status after retries.
+
+    The run loop counts these toward stopping the engine (`MAX_CONSECUTIVE_ENGINE_ERRORS`); any
+    other exception means the backend answered and does not count.
+    """
+
+
 class BaseEngine(ABC):
     """A memory engine under evaluation, treated as a black box.
 
     Per scenario the replay calls `reset(namespace)` once, then `record(event)` and
     `search(query)` in virtual-time order. With a virtual clock, `tick(t)` comes before each
-    call; `flush()` comes before each search. An exception from any of these ends that
-    scenario as errored and the engine cannot pass the verdict.
+    call; `flush()` comes before each search. An exception from any of these ends that scenario.
+    One that derives from `EngineUnavailable` marks it `unavailable` (it counts toward stopping
+    the engine after `MAX_CONSECUTIVE_ENGINE_ERRORS` in a row, see `harness.cli`), any other
+    marks it `error`; either way the engine cannot pass the verdict. An engine whose backend
+    times out or is down should raise (or wrap in) an `EngineUnavailable` subclass.
     """
 
     @abstractmethod

@@ -234,6 +234,7 @@ class FakeMem0(FakeServer):
     Attributes:
         llm_model: Model name `GET /configure` reports for the LLM.
         embedding_model: Model name `GET /configure` reports for the embedder.
+        dims: Vector size `GET /configure` reports, or None to leave it out (an unpatched server).
         extra_results: Raw result dicts appended to every search reply; like real Mem0 rows they
             carry `run_id` and `user_id` at the top level when a test means them to be well-formed.
         configure_reply: When set, `GET /configure` answers this payload as is.
@@ -249,6 +250,7 @@ class FakeMem0(FakeServer):
         super().__init__()
         self.llm_model = "gpt-4.1-mini"
         self.embedding_model = "text-embedding-3-small"
+        self.dims: int | None = 1536
         self.extra_results: list[dict[str, Any]] = []
         self.configure_reply: Any = self._UNSET
         self.search_reply: Any = self._UNSET
@@ -264,8 +266,11 @@ class FakeMem0(FakeServer):
         if method == "GET" and path == "/configure":
             if self.configure_reply is not self._UNSET:
                 return 200, self.configure_reply
-            return 200, {"llm": {"config": {"model": self.llm_model}},
-                         "embedder": {"config": {"model": self.embedding_model}}}
+            reply: dict[str, Any] = {"llm": {"config": {"model": self.llm_model}},
+                                     "embedder": {"config": {"model": self.embedding_model}}}
+            if self.dims is not None:
+                reply["vector_store"] = {"config": {"embedding_model_dims": self.dims}}
+            return 200, reply
         if method == "POST" and path == "/memories":
             memory = {
                 "id": f"m{len(self.memories)}",
