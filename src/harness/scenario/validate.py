@@ -345,4 +345,31 @@ def validate_scenario(s: Scenario) -> list[Issue]:
                 Issue("warning", "markers_missing", f"fact {fid}: no markers")
             )
 
+    # Action records come only from `feedback.action[<followed about fact>]` (design 6.2).
+    # Warnings, not errors: a template may be left out on purpose. Unknown facts are already
+    # `unknown_fact` errors, and feedback in a read_only scenario is `feedback_in_read_only`;
+    # both are skipped here.
+    for p in s.probes:
+        if s.mode != "feedback" or p.feedback is None:
+            continue
+        action = p.feedback.action
+        for fid in dict.fromkeys(p.about):
+            if fid in s.facts and fid not in action:
+                issues.append(
+                    Issue(
+                        "warning",
+                        "feedback_action_missing_for_about",
+                        f"probe {p.id}: about fact {fid!r} has no feedback action template",
+                    )
+                )
+        for key in action:
+            if key in s.facts and key not in p.about:
+                issues.append(
+                    Issue(
+                        "warning",
+                        "feedback_action_not_in_about",
+                        f"probe {p.id}: feedback action key {key!r} is not in about",
+                    )
+                )
+
     return issues

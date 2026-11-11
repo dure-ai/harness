@@ -33,6 +33,11 @@ def promote(**kw):
     return probe("p_promote", "promote", T("10-14 11:00"), kw.pop("about", ["f_new"]), **kw)
 
 
+def block_actions() -> dict[str, FeedbackTemplate]:
+    """An action template for each `about` fact of `block()`, so no feedback action warning."""
+    return {"f_old": FeedbackTemplate(text="left it"), "f_new": FeedbackTemplate(text="merged it")}
+
+
 def base(**over):
     kw = dict(facts=facts(), events=events(), probes=[block(), promote()])
     kw.update(over)
@@ -59,13 +64,14 @@ def test_unknown_fact_in_about():
 
 
 def test_unknown_fact_in_feedback_template():
-    fb = Feedback(on_true=FeedbackTemplate(text="ok", fact="nope"))
+    fb = Feedback(action=block_actions(), on_true=FeedbackTemplate(text="ok", fact="nope"))
     s = base(mode="feedback", family="echo", probes=[block(feedback=fb), promote()])
     assert codes(s) == {"unknown_fact"}
 
 
 def test_unknown_fact_in_feedback_action_key():
-    fb = Feedback(action={"nope": FeedbackTemplate(text="did it")})
+    # Only `unknown_fact`: the unknown key is not reported again as outside `about`.
+    fb = Feedback(action=block_actions() | {"nope": FeedbackTemplate(text="did it")})
     s = base(mode="feedback", family="echo", probes=[block(feedback=fb), promote()])
     assert codes(s) == {"unknown_fact"}
 
@@ -185,7 +191,8 @@ def test_empty_secret_marker_in_event(marker):
 
 
 def test_negative_delay():
-    fb = Feedback(action={"f_old": FeedbackTemplate(text="x", delay=timedelta(minutes=-1))},
+    fb = Feedback(action={"f_old": FeedbackTemplate(text="x", delay=timedelta(minutes=-1)),
+                          "f_new": FeedbackTemplate(text="merged it")},
                   on_true=FeedbackTemplate(text="ok", delay=timedelta(0)))
     s = base(mode="feedback", family="echo", probes=[block(feedback=fb), promote()])
     issues = validate_scenario(s)
@@ -426,9 +433,12 @@ def test_event_team_in_world_is_fine():
 
 
 def _with_template(slot: str, tpl: FeedbackTemplate) -> Feedback:
+    # Every `about` fact of `pb` gets an action template, so no feedback action warning.
+    action = {"f_old": FeedbackTemplate(text="kept the policy"),
+              "f_new": FeedbackTemplate(text="switched the policy")}
     if slot == "action":
-        return Feedback(action={"f_old": tpl})
-    return Feedback(**{slot: tpl})
+        return Feedback(action=action | {"f_old": tpl})
+    return Feedback(action=action, **{slot: tpl})
 
 
 def feedback_world(slot: str, tpl: FeedbackTemplate, extra_events=()):
@@ -473,3 +483,81 @@ def test_secret_marker_in_visible_event_is_found_through_spacing_and_hyphen_chan
         ev("e3", T("10-03 10:00"), user="u1", fact="f_secret", text="Tokens look like abc‑123 in the CI docs")
     ]
     assert codes(leak_world(events=e)) == {"secret_marker_not_exclusive"}
+
+
+# --- feedback action templates match the probe's `about` facts (issue #10) ---
+
+
+def act(text: str = "left the module alone") -> FeedbackTemplate:
+    return FeedbackTemplate(text=text)
+
+
+def fb_scenario(block_fb: Feedback | None = None, promote_fb: Feedback | None = None, **kw):
+    return base(
+        mode="feedback",
+        family="echo",
+        probes=[block(feedback=block_fb, **kw), promote(feedback=promote_fb)],
+    )
+
+
+def missing(pid: str, fid: str) -> Issue:
+    return Issue(
+        "warning",
+        "feedback_action_missing_for_about",
+        f"probe {pid}: about fact {fid!r} has no feedback action template",
+    )
+
+
+def not_in_about(pid: str, key: str) -> Issue:
+    return Issue(
+        "warning",
+        "feedback_action_not_in_about",
+        f"probe {pid}: feedback action key {key!r} is not in about",
+    )
+
+
+def test_about_fact_without_action_template_is_a_warning():
+    s = fb_scenario(Feedback(action={"f_old": act()}))
+    assert validate_scenario(s) == [missing("p_block", "f_new")]
+
+
+def test_action_key_outside_about_is_a_warning():
+    s = fb_scenario(promote_fb=Feedback(action={"f_new": act(), "f_old": act("opened a pull request")}))
+    assert validate_scenario(s) == [not_in_about("p_promote", "f_old")]
+
+
+def test_action_templates_matching_about_raise_no_warning():
+    s = fb_scenario(
+        Feedback(action={"f_old": act(), "f_new": act("opened a pull request")}),
+        Feedback(action={"f_new": act("opened a pull request")}),
+    )
+    assert validate_scenario(s) == []
+
+
+def test_probes_without_feedback_raise_no_feedback_action_warning():
+    assert validate_scenario(fb_scenario()) == []
+
+
+def test_unknown_action_key_is_only_an_unknown_fact_error():
+    fb = Feedback(action={"f_old": act(), "f_new": act("opened a pull request"), "nope": act("x")})
+    issues = validate_scenario(fb_scenario(fb))
+    assert [(i.level, i.code) for i in issues] == [("error", "unknown_fact")]
+
+
+def test_unknown_about_fact_is_only_an_unknown_fact_error():
+    fb = Feedback(action={"f_old": act(), "f_new": act("opened a pull request")})
+    issues = validate_scenario(fb_scenario(fb, about=["f_old", "f_new", "nope"]))
+    assert [(i.level, i.code) for i in issues] == [("error", "unknown_fact")]
+
+
+def test_feedback_action_warnings_follow_probe_then_about_then_key_order():
+    s = fb_scenario(
+        Feedback(on_true=act("tests passed")),
+        Feedback(action={"f_old": act()}),
+    )
+    assert validate_scenario(s) == [
+        missing("p_block", "f_old"),
+        missing("p_block", "f_new"),
+        missing("p_promote", "f_new"),
+        not_in_about("p_promote", "f_old"),
+    ]
