@@ -102,6 +102,32 @@ def test_ok_missing_404_is_none():
         assert JsonClient(s.url).request("DELETE", "/x", ok_missing=True) is None
 
 
+@pytest.mark.parametrize("ok_missing", [False, True])
+def test_error_replies_are_closed(monkeypatch, ok_missing):
+    # An HTTPError holds the reply body open; left to the garbage collector it raises a
+    # ResourceWarning on some Python versions (3.14.4), which `-W error` turns into a failure.
+    import io
+    import urllib.error
+
+    from harness.oss import http as http_mod
+
+    body = io.BytesIO(b'{"detail": "missing"}')
+    raised: list[urllib.error.HTTPError] = []  # keeps the error alive, so only an explicit close closes the body
+
+    def fail(req, timeout):
+        raised.append(urllib.error.HTTPError(req.full_url, 404, "Not Found", None, body))  # pyright: ignore[reportArgumentType]
+        raise raised[-1]
+
+    monkeypatch.setattr(http_mod._opener, "open", fail)  # pyright: ignore[reportPrivateUsage]
+    client = JsonClient("http://127.0.0.1:8890")
+    if ok_missing:
+        assert client.request("GET", "/x", ok_missing=True) is None
+    else:
+        with pytest.raises(EngineHTTPError, match="404"):
+            client.request("GET", "/x")
+    assert body.closed
+
+
 def test_connection_refused_is_engine_error():
     port = free_port()  # 열려 있지 않은 포트
     waits = []

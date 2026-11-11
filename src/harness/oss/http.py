@@ -152,9 +152,12 @@ class JsonClient:
             with _opener.open(req, timeout=self._timeout) as resp:
                 raw: bytes = resp.read()  # pyright: ignore[reportAny]
         except urllib.error.HTTPError as err:
-            if err.code == 404 and ok_missing:
-                return None
-            raise EngineHTTPError(method, path, err.code, _error_body(err)[:_BODY_LIMIT]) from err
+            # The error holds the reply body open; close it here rather than leave it to the
+            # garbage collector (Python 3.14.4 warns about that, which `-W error` makes fatal).
+            with err:
+                if err.code == 404 and ok_missing:
+                    return None
+                raise EngineHTTPError(method, path, err.code, _error_body(err)[:_BODY_LIMIT]) from err
         except (OSError, http.client.HTTPException) as err:
             # URLError, timeouts and connection errors are OSErrors; a reply cut off or garbled
             # mid-flight raises http.client exceptions, which urllib does not wrap.
