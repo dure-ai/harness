@@ -288,6 +288,10 @@ def _run_extra(
     that repeat is skipped again. With `sealed` the warnings show only the kind of the last
     failure (`ScenarioRun.error_kind`), never engine error text, which can quote an engine reply
     and through it scenario content.
+
+    A failure to build the engine is a result like any other (`unavailable` for
+    `EngineUnavailable`, else `error`) and never ends the run; `run` already built every
+    candidate once before starting, so a configuration problem is caught there.
     """
     all_runs: list[list[ScenarioRun]] = []
     tripped = False
@@ -304,16 +308,9 @@ def _run_extra(
                 continue
             try:
                 engine = make_engine(name, s, cfg)
-                if name not in infos:
+                if name not in infos:  # safety net: `run` fills it in its pre-flight
                     infos[name] = _checked_info(engine)
             except Exception as e:
-                if (
-                    r == 1 and i == 0
-                ):  # cannot even build the engine: a usage problem, not a result
-                    raise _fail(
-                        f"error: cannot build engine {name!r}: {type(e).__name__}: {e}",
-                        2,
-                    ) from e
                 run = ScenarioRun(
                     s.id,
                     s.family,
@@ -354,6 +351,25 @@ def _run_extra(
                 typer.echo(f"warning: {shown}", err=True)
         all_runs.append(runs)
     return all_runs
+
+
+def _preflight(
+    names: list[str], scenario: Scenario, cfg: EvalConfig, infos: dict[str, EngineInfo], sealed: bool
+) -> None:
+    """Build each candidate once and record its `info()` in `infos`, before anything runs.
+
+    The engines built here are discarded; every scenario still gets a fresh one.
+
+    Raises:
+        typer.Exit: With code 2 for the first engine that cannot be built or whose `info()` is
+            unusable. With `sealed` the message has the kind of the failure, never its text.
+    """
+    for name in names:
+        try:
+            infos[name] = _checked_info(make_engine(name, scenario, cfg))
+        except Exception as e:
+            what = f"{error_kind_of(e)} (details hidden by --sealed)" if sealed else f"{type(e).__name__}: {e}"
+            raise _fail(f"error: cannot build engine {name!r}: {what}", 2) from e
 
 
 def _skip_reason(name: str, streak: int, last: str | None) -> str:
@@ -397,6 +413,11 @@ def run(
                 2,
             )
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
+    scenario_list = loaded.scenarios
+    candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
+    infos: dict[str, EngineInfo] = {}
+    if candidates and scenario_list:  # no scenarios: _selfcheck reports it
+        _preflight(candidates, scenario_list[0], cfg, infos, sealed)
     seed = secrets.randbits(64) if blind_seed is None else blind_seed
     if blind_seed is not None and blind_seed < 2**32:
         typer.echo(
@@ -413,10 +434,10 @@ def run(
 
     started_at = datetime.now().astimezone()
     run_id = started_at.strftime("%Y%m%d-%H%M%S")
-    scenario_list = loaded.scenarios
     by_id = {s.id: s for s in scenario_list}
-    infos = {
-        name: make_engine(name, scenario_list[0], cfg).info() for name in BASELINES
+    infos = {  # baselines first, as in the report; the candidates' infos come from the pre-flight
+        **{name: make_engine(name, scenario_list[0], cfg).info() for name in BASELINES},
+        **infos,
     }
 
     base_metrics = {name: compute_metrics(base_runs[name], by_id) for name in BASELINES}
@@ -428,7 +449,6 @@ def run(
     report_runs = dict(base_runs)
     repeat_counts: dict[str, int] = dict.fromkeys(BASELINES, 1)
 
-    candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     candidate_scores: list[EngineScore] = []
     candidate_runs: dict[str, list[ScenarioRun]] = {}
     candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}

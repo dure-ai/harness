@@ -30,7 +30,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
      write_report → report.md · summary.json · results.jsonl · engine_ids.json
 ```
 
-`harness run`은 항상 자가 검증부터 돌리고, 실패하면 엔진 평가로 넘어가지 않습니다. 기준선이 설계대로 줄 서지 않으면 시나리오나 하네스가 틀린 것이라 그 위의 엔진 점수도 믿을 수 없기 때문입니다.
+`harness run`은 먼저 후보 엔진을 한 번씩 만들어 보고(실패하면 아무것도 돌리지 않고 끝납니다), 이어서 항상 자가 검증부터 돌리고, 실패하면 엔진 평가로 넘어가지 않습니다. 기준선이 설계대로 줄 서지 않으면 시나리오나 하네스가 틀린 것이라 그 위의 엔진 점수도 믿을 수 없기 때문입니다.
 
 ## 모듈 지도
 
