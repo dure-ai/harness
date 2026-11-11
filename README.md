@@ -394,7 +394,11 @@ HARNESS_LIVE_OSS=1 uv run pytest tests/test_oss_live.py
 
 ```bash
 uv run pytest -q
+uv run ruff check src tests   # 린트
+uv run basedpyright src       # 타입 검사 (오류만 실패, 경고는 표시만)
 ```
+
+CI는 세 명령을 모두 돌리고, 테스트는 `-W error`로 경고도 실패로 칩니다.
 
 ## 라이선스
 
