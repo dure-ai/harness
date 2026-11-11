@@ -143,6 +143,8 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
 | 1 | 시나리오 오류(로드 실패, 검증 오류, id 중복, 승인 뒤 고친 파일 `approved_content_changed`, 새 도구가 만든 파일을 손으로 승인해 해시가 없는 `approved_hash_missing`) 또는 자가 검증 실패. `review set ... approved`가 막힌 경우(자동 검증 오류·`too_easy`, `labels_changed_outside_review`)와 id가 없거나 여럿인 `review` 명령도 1 |
 | 2 | 사용법 문제: 경로 없음, 평가할(승인된) 시나리오 없음, 설정 파일 오류, 엔진을 만들 수 없음 |
 
+후보 엔진은 실행 전에 한 번씩 만들어 보고, 여기서 실패하면 아무것도 돌리지 않고 2로 끝난다. 그 뒤 첫 시나리오에서 실패하면 다른 실패처럼 기록되고 리포트는 남는다.
+
 ## 시나리오 세트
 
 | 위치 | 내용 | 쓰임 |
