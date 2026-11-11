@@ -84,6 +84,28 @@ def test_check_runs_discrimination(tmp_path):
     assert f"{path}: warning too_easy" in result.output
 
 
+def test_run_preflight_runs_before_the_baseline_selfcheck(tmp_path, monkeypatch):
+    import harness.cli
+
+    def boom(*args, **kwargs):
+        raise AssertionError("baseline selfcheck must not run before the engine pre-flight")
+
+    monkeypatch.setattr(harness.cli, "_selfcheck", boom)
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:FailInit")
+    assert result.exit_code == 2
+    assert "cannot build engine" in result.output
+    assert not out.exists()
+
+
+def test_run_no_approved_scenarios_with_engine(tmp_path):
+    result, out = run_cli(tmp_path, good_dir(tmp_path, status="draft"), "--engine", "tests.dummy_engine:FailInit")
+    assert result.exit_code == 2
+    assert "승인된 시나리오가 없습니다" in result.output
+    assert "cannot build engine" not in result.output
+    assert "Traceback" not in result.output
+    assert not out.exists()
+
+
 def test_run_no_approved_scenarios(tmp_path):
     d = good_dir(tmp_path, status="draft")
     result, out = run_cli(tmp_path, d)
@@ -215,10 +237,10 @@ def summary_of(result) -> dict:
     return json.loads((report.parent / "summary.json").read_text(encoding="utf-8"))
 
 
-def test_run_engine_build_fails_mid_run(tmp_path):
+def test_run_engine_build_fails_at_first_scenario_after_preflight(tmp_path):
     from tests.dummy_engine import FailSecondBuild
 
-    FailSecondBuild.built = 0
+    FailSecondBuild.built = 0  # build 1 is the pre-flight, build 2 the first scenario's
     result, _ = run_cli(tmp_path, good_dir(tmp_path),
                         "--engine", "tests.dummy_engine:FailSecondBuild", "--repeat", "1")
     metrics = summary_of(result)["engines"]["E1"]["metrics"]
@@ -1526,6 +1548,7 @@ def test_run_build_fails_at_first_scenario_after_preflight_is_an_error_run(tmp_p
     assert healthy["metrics"]["n_error_runs"] == 0
     assert broken["metrics"]["n_error_runs"] == 2
     assert broken["metrics"]["n_unavailable"] == 0
+    assert broken["verdict"]["passed"] is False
 
 
 def test_run_unavailable_at_first_scenario_after_preflight_follows_the_stop_policy(tmp_path, monkeypatch):
@@ -1534,6 +1557,25 @@ def test_run_unavailable_at_first_scenario_after_preflight_follows_the_stop_poli
     assert healthy["metrics"]["n_error_runs"] == 0
     assert broken["metrics"]["n_unavailable"] == 2
     assert broken["metrics"]["n_error_runs"] == 2
+    assert broken["verdict"]["passed"] is False
+
+
+def test_run_late_unavailable_builds_trip_the_stop_policy_at_the_first_scenarios(tmp_path, monkeypatch):
+    import harness.cli
+
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    target = "tests.dummy_engine:LatestWins"
+    _build_fails_after_preflight(monkeypatch, target, _Down("SECRET-TEXT"))
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", DUMMY, "--engine", target,
+                          "--repeat", "2", "--sealed")
+    assert out.exists()
+    summary = summary_of(result)
+    candidates = [e for k, e in summary["engines"].items() if k not in BASELINES]
+    broken = max(candidates, key=lambda e: e["metrics"]["n_error_runs"])
+    m = broken["metrics"]
+    assert (m["n_unavailable"], m["n_skipped"]) == (2, 2)  # one real attempt per repeat, the rest skipped
+    assert broken["verdict"]["passed"] is False
+    assert "SECRET-TEXT" not in result.output
 
 
 def test_run_sealed_preflight_failure_hides_the_message(tmp_path):
