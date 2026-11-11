@@ -252,12 +252,12 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
     return info
 
 
-# An engine that was unavailable (no answer, or retryable errors after retries) for this many scenarios in a row is tripped: the rest of
-# that repeat is recorded as skipped, so a dead server cannot stall the run (each unavailable
-# scenario costs the HTTP client its retries, up to minutes). Only `unavailable` runs count; a
-# scenario that fails fast (the server answered, with an error) resets the count and the engine
-# keeps being measured. The count restarts every repeat, and a tripped engine is tried again with
-# the first scenario of each later repeat.
+# An engine that was unavailable (no answer, or retryable errors after retries) for this many
+# scenarios in a row is tripped: the rest of that repeat is recorded as skipped, so a dead server
+# cannot stall the run (each unavailable scenario costs the HTTP client its retries, up to
+# minutes). Only `unavailable` runs count; a scenario that fails fast (the server answered, with
+# an error) resets the count and the engine keeps being measured. The count restarts every
+# repeat, and a tripped engine is tried again with the first scenario of each later repeat.
 MAX_CONSECUTIVE_ENGINE_ERRORS = 3
 
 
@@ -285,8 +285,9 @@ def _run_extra(
     is tripped: the rest of that repeat is kept as `skipped` runs saying why, and a warning goes
     to stderr. Runs that are `ok` or `error` reset the count. Each later repeat runs its first
     scenario for real; if the engine answers (`ok` or `error`) it resumes, otherwise the rest of
-    that repeat is skipped again. With `sealed` the warnings show only the kind of the last failure (`ScenarioRun.error_kind`),
-    never engine error text, which can quote an engine reply and through it scenario content.
+    that repeat is skipped again. With `sealed` the warnings show only the kind of the last
+    failure (`ScenarioRun.error_kind`), never engine error text, which can quote an engine reply
+    and through it scenario content.
     """
     all_runs: list[list[ScenarioRun]] = []
     tripped = False
@@ -338,12 +339,16 @@ def _run_extra(
                 tripped = True
                 skip_reason = _skip_reason(name, streak, run.error)
                 skip_kind = run.error_kind
-                if i == len(scenarios) - 1:  # nothing left to skip in this repeat
-                    tail = "will check again next repeat"
-                    shown = f"{name} was {UNAVAILABLE} for {_scenarios(streak)} in a row"
-                    shown += f" (last: {run.error_kind}); {tail} (details hidden by --sealed)" if sealed else f"; last: {run.error}; {tail}"
-                elif sealed:
-                    shown = f"{name} was {UNAVAILABLE} for {_scenarios(streak)} in a row (last: {run.error_kind}); skipping the rest of the repeat (details hidden by --sealed)"
+                tail = (
+                    "will check again next repeat"  # nothing left to skip in this repeat
+                    if i == len(scenarios) - 1
+                    else "skipping the rest of the repeat"
+                )
+                shown = f"{name} was {UNAVAILABLE} for {_scenarios(streak)} in a row"
+                if sealed:
+                    shown += f" (last: {run.error_kind}); {tail} (details hidden by --sealed)"
+                elif i == len(scenarios) - 1:
+                    shown += f"; last: {run.error}; {tail}"
                 else:
                     shown = skip_reason
                 typer.echo(f"warning: {shown}", err=True)
