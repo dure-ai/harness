@@ -30,7 +30,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
      write_report → report.md · summary.json · results.jsonl · engine_ids.json
 ```
 
-`harness run`은 항상 자가 검증부터 돌리고, 실패하면 엔진 평가로 넘어가지 않습니다. 기준선이 설계대로 줄 서지 않으면 시나리오나 하네스가 틀린 것이라 그 위의 엔진 점수도 믿을 수 없기 때문입니다.
+`harness run`은 먼저 후보 엔진을 한 번씩 만들어 보고(실패하면 아무것도 돌리지 않고 끝납니다), 이어서 항상 자가 검증부터 돌리고, 실패하면 엔진 평가로 넘어가지 않습니다. 기준선이 설계대로 줄 서지 않으면 시나리오나 하네스가 틀린 것이라 그 위의 엔진 점수도 믿을 수 없기 때문입니다.
 
 ## 모듈 지도
 
@@ -93,7 +93,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 ## 판정과 순위
 
 - **통과 기준**(`config.Judgment`, 사전 등록): M1 ≤ all_store M1 × 0.5, M2 ≥ all_store M2 − 0.10, M3 = 0. 비교에는 1e-9 허용 오차를 둡니다.
-- 오류 난 시나리오가 하나라도 있으면 통과하지 못합니다("판정 불가: 오류 시나리오 N개"). 오류 시나리오가 조용히 분모에서 빠지는 것을 막기 위해서입니다.
+- 오류가 났거나 건너뛴 시나리오가 하나라도 있으면 통과하지 못합니다("판정 불가: 오류·건너뜀 시나리오 N개"). 오류 시나리오가 조용히 분모에서 빠지는 것을 막기 위해서입니다.
 - 반복 실행(`llm_repeats`, `averaged`): M1·M2 값은 평균, M3는 가장 나쁜 반복, 오류는 합집합입니다. promote FN·FP, 도달률, 얕은 지식 고착률 같은 비율 지표와 계열·되먹임·출처별 칸은 회차별 분자·분모를 더한 합산 비율이고(분모 0이면 값 없음), 철회·반영 지연은 이어 붙이며 컨텍스트 크기·지연은 평균입니다. M1·M2 신뢰구간과 순위 부트스트랩만 첫 회차 기준이며 리포트 머리말에 적습니다.
 - **입력 경계**: 설정 범위(`k`·`llm_repeats`·`bootstrap_iters`·`repeat_n.n` ≥ 1, `repeat_n.tau`와 `m1_abs_cap`은 0~1, `m1_ratio`·`m2_drop` ≥ 0, 되먹임 지연 ≥ 0), 시나리오 `id` 패턴, YAML 중복 키는 읽을 때 거부합니다. `--engine`은 `package.module:ClassName`과 등록된 오픈소스 이름 `hindsight`·`mem0`만 받고(`cli.py`, `engines.OSS_ENGINES`. `all_store_noacl` 등 내부 이름은 종료 코드 2), `info()`가 `EngineInfo`가 아니거나 리포트가 쓰는 변환(`report.jsonable`, pydantic JSON 모드와 같아 `Path`·`Decimal`·`bytes`는 문자열로, NaN·무한대는 null로, 비교할 수 없는 집합은 (형 이름, repr) 순으로)으로 JSON을 만들 수 없으면(오류 문구에 `config.client` 같은 키 경로를 적음) 첫 빌드 실패와 같이 종료 코드 2입니다. 엔진이 돌려준 `Result`는 다시 검증해 새 객체로 보관하고(형식이 틀어졌으면 그 시나리오만 오류, `meta`는 한 단계 복사, 채점하지 않음), 리포트는 `engine_ids.json`을 가장 먼저 씁니다.
 - **순위**(`rank`): 통과한 엔진만 M2 순서. promote TP 차이의 95% bootstrap 구간(두 엔진 모두 promote 문항이 있는 공통 시나리오만 표본)이 0을 포함하면 `TIEBREAKS`(m1 → shallow_fix → retraction → reach → context_chars) 순으로 가릅니다.
@@ -126,7 +126,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 ## 확장하는 법
 
-- **엔진 추가**: `BaseEngine`을 상속해 `info`, `reset`, `record`, `search`를 구현하고 `--engine package.module:ClassName`으로 넘깁니다(인자 없는 생성자). 정밀 채점을 위해 `Result.sources`에 이벤트 id를 채우고, 묻는 사람이 볼 수 없는 이벤트(`can_see`)는 돌려주지 않아야 합니다. 최소 예시는 `tests/dummy_engine.py`.
+- **엔진 추가**: `BaseEngine`을 상속해 `info`, `reset`, `record`, `search`를 구현하고 `--engine package.module:ClassName`으로 넘깁니다(인자 없는 생성자). 정밀 채점을 위해 `Result.sources`에 이벤트 id를 채우고, 묻는 사람이 볼 수 없는 이벤트(`can_see`)는 돌려주지 않아야 합니다. 최소 예시는 `tests/dummy_engine.py`. 백엔드에 닿지 못하거나 재시도할 만한 실패가 계속되면 `EngineUnavailable`을 상속한 예외를 던져 연속 중단 대상으로 만들고, 그 밖의 예외는 그 시나리오만 오류로 끝납니다.
 - **시나리오 추가**: `scenarios/examples/`에서 같은 계열 파일을 복사해 고친 뒤 `uv run harness scenario check <파일>`로 형식과 변별력을 확인합니다. 시각에는 시간대가 필요합니다. 평가에 들어가려면 검토 후 `uv run harness review set <id> approved --reviewer 이름`으로 승인합니다(파일 위치는 `--root`, 기본 `scenarios/dev`. 승인 해시 `review.approved_hash`를 기록). `review.status: approved`를 손으로 쓰면 해시가 없어, 생성 도구가 만든 파일(`generated_hash`나 `label_fingerprint`가 있는 파일)은 오류 `approved_hash_missing`으로 멈추고 그 밖의 파일은 경고 `approval_unverified`가 붙습니다.
 - **지표 추가**: `ProbeRecord`(replay)에 문항 단위 값을 남기고 `compute_metrics`에서 집계합니다. 점수에 영향을 주는 새 값은 `EvalConfig`에 넣어 설정 해시에 잡히게 합니다.
 

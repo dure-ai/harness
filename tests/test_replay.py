@@ -535,3 +535,71 @@ def test_refs_reach_the_engine_as_opaque_ids():
     run_scenario(eng, s, run_id="r", cfg=CFG)
     events = [e for e in eng.received if isinstance(e, Event)]
     assert events[1].refs == (engine_event_id(s.id, "e1", DEFAULT_BLIND_KEY),)
+
+
+def test_scenario_run_status_defaults_and_invariant():
+    from harness.replay import ScenarioRun
+
+    assert ScenarioRun("s", "f", "read_only").status == "ok"
+    assert ScenarioRun("s", "f", "read_only", error="X: y").status == "error"
+    assert ScenarioRun("s", "f", "read_only", error="X: y", status="unavailable").status == "unavailable"
+    assert ScenarioRun("s", "f", "read_only", error="skipped: x", status="skipped").status == "skipped"
+    with pytest.raises(ValueError):
+        ScenarioRun("s", "f", "read_only", error="X: y", status="ok")
+    with pytest.raises(ValueError):
+        ScenarioRun("s", "f", "read_only", status="error")
+
+
+@pytest.mark.parametrize("where", ["reset", "record", "search"])
+def test_run_scenario_classifies_exceptions_from_every_engine_call(where):
+    from harness.contract import EngineUnavailable
+
+    def failing(exc):
+        class Failing(Recorder):
+            pass
+
+        def boom(self, *args):
+            raise exc
+
+        setattr(Failing, where, boom)
+        return Failing()
+
+    down = run_scenario(failing(EngineUnavailable("gone")), _same_time(), run_id="r", cfg=CFG)
+    assert down.status == "unavailable" and down.error == "EngineUnavailable: gone"
+    broken = run_scenario(failing(RuntimeError("boom")), _same_time(), run_id="r", cfg=CFG)
+    assert broken.status == "error"
+    assert down.error_kind == "EngineUnavailable" and broken.error_kind == "RuntimeError"
+
+
+@pytest.mark.parametrize("where", ["reset", "record", "search"])
+def test_error_kind_has_the_class_and_status_but_not_the_message(where):
+    class Http(Exception):
+        status = 502
+
+    class Failing(Recorder):
+        pass
+
+    def boom(self, *args):
+        raise Http("SECRET-TEXT")
+
+    setattr(Failing, where, boom)
+    run = run_scenario(Failing(), _same_time(), run_id="r", cfg=CFG)
+    assert run.error_kind == "Http 502"
+
+
+def test_flush_timeout_is_unavailable():
+    from harness.oss.hindsight import FlushTimeout
+
+    class Stuck(Recorder):
+        def flush(self):
+            raise FlushTimeout("stuck")
+
+    run = run_scenario(Stuck(), _same_time(), run_id="r", cfg=CFG)
+    assert run.status == "unavailable" and run.error_kind == "FlushTimeout"
+
+
+def test_scenario_run_rejects_unknown_status():
+    from harness.replay import ScenarioRun
+
+    with pytest.raises(ValueError):
+        ScenarioRun("s", "f", "read_only", error="X", status="bogus")  # pyright: ignore[reportArgumentType]

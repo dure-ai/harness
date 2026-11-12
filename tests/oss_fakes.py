@@ -4,10 +4,13 @@ import json
 import re
 import socket
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
+
+from harness.oss.http import _CLAUDE_MEM_PORTS  # pyright: ignore[reportPrivateUsage]
 
 
 @dataclass
@@ -27,10 +30,29 @@ class Recorded:
     body: Any
 
 
+def allowed_port[T](open_: Callable[[], T], port: Callable[[T], int], close: Callable[[T], None]) -> T:
+    """Open with `open_` until the OS hands out a port the adapters accept.
+
+    `check_local_url` refuses the claude-mem ports, and port 0 can land on them, which failed a
+    test at random.
+    """
+    while True:
+        opened = open_()
+        if port(opened) not in _CLAUDE_MEM_PORTS:
+            return opened
+        close(opened)
+
+
+def _bound_socket() -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    return sock
+
+
 def free_port() -> int:
     """Return a local port nobody is listening on."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
+    sock = allowed_port(_bound_socket, lambda s: s.getsockname()[1], lambda s: s.close())
+    with sock:
         return sock.getsockname()[1]
 
 
@@ -74,7 +96,11 @@ class FakeServer:
 
             do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = _serve
 
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._server = allowed_port(
+            lambda: ThreadingHTTPServer(("127.0.0.1", 0), Handler),
+            lambda s: s.server_address[1],
+            lambda s: s.server_close(),
+        )
         self._server.daemon_threads = True
         # serve_forever() polls for shutdown every 0.5 s by default, and shutdown() waits for that poll,
         # so every test that used a fake server spent about half a second in teardown.
@@ -208,6 +234,7 @@ class FakeMem0(FakeServer):
     Attributes:
         llm_model: Model name `GET /configure` reports for the LLM.
         embedding_model: Model name `GET /configure` reports for the embedder.
+        dims: Vector size `GET /configure` reports, or None to leave it out (an unpatched server).
         extra_results: Raw result dicts appended to every search reply; like real Mem0 rows they
             carry `run_id` and `user_id` at the top level when a test means them to be well-formed.
         configure_reply: When set, `GET /configure` answers this payload as is.
@@ -223,6 +250,7 @@ class FakeMem0(FakeServer):
         super().__init__()
         self.llm_model = "gpt-4.1-mini"
         self.embedding_model = "text-embedding-3-small"
+        self.dims: int | None = 1536
         self.extra_results: list[dict[str, Any]] = []
         self.configure_reply: Any = self._UNSET
         self.search_reply: Any = self._UNSET
@@ -238,8 +266,11 @@ class FakeMem0(FakeServer):
         if method == "GET" and path == "/configure":
             if self.configure_reply is not self._UNSET:
                 return 200, self.configure_reply
-            return 200, {"llm": {"config": {"model": self.llm_model}},
-                         "embedder": {"config": {"model": self.embedding_model}}}
+            reply: dict[str, Any] = {"llm": {"config": {"model": self.llm_model}},
+                                     "embedder": {"config": {"model": self.embedding_model}}}
+            if self.dims is not None:
+                reply["vector_store"] = {"config": {"embedding_model_dims": self.dims}}
+            return 200, reply
         if method == "POST" and path == "/memories":
             memory = {
                 "id": f"m{len(self.memories)}",

@@ -208,6 +208,91 @@ def test_running_embedding_mismatch_stops(fake):
         make(fake)
 
 
+def test_dims_mismatch_between_server_and_env_stops(fake):
+    fake.dims = 1536
+    with pytest.raises(ValueError, match="1536-dimensional vectors, but HARNESS_EMBEDDING_DIMS for the harness is 1024"):
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                   sleep=lambda _: None)
+
+
+def test_dims_match_is_recorded_in_info(fake):
+    fake.dims = 1024
+    engine = Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                        sleep=lambda _: None)
+    assert engine.info().config["embedding_dims"] == 1024
+
+
+def test_server_that_reports_no_size_counts_as_1536(fake):
+    fake.dims = None
+    assert make(fake).info().config["embedding_dims"] == 1536
+    with pytest.raises(ValueError, match="did not report its vector size"):
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                   sleep=lambda _: None)
+
+
+def test_dims_mismatch_message_names_both_sides_and_both_fixes(fake):
+    fake.dims = 1536
+    with pytest.raises(ValueError) as caught:
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                   sleep=lambda _: None)
+    text = str(caught.value)
+    assert "1536" in text and "1024" in text and "(unset" not in text
+    assert "If the server is right, set HARNESS_EMBEDDING_DIMS=1536" in text
+    assert "if the server must change" in text and "`down -v`" in text
+    assert not text.split("If the server is right")[0].endswith("down -v")
+
+
+def test_dims_mismatch_with_the_variable_unset_says_so(fake):
+    fake.dims = 1024
+    with pytest.raises(ValueError, match=r"is 1536 \(unset, so the default\)\."):
+        make(fake)
+
+
+def test_unreported_size_mismatch_advises_the_default(fake):
+    fake.dims = None
+    with pytest.raises(ValueError) as caught:
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "1024"},
+                   sleep=lambda _: None)
+    assert "server default 1536, but HARNESS_EMBEDDING_DIMS for the harness is 1024." in str(caught.value)
+    assert "set HARNESS_EMBEDDING_DIMS=1536" in str(caught.value)
+
+
+def test_empty_dims_env_is_the_default(fake):
+    engine = Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": ""},
+                        sleep=lambda _: None)
+    assert engine.info().config["embedding_dims"] == 1536
+
+
+def test_bad_dims_env_is_reported_before_the_server_is_contacted(fake):
+    before = len(fake.requests)
+    fake.llm_model = "gpt-5-mini"
+    with pytest.raises(ValueError, match="HARNESS_EMBEDDING_DIMS must be a positive whole number"):
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "abc"},
+                   sleep=lambda _: None)
+    assert len(fake.requests) == before
+
+
+def test_bad_dims_env_is_reported_even_when_the_server_is_down():
+    with pytest.raises(ValueError, match="HARNESS_EMBEDDING_DIMS must be a positive whole number"):
+        Mem0Engine(cfg(), base_url=f"http://127.0.0.1:{free_port()}",
+                   environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": "abc"}, sleep=lambda _: None)
+
+
+@pytest.mark.parametrize("raw", ["1_024", "１０２４", " 1024 "])
+def test_dims_env_spellings_that_int_accepts(fake, raw):
+    fake.dims = 1024
+    engine = Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": raw},
+                        sleep=lambda _: None)
+    assert engine.info().config["embedding_dims"] == 1024
+
+
+@pytest.mark.parametrize("raw", ["abc", "0", "-3", "10.5", " "])
+def test_bad_dims_env_stops(fake, raw):
+    with pytest.raises(ValueError, match="HARNESS_EMBEDDING_DIMS must be a positive whole number"):
+        Mem0Engine(cfg(), base_url=fake.url, environ={**MODELS_ENV, "HARNESS_EMBEDDING_DIMS": raw},
+                   sleep=lambda _: None)
+
+
 @pytest.mark.parametrize("reply", [None, [], {}, {"llm": {"config": {"model": "gpt-4.1-mini"}}},
                                    {"llm": {"config": {}}, "embedder": {"config": {"model": "m"}}},
                                    {"llm": {"config": {"model": "gpt-4.1-mini"}}, "embedder": "x"},

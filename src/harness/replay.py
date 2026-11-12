@@ -8,12 +8,16 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import count
+from typing import Literal
 
 from harness.agent import Choice, choose, result_basis
 from harness.config import EvalConfig
-from harness.contract import BaseEngine, Event, Result
+from harness.contract import BaseEngine, EngineUnavailable, Event, Result
 from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, Scenario
 from harness.scoring import Leak, ProbeOutcome, find_leaks, is_wrong, judge
+
+Status = Literal["ok", "error", "unavailable", "skipped"]
+STATUSES: frozenset[str] = frozenset({"ok", "error", "unavailable", "skipped"})
 
 EVENT, PROBE = 0, 1  # tie-break order: events at the same time come before probes
 
@@ -145,7 +149,16 @@ class ScenarioRun:
         probes: Probe records in time order.
         record_ms: Latency of every `record` call.
         generated: Events the harness generated in feedback mode.
-        error: "ExceptionType: message" if the engine failed; the run stops there.
+        error: "ExceptionType: message" if the engine failed; the run stops there. Also the
+            reason of a skipped run.
+        status: "ok" (no error), "error" (the engine answered with a failure or raised),
+            "unavailable" (the engine could not be reached, see `EngineUnavailable`) or
+            "skipped" (never run because the engine was stopped). `None` becomes "ok" when
+            `error` is None, else "error". "ok" holds exactly when `error` is None.
+        error_kind: The class name of the exception behind `error`, plus " <status>" when it has
+            an int `status` (e.g. "EngineUnavailableError 502"); never the message, so it is safe
+            to show under `--sealed`. A skipped run carries the kind of the run that stopped
+            the engine.
         generated_ids: (probe id, "action" | "outcome") to generated event id; harness-side
             only, never sent to engines.
     """
@@ -158,6 +171,28 @@ class ScenarioRun:
     generated: list[LabeledEvent] = field(default_factory=list)
     error: str | None = None
     generated_ids: dict[tuple[str, str], str] = field(default_factory=dict)
+    status: Status | None = None
+    error_kind: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.status is None:
+            self.status = "ok" if self.error is None else "error"
+        if self.status not in STATUSES:
+            raise ValueError(f"unknown status {self.status!r}")
+        if (self.status == "ok") != (self.error is None):
+            raise ValueError(f"status {self.status!r} does not match error {self.error!r}")
+
+
+def error_kind_of(e: BaseException) -> str:
+    """The exception class name, plus " <status>" when it has an int `status`; no message."""
+    status = getattr(e, "status", None)
+    name = type(e).__name__
+    return f"{name} {status}" if isinstance(status, int) and not isinstance(status, bool) else name
+
+
+def _failure_status(e: Exception) -> Status:
+    """The `ScenarioRun.status` for an engine exception."""
+    return "unavailable" if isinstance(e, EngineUnavailable) else "error"
 
 
 class Timeline:
@@ -415,6 +450,8 @@ def run_scenario(
         engine.reset(namespace(run_id, scenario.id, blind_key))
     except Exception as e:
         run.error = f"{type(e).__name__}: {e}"
+        run.error_kind = error_kind_of(e)
+        run.status = _failure_status(e)
         return run
 
     while timeline:
@@ -428,6 +465,8 @@ def run_scenario(
                 run.record_ms.append((time.perf_counter() - start) * 1000)
             except Exception as e:
                 run.error = f"{type(e).__name__}: {e}"
+                run.error_kind = error_kind_of(e)
+                run.status = _failure_status(e)
                 return run
             recorded[item.event.id] = item
             continue
@@ -446,6 +485,8 @@ def run_scenario(
             ]  # a malformed return errors this scenario only
         except Exception as e:
             run.error = f"{type(e).__name__}: {e}"
+            run.error_kind = error_kind_of(e)
+            run.status = _failure_status(e)
             return run
         results = [ids.back(r) for r in raw[: cfg.k if item.k is None else item.k]]
         record = _score_probe(item, results, scenario, recorded, search_ms)

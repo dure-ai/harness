@@ -6,7 +6,7 @@ from harness.scenario.model import LabeledEvent, Probe, QueryKey, Scenario, prob
 from harness.world import probe_ctx, true_at
 
 
-def _content_key(e: Event) -> tuple:
+def _content_key(e: Event) -> tuple[object, ...]:
     """Every field of `e` except its id and refs, which the replay renames."""
     return (e.t, e.user, e.session, e.repo, e.scope, e.team, e.signal, e.kind, e.outcome, e.text,
             tuple(sorted(e.meta.items())))
@@ -27,7 +27,7 @@ class OracleEngine(_NamespacedEngine):
         self._scenario = scenario
         # Engines see opaque ids (`replay.engine_event_id`), so recorded events are matched to
         # their labels by content; the first of identical events wins.
-        self._labeled: dict[tuple, LabeledEvent] = {}
+        self._labeled: dict[tuple[object, ...], LabeledEvent] = {}
         for le in scenario.labeled_events():
             self._labeled.setdefault(_content_key(le.event), le)
         self._facts: dict[str, str | None] = {}

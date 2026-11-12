@@ -10,6 +10,8 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from harness.contract import EngineUnavailable
+
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 RETRY_DELAYS = (2.0, 8.0, 30.0)
 
@@ -38,6 +40,13 @@ class EngineHTTPError(RuntimeError):
         self.path: str = path
         self.status: int | None = status
         self.body: str = body
+
+
+class EngineUnavailableError(EngineHTTPError, EngineUnavailable):  # pyright: ignore[reportUnsafeMultipleInheritance]  # EngineUnavailable is a pure marker with no __init__
+    """The engine could not be reached, or kept answering 429/502/503/504 until the retries ran out.
+
+    The run loop counts these toward stopping the engine, see `EngineUnavailable`.
+    """
 
 
 def check_local_url(url: str) -> str:
@@ -125,8 +134,9 @@ class JsonClient:
             The parsed JSON, or None for an empty body (or a tolerated 404).
 
         Raises:
-            EngineHTTPError: On any other error status, an unparseable reply, or when
-                retries run out.
+            EngineUnavailableError: When the connection fails or the status is 429/502/503/504
+                and the retries run out (or `retry` is False).
+            EngineHTTPError: On any other error status or an unparseable reply.
         """
         url = self.base_url + path
         if query:
@@ -139,6 +149,8 @@ class JsonClient:
             except EngineHTTPError as err:
                 retryable = err.status is None or err.status in RETRY_STATUSES
                 if not (retry and retryable) or attempt >= len(self._delays):
+                    if retryable:
+                        raise EngineUnavailableError(err.method, err.path, err.status, err.body) from err
                     raise
                 delay = self._delays[attempt]
                 attempt += 1
@@ -152,9 +164,12 @@ class JsonClient:
             with _opener.open(req, timeout=self._timeout) as resp:
                 raw: bytes = resp.read()  # pyright: ignore[reportAny]
         except urllib.error.HTTPError as err:
-            if err.code == 404 and ok_missing:
-                return None
-            raise EngineHTTPError(method, path, err.code, _error_body(err)[:_BODY_LIMIT]) from err
+            # The error holds the reply body open; close it here rather than leave it to the
+            # garbage collector (Python 3.14.4 warns about that, which `-W error` makes fatal).
+            with err:
+                if err.code == 404 and ok_missing:
+                    return None
+                raise EngineHTTPError(method, path, err.code, _error_body(err)[:_BODY_LIMIT]) from err
         except (OSError, http.client.HTTPException) as err:
             # URLError, timeouts and connection errors are OSErrors; a reply cut off or garbled
             # mid-flight raises http.client exceptions, which urllib does not wrap.

@@ -482,13 +482,16 @@ def _section_limits(meta: RunMeta, ids: Mapping[str, str], scrub: Callable[[str]
     return ["## 엔진 한계", "", *_table(headers, rows)]
 
 
+_STATUS_LABEL = {"error": "오류", "unavailable": "사용 불가", "skipped": "건너뜀"}
+
+
 def _section_errors(
     meta: RunMeta,
     repeat_runs: Mapping[str, list[list[ScenarioRun]]],
     ids: Mapping[str, str],
     scrub: Callable[[str], str],
 ) -> list[str]:
-    """Every errored scenario run of every repeat; the verdict counts all repeats, so must this."""
+    """Every scenario run of every repeat that did not finish; the verdict counts all repeats, so must this."""
     failed = [
         (name, repeat, run)
         for name in sorted(repeat_runs, key=_order_key(ids))
@@ -498,11 +501,22 @@ def _section_errors(
     ]
     out = ["## 오류 시나리오", ""]
     if meta.sealed:
-        return [*out, f"오류가 난 시나리오 수: {len(failed)}", ""]
+        n_skipped = sum(run.status == "skipped" for _, _, run in failed)
+        n_unavailable = sum(run.status == "unavailable" for _, _, run in failed)
+        line = f"오류가 난 시나리오 수: {len(failed) - n_skipped}"
+        if n_unavailable:
+            line += f" (그중 사용 불가 {n_unavailable})"
+        lines = [line]
+        if n_skipped:
+            lines.append(f"건너뛴 시나리오 수: {n_skipped}")
+        return [*out, *lines, ""]
     if not failed:
         return [*out, "없음", ""]
-    rows = [[ids[name], repeat, run.scenario_id, scrub(run.error or "")] for name, repeat, run in failed]
-    return [*out, *_table(["엔진", "회차", "시나리오", "오류"], rows)]
+    rows = [
+        [ids[name], repeat, run.scenario_id, _STATUS_LABEL.get(run.status or "error", "오류"), scrub(run.error or "")]
+        for name, repeat, run in failed
+    ]
+    return [*out, *_table(["엔진", "회차", "시나리오", "상태", "오류"], rows)]
 
 
 def _markdown(

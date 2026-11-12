@@ -122,7 +122,7 @@ def test_engine_down_exits_2(tmp_path, monkeypatch):
         tmp_path, EXAMPLES, "--include-drafts", "--engine", "hindsight", "--repeat", "1"
     )
     assert result.exit_code == 2 and "cannot build engine 'hindsight'" in result.output
-    assert "EngineHTTPError" in result.output
+    assert "EngineUnavailableError" in result.output
     assert "unknown engine" not in result.output
 
 

@@ -4,7 +4,8 @@ from typing import Any
 import pytest
 
 from harness.config import LLM
-from harness.oss.http import EngineHTTPError, JsonClient, check_local_url
+from harness.contract import EngineUnavailable
+from harness.oss.http import EngineHTTPError, EngineUnavailableError, JsonClient, check_local_url
 from harness.oss.models import ENV_EMBEDDING, ENV_LLM, expected_models
 from tests.oss_fakes import FakeServer, RawResponse, free_port
 
@@ -19,6 +20,17 @@ class Echo(FakeServer):
 def test_rejects_non_local_or_claude_mem(url):
     with pytest.raises(ValueError):
         check_local_url(url)
+
+
+def test_fake_servers_never_take_a_claude_mem_port():
+    # The OS can hand out 37701 or 37777 for port 0; the adapters refuse those, so a fake server
+    # there failed a test at random (seen once in CI).
+    from tests.oss_fakes import allowed_port
+
+    handed_out = iter([37701, 37777, 5000])
+    closed: list[int] = []
+    assert allowed_port(lambda: next(handed_out), lambda p: p, closed.append) == 5000
+    assert closed == [37701, 37777]
 
 
 def test_accepts_local_and_strips_slash():
@@ -89,6 +101,32 @@ def test_ok_missing_404_is_none():
     with Echo() as s:
         s.fail_next(404, 1)
         assert JsonClient(s.url).request("DELETE", "/x", ok_missing=True) is None
+
+
+@pytest.mark.parametrize("ok_missing", [False, True])
+def test_error_replies_are_closed(monkeypatch, ok_missing):
+    # An HTTPError holds the reply body open; left to the garbage collector it raises a
+    # ResourceWarning on some Python versions (3.14.4), which `-W error` turns into a failure.
+    import io
+    import urllib.error
+
+    from harness.oss import http as http_mod
+
+    body = io.BytesIO(b'{"detail": "missing"}')
+    raised: list[urllib.error.HTTPError] = []  # keeps the error alive, so only an explicit close closes the body
+
+    def fail(req, timeout):
+        raised.append(urllib.error.HTTPError(req.full_url, 404, "Not Found", None, body))  # pyright: ignore[reportArgumentType]
+        raise raised[-1]
+
+    monkeypatch.setattr(http_mod._opener, "open", fail)  # pyright: ignore[reportPrivateUsage]
+    client = JsonClient("http://127.0.0.1:8890")
+    if ok_missing:
+        assert client.request("GET", "/x", ok_missing=True) is None
+    else:
+        with pytest.raises(EngineHTTPError, match="404"):
+            client.request("GET", "/x")
+    assert body.closed
 
 
 def test_connection_refused_is_engine_error():
@@ -166,3 +204,26 @@ def test_truncated_error_body_keeps_status():
             JsonClient(s.url, sleep=lambda _: None).request("GET", "/x")
         assert len(s.requests) == 1
     assert ei.value.status == 500 and ei.value.body
+
+
+def test_unavailable_error_after_retries_on_503_and_connection_failure():
+    with Echo() as s:
+        s.fail_next(503, 4)
+        with pytest.raises(EngineUnavailableError) as ei:
+            JsonClient(s.url, sleep=lambda _: None).request("GET", "/x")
+    assert isinstance(ei.value, EngineHTTPError) and isinstance(ei.value, EngineUnavailable)
+    assert ei.value.status == 503
+    with pytest.raises(EngineUnavailableError) as ei2:
+        JsonClient(f"http://127.0.0.1:{free_port()}", sleep=lambda _: None).request("GET", "/x")
+    assert ei2.value.status is None
+
+
+def test_retry_false_on_503_is_unavailable_but_400_is_plain():
+    with Echo() as s:
+        s.fail_next(503, 1)
+        with pytest.raises(EngineUnavailableError):
+            JsonClient(s.url).request("GET", "/x", retry=False)
+        s.fail_next(400, 1)
+        with pytest.raises(EngineHTTPError) as ei:
+            JsonClient(s.url, sleep=lambda _: None).request("GET", "/x")
+    assert type(ei.value) is EngineHTTPError
