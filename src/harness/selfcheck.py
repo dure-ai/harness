@@ -164,6 +164,13 @@ def run_selfcheck(
             _family_m1(repeat_n.by_family, "single_source_poison"),
             _family_m1(oracle.by_family, "single_source_poison"),
         ),
+        _repeat_n_beats_oracle(
+            "repeat_n_unconfirmed",
+            "unconfirmed_poison",
+            "unconfirmed_poison" in families,
+            _family_m1(repeat_n.by_family, "unconfirmed_poison"),
+            _family_m1(oracle.by_family, "unconfirmed_poison"),
+        ),
         _echo_buildup(runs["all_store"], scenarios),
     ]
     return checks, runs
