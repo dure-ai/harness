@@ -10,6 +10,7 @@ from harness.generate.families.read_only import (
     normal_repeat,
     single_source_poison,
     truth_change,
+    unconfirmed_poison,
     workaround_then_root,
 )
 from harness.generate.slots import Skeleton
@@ -18,6 +19,7 @@ TEMPLATES: dict[str, Template] = {
     "normal_repeat": normal_repeat,
     "coincidence": coincidence,
     "single_source_poison": single_source_poison,
+    "unconfirmed_poison": unconfirmed_poison,
     "echo": echo,
     "failure_feedback": failure_feedback,
     "truth_change": truth_change,

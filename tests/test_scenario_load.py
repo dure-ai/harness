@@ -68,7 +68,7 @@ def with_status(status: str, id: str) -> str:
 
 
 def test_constants():
-    assert len(FAMILIES) == 10
+    assert len(FAMILIES) == 11
     assert FEEDBACK_FAMILIES == ("echo", "failure_feedback")
 
 

@@ -509,13 +509,13 @@ def blocking(issues: Sequence[Issue]) -> list[Issue]:
 
 
 def repeat_issues(s: Scenario, cfg: EvalConfig) -> list[Issue]:
-    """Error `repeats_too_different` when a single-source poison's false records are no near repeats.
+    """Error `repeats_too_different` when a poisoner's false records are no near repeats.
 
     The `repeat_n` baseline serves a record only when `n` visible records (itself included) have
-    token Jaccard >= `tau` with it. A `single_source_poison` scenario exists to show that baseline
-    fooled by one user's repeated false claim, so that user's records of the false fact must
-    include at least `n` records that each match at least `n - 1` of the others. Only the family
-    `single_source_poison` is checked.
+    token Jaccard >= `tau` with it. The poison families exist to show that baseline fooled by one
+    user's repeated false claim, so that user's records of the false fact must include at least
+    `n` records that each match at least `n - 1` of the others. Only `single_source_poison` and
+    `unconfirmed_poison` are checked.
 
     Args:
         s: The scenario.
@@ -524,7 +524,7 @@ def repeat_issues(s: Scenario, cfg: EvalConfig) -> list[Issue]:
     Returns:
         One error naming the pairwise maximum similarities, or nothing.
     """
-    if s.family != "single_source_poison":
+    if s.family not in ("single_source_poison", "unconfirmed_poison"):
         return []
     n, tau = cfg.repeat_n.n, cfg.repeat_n.tau
     best: list[tuple[str, list[float]]] = []
