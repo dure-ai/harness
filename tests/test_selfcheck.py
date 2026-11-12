@@ -76,7 +76,7 @@ def test_selfcheck_passes_on_good_set():
     named = by_name(checks)
     assert [c.name for c in checks] == [
         "no_errors", "oracle_perfect", "none_empty", "all_store_max_m1",
-        "repeat_n_poison", "echo_buildup",
+        "repeat_n_poison", "repeat_n_unconfirmed", "echo_buildup",
     ]
     failed = [c for c in checks if not c.ok]
     assert failed == [], failed
@@ -92,6 +92,8 @@ def test_selfcheck_skips_poison_when_absent():
     named = by_name(checks)
     assert named["repeat_n_poison"].ok
     assert named["repeat_n_poison"].detail == "skipped: no single_source_poison scenarios"
+    assert named["repeat_n_unconfirmed"].ok
+    assert named["repeat_n_unconfirmed"].detail == "skipped: no unconfirmed_poison scenarios"
 
 
 def test_selfcheck_flags_broken_scenario():

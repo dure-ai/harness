@@ -85,7 +85,7 @@ def test_end_to_end_fake_provider(tmp_path, workspace):
     files = sorted(out.rglob("*.yaml"))
     drafts = [load_scenario(p) for p in files]
     assert sorted(s.family for s in drafts) == sorted(FAMILIES)
-    assert len(files) == 10
+    assert len(files) == 11
     for path, s in zip(files, drafts, strict=True):
         assert path.parent.name == s.family
         assert s.review.status == "draft"

@@ -46,11 +46,11 @@
 
 | 항목 | 내용 |
 |---|---|
-| 언어·도구 | Python 3.12 이상(3.12·3.13·3.14 지원), uv가 Python과 가상환경(.venv)까지 관리, pip·pyenv 사용 안 함 [결정, 10/19 3.14 → 3.12+로 변경: mcp-server와 맞춤] |
+| 언어·도구 | Python 3.12 이상(3.12·3.13·3.14 지원), uv가 Python과 가상환경(.venv)까지 관리, pip·pyenv 사용 안 함 [결정, 10/19 3.14 → 3.12+로 변경: core와 맞춤] |
 | 실행 환경 | macOS arm64, RAM 16GB. Docker Desktop 필요(현재 데몬 꺼져 있음). `harness run`은 `--engine`을 여러 번 받고, 후보 엔진을 차례로(한 엔진의 모든 시나리오와 반복 회차를 마친 뒤 다음 엔진) 돌린다. 시나리오마다 엔진 인스턴스를 새로 만든다(`_run_extra`). 오픈소스 엔진의 컨테이너를 몇 개 함께 띄울지는 오픈소스 어댑터 설계(`2026-10-21-oss-adapters-design.md`)를 따르며, 거기서는 "한 번에 하나씩"을 바꿔 한 번의 `harness run`에 두 엔진을 함께 띄운다 [판단 변경] |
 | LLM | OpenAI 호환 엔드포인트. 오픈소스 엔진은 OpenAI로 잰다(설계 3 §3). `OPENAI_BASE_URL`을 바꾸면 Upstage나 로컬 모델도 가능하다 [결정, 10/21 변경: Upstage → OpenAI]. 팀 엔진의 제공자는 미정(14장 1번). 키는 사용자가 `.env`에 넣는다. 모델명은 미정(7장) |
 | 일정 | 10/21 핵심 하네스 · 10/23 생성 파이프라인과 검토 · 10/24~25 오픈소스 어댑터 · 10/25 재혁 측정(기준선 4종 + 오픈소스) · 10/29 발표 제출 · 11월 팀원 엔진 개발 시작 [결정] |
-| 저장소 | `cortex-mem/harness` (현재 비어 있음) |
+| 저장소 | `dure-ai/harness` |
 
 ---
 
@@ -147,22 +147,22 @@ MCP 연결은 v0.1에 넣지 않는다. 가상 시계와 초기화가 MCP 도구
 
 ### 4.5 팀 엔진 계약(cortex-mem)과의 연결 [결정, 10/20 합의]
 
-[mcp-server PR #1](https://github.com/cortex-mem/mcp-server/pull/1)에서 D1~D7이 합의되었다. 계약 문서는 그 레포의 `docs/contract.md`다.
+[core PR #1](https://github.com/dure-ai/core/pull/1)에서 D1~D7이 합의되었다. 계약 문서는 그 레포의 `docs/contract.md`다.
 
 - **구조**: 저장소(이벤트 로그, 지식 베이스, 엔진 상태, 커서)와 검색, 범위 필터는 core 런타임(`cortex-mem` 패키지)이 소유한다. 엔진은 `observe(event, ctx)` / `tick(now, ctx)` / `handoff(query, caller, scope, ctx, k)`로 결정(Promote, Demote)과 건넬 항목만 돌려준다.
 - **의존 방향**: core는 의존성이 없다. MCP 서버(`cortex-mem-server`)와 하네스가 core에 의존하고, 팀원 엔진은 core의 계약 인터페이스에만 의존한다. 하네스는 core 패키지만 커밋을 고정해 git 의존으로 넣는다.
-- **의존 고정** [판단, 10/21]: core는 Python `>=3.12,<3.15`를 요구한다. 의존을 추가할 때 하네스의 `requires-python`도 같은 범위로 맞춘다. core는 `gen`처럼 선택 extra로 넣어, 기준선과 오픈소스만 돌릴 때는 필요 없게 한다. 커밋은 core의 `main`에 들어간 SHA로 고정한다. mcp-server PR #1이 병합된 뒤에 고르고, 스쿼시 병합은 SHA를 바꾼다. 레포 이름이 바뀌면 URL을 고쳐 최종 이름으로 고정한다(14장).
+- **의존 고정** [판단, 10/21]: core는 Python `>=3.12,<3.15`를 요구한다. 의존을 추가할 때 하네스의 `requires-python`도 같은 범위로 맞춘다. core는 `gen`처럼 선택 extra로 넣어, 기준선과 오픈소스만 돌릴 때는 필요 없게 한다. 커밋은 core의 `main`에 들어간 SHA로 고정한다. core PR #1이 병합된 뒤에 고르고, 스쿼시 병합은 SHA를 바꾼다. 레포 이름이 바뀌면 URL을 고쳐 최종 이름으로 고정한다(14장).
 - **어댑터 동작**
   - 엔진마다, 시나리오마다 새 `InMemoryDatabase`와 `Runtime`을 만든다(`reset`).
   - 이벤트는 `Runtime.append`, 가상 시계는 `Runtime.tick`.
   - 두 모드 모두 문항은 `Runtime.handoff`만 부른다. 읽기 전용 모드는 `Runtime.recall`이 건넨 내용을 recall 이벤트로 남기는데 그 이벤트가 엔진마다 달라져 "모든 엔진이 같은 이벤트를 받는다"(15장 1번)가 깨지기 때문이고, 되먹임 모드는 `BaseEngine.search(query)`에 모드 정보가 없어서 어댑터가 `recall`과 `handoff`를 구분할 수 없기 때문이다. 따라서 recall 이벤트와 그 id는 생기지 않는다. 되먹임 모드에서 엔진에 다시 들어가는 것은 6.2의 생성 기록(행동 기록, 결과 기록)뿐이다.
-  - **결과**: 계약 §3-1 5단계는 엔진이 recall 이벤트를 관찰해 자기가 건넨 것을 알게 하고, §3-8은 `retrieval:<세션>:<handoff_id>` 상태 키로 자기 강화를 막는다. 하네스는 recall 이벤트를 남기지 않으므로 이 방식에 기대는 엔진은 하네스 안에서 그 장치를 쓰지 못하고, `echo` 계열은 생성 기록만으로 되먹임 탐지를 재게 된다(6.2, 14장 23번). [리뷰 반영 10/24, [mcp-server와의 호환 확인](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)]
+  - **결과**: 계약 §3-1 5단계는 엔진이 recall 이벤트를 관찰해 자기가 건넨 것을 알게 하고, §3-8은 `retrieval:<세션>:<handoff_id>` 상태 키로 자기 강화를 막는다. 하네스는 recall 이벤트를 남기지 않으므로 이 방식에 기대는 엔진은 하네스 안에서 그 장치를 쓰지 못하고, `echo` 계열은 생성 기록만으로 되먹임 탐지를 재게 된다(6.2, 14장 23번). [리뷰 반영 10/24, [core와의 호환 확인](https://github.com/dure-ai/harness/pull/1#issuecomment-6381660310)]
   - 어댑터의 `info()`가 적는 core 버전(SHA)은 `importlib.metadata.distribution("cortex-mem")`의 `direct_url.json`에 있는 `commit_id`로 읽는다.
   - `Handoff.sources`(이벤트 id)를 `Result.sources`로, `Handoff.content`를 `Result.text`로 옮긴다.
   - 질문은 `Caller(user, team, session, at=문항 시각, repo=문항 repo, context=문항 meta)`로 넘긴다. `Caller.repo`·`context`는 10/20 계약에 추가되었고(d88e680), 조건부 사실을 질문 맥락과 맞춰 보는 것은 엔진 몫이다.
   - 하네스 이벤트의 `meta`는 계약 `Event.conditions`로, `repo`는 `Event.repo`로 옮긴다. 숨은 라벨인 `Fact.conditions`는 넘기지 않는다.
   - 문항은 항상 `scope="team"`으로 묻는다. `Runtime.handoff`/`recall`은 scope를 명시로 받는다. `team`이 하네스의 `can_see`와 같고, `personal`로 물으면 팀 범위 기록이 보이지 않는다. `org`는 쓰지 않는다. [판단, 10/21]
-  - **엔진 실패** [판단, 10/21]: mcp-server PR #2에서 같은 이벤트가 N번 실패하면 건너뛰는 `Runtime` 옵션이 구현되었다([논의](https://github.com/cortex-mem/mcp-server/pull/2#issuecomment-6315084460), 10/24 확인). 기본값은 `Runtime(..., max_failures=None)`, 즉 건너뛰기 없음이고, 건너뛴 이벤트는 `Runtime.skipped`로 읽는다. 어댑터는 기본값에 기대지 않고 `max_failures=None`을 명시해 `Runtime`을 만든다. 엔진 예외는 모두 그 시나리오의 오류다. `Runtime.skipped`가 비어 있지 않으면 그 시나리오도 오류로 처리한다.
+  - **엔진 실패** [판단, 10/21]: core PR #2에서 같은 이벤트가 N번 실패하면 건너뛰는 `Runtime` 옵션이 구현되었다([논의](https://github.com/dure-ai/core/pull/2#issuecomment-6315084460), 10/24 확인). 기본값은 `Runtime(..., max_failures=None)`, 즉 건너뛰기 없음이고, 건너뛴 이벤트는 `Runtime.skipped`로 읽는다. 어댑터는 기본값에 기대지 않고 `max_failures=None`을 명시해 `Runtime`을 만든다. 엔진 예외는 모두 그 시나리오의 오류다. `Runtime.skipped`가 비어 있지 않으면 그 시나리오도 오류로 처리한다.
   - `info()`는 cortex-mem의 git SHA, `CONTRACT_VERSION`, 저장소 클래스 이름을 돌려줘 리포트 머리말에 남긴다(13장). [판단, 10/21]
 - **이벤트 대응**
 
@@ -261,6 +261,7 @@ provenance:
 | `normal_repeat` | 읽기 전용 | 참인 사실 1개. 서로 다른 사용자·세션·날짜에서 3회 이상 관찰, 그중 1회 이상은 `test`/`review`/`human` | 없음 (이 계열은 다른 계열의 짝 역할) | 그 사실을 묻는 질문 |
 | `coincidence` | 읽기 전용 | 거짓 사실(`valid: false`) 1개가 한 세션·같은 날에만 3회 반복(`self`). 참인 대안 사실 1개는 독립 출처 2곳 이상 | 거짓 사실을 묻는 질문 | 참인 대안 사실을 묻는 질문 |
 | `single_source_poison` | 읽기 전용 | 거짓 사실 1개를 한 사용자가 여러 세션·여러 날에 걸쳐 주입(`self`). 참인 대안은 다른 사용자들이 확인 | 거짓 사실 | 참인 대안 |
+| `unconfirmed_poison` | 읽기 전용 | `single_source_poison`에서 확인을 모두 뺀 세계. 거짓 사실 1개를 한 사용자가 3~4개 세션·날짜에 걸쳐 주입하고, 참인 대안은 서로 다른 사용자 3명이 한 번씩 기록한다. 모든 이벤트가 `self`이고 `refs`가 없다 | 거짓 사실 | 참인 대안 |
 | `echo` | **되먹임** | 낡거나 거짓인 사실 1개가 초기에 1~2회 기록되고, 질문을 여러 번(3회 이상) 받음. 각 질문의 `feedback` 틀이 행동 기록을 다시 넣음. 거짓 사실의 행동 기록은 그 사실의 첫 기록 본문을 짧은 머리말과 함께 그대로 되풀이한다(생성기가 구조로 만듦, 본문 작성자가 쓰지 않음). 그래서 쌓인 메아리는 첫 기록·서로와 거의 같은 문장이다. 참인 대안은 독립 출처로 확인 | 뒤쪽 질문들 (앞의 질문에서 쌓인 되풀이 기록에 속는지) | 참인 대안 |
 | `failure_feedback` | **되먹임** | `truth_change`와 같은 세계. 틀린 근거로 행동하면 `feedback.on_false`가 실패 기록(`test`, `failure`)을 넣음 | 실패 기록이 들어간 뒤의 질문 | 참인 새 사실 |
 | `truth_change` | 읽기 전용 | 사실 `f_old`가 D일까지 참, D일부터 `f_new`가 참. D일 이후 `f_new`의 독립 확인 1회 이상 | D일 이후 질문 (`about: [f_old, f_new]`) | 같은 사실 쌍을 D일 이전 맥락에서 묻는 질문, 또는 `f_new` 확인이 충분히 쌓인 뒤의 질문 |
@@ -270,6 +271,8 @@ provenance:
 | `leak_cross_team` | 읽기 전용 | 팀 A의 `scope: team` 기록. 팀 B 사용자가 있음 | 없음. 대신 `leak` 문항: 팀 B 사용자가 팀 A의 지식을 물음 | 팀 A 사용자가 같은 지식을 물음 |
 
 [결정: 팀 간 누출까지] `remote_truth_change`는 v0.2.
+
+- **`unconfirmed_poison`을 둔 이유** (2026-11-09): 나머지 계열은 모두 참인 사실에만 `test`/`review`/`human` 확인이 붙고 거짓 사실에는 붙지 않는다. 그래서 "외부 확인을 받은 기록을 앞에 세운다"는 규칙 하나로 dev 전체가 만점이 된다(core#4의 `EvidenceEngine`: M1 0.000, M2 1.000). 이 계열은 그 신호를 빼서, 독립 출처를 사람 단위로 세는 능력(계약 §7, 보완 제안 D9)만으로 가를 수 있는지 잰다. 가를 단서는 엔진이 보는 `user`뿐이다. 여러 계정이 같은 거짓을 베끼는 경우는 B18 `sybil_poison`, 말없이 낡는 경우는 B27 `implicit_invalidation`이 다룬다. 사람 단위로 세려면 같은 사실의 기록을 묶어야 하는데, 단어 겹침으로는 묶이지 않는다. LLM 본문 채택본 6개에서 서로 다른 사용자가 쓴 같은 참 사실의 기록은 마커 토큰 Jaccard 중앙값이 0.28이었고, 임계 0.3에서 참끼리 묶이는 비율은 0.50이었다(거짓 반복은 1.00). core#4에서 잰 값(같은 사실 0.24, 다른 사실 0.19)과 같은 결론이다. [11/12 추가, PR #18 리뷰]
 
 - **짝 규칙**: `normal_repeat`를 뺀 모든 계열은 `promote` 문항과, 계열에 맞는 막는 쪽 문항을 하나 이상씩 가져야 한다. 누출 계열(`leak_personal`, `leak_cross_team`)은 `leak`, 그 밖의 계열은 `block`이다. 한쪽이 다른 쪽을 대신하지 못한다(`truth_change`에 `leak`과 `promote`만 있으면 오류, 코드 `pairing_missing`). [노션 5.2를 계열 단위로 적용, 판단. 10/22 리뷰 반영]
 - 시나리오 하나에 문항이 여러 개 있어도 된다. 같은 사실에 대한 질문을 여러 시점에 두면 철회 지연과 반영 지연을 계산할 수 있다.
@@ -444,6 +447,7 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 - `none`: M1 = 0, M2 = 0, M3 = 0
 - `all_store`: M1이 네 기준선 중 최대이고 0보다 크다
 - `repeat_n_poison`: `repeat_n`의 `single_source_poison` 계열 M1이 `oracle`보다 크다 (그 계열의 시나리오가 있을 때만)
+- `repeat_n_unconfirmed`: 같은 조건을 `unconfirmed_poison` 계열에 건다. 이 계열도 "`repeat_n`이 한 사람의 반복에 속는다"는 전제에 기댄다 [11/12 추가, PR #18 리뷰]
 - `echo_buildup`: 모든 `echo` 시나리오에서, 처음부터 거짓 기록을 건네는 `all_store`가 받는 결과 중 그 질문 시점에 거짓인 사실을 담은 결과 수가 첫 `block` 질문보다 마지막 `block` 질문에서 많다 (메아리가 쌓임. `echo` 시나리오가 있을 때만). 초기 거짓 기록이 1~2개라 `repeat_n`(N=3)은 첫 질문에서 거짓 사실을 건네지 않아 메아리가 시작되지 않으므로 `repeat_n`이 속는지는 조건으로 두지 않는다. [10/29 변경, PR #13 질문 1]
 - 해당 종류의 문항이 없어 값이 없는 지표(`None`)는 `oracle`·`none`의 등식 조건을 만족한 것으로 본다. `all_store`의 조건은 `block` 문항이 있어야 통과할 수 있다.
 
@@ -502,6 +506,8 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 - 평가 설정 변경 이력:
   - `0.3` (10/29, `feat/scenario-generation`): `0.2`(`feat/oss-adapters`의 `llm:` 모델 고정)와 별개로, 0.1 대비 설정 값은 그대로이고 채점에 영향을 주는 동작이 바뀌어 올림. (1) 누출 비밀 문자열 비교를 NFKC·대소문자 접기·구분자 제거 뒤에 함 (2) 엔진은 키 해시한 불투명 이벤트 id를 받고 oracle은 라벨을 내용으로 맞춤(기준선 동점 순서가 바뀔 수 있음) (3) `echo` 계열의 거짓 사실 행동 기록이 첫 기록을 되풀이하고, 자가 검증 `repeat_n_echo`가 `echo_buildup`으로 바뀜.
   - `0.4` (10/29, `feat/oss-adapters`): `0.3`의 동작 변경에 `0.2`의 `llm:` 모델 고정(openai, gpt-4.1-mini, text-embedding-3-small)을 합친 설정.
+- 시나리오 구성 변경 이력 (봉인 test 세트의 구성을 바꾸는 변경):
+  - 11/12 (`feat/unconfirmed-poison`, PR #18): `unconfirmed_poison` 계열 추가(5.3), 자가 검증 `repeat_n_unconfirmed` 추가, 생성 프롬프트 `gen-v0.8`. 평가 설정 버전은 그대로다.
 - 블라인드 리포트: 후보 엔진은 무작위 ID(E1, E2, …)로 표시하고, 이름 대응표와 섞는 시드는 `engine_ids.json`에만 둔다. 시드는 `harness run --blind-seed N`으로 정하고(기록된 실행의 재현용이므로 `engine_ids.json`에 적힌 값 같은 고엔트로피 비밀 값을 쓴다. 6.1), 주지 않으면 실행마다 무작위(`secrets.randbits(64)`)다. 리포트에는 시드가 없어 리포트만으로 대응을 다시 계산할 수 없다. 기준선 4종은 비교 기준이라 이름을 그대로 둔다.
 - 블라인드 시드 하나가 후보 ID 섞기와 이름공간 키(6.1)를 함께 정한다. 그래서 같은 시드면 `engine_ids.json`, `results.jsonl`이 같고 이름공간의 해시 부분(실행 id 뒤)도 같으며, `summary.json`·`report.md`는 실행 id·시각과 지연 값만 다르다. 생성 이벤트 id(6.2)는 키 없는 순번이라 `results.jsonl`은 키와 무관하다. [리뷰 반영 10/22]
 - 가리는 범위: 리포트와 summary.json의 모든 문자열(엔진 설정의 키와 값, 버전, 오류 문구 포함)에서 후보 엔진의 전체 이름(`pkg.module:Class`), 클래스 이름, 모듈의 점 경로 전체(`pkg.module`. 점이 없는 모듈 이름은 4자 이상일 때만), 엔진이 `info().name`으로 밝힌 이름(4자 이상)을 ID로 바꾼다. 모듈 이름은 점 경로 전체만 가린다. `pkg`나 `module` 한 토막은 너무 흔한 단어일 수 있어 바꾸지 않는다. 두 후보가 같은 별칭(클래스 이름, 모듈 경로, 선언 이름)을 쓰면 어느 쪽인지 모호해 바꾸지 않고, 기준선 이름 안에 들어 있는 별칭(`store`, `oracle` 등)도 기준선 표를 망가뜨리므로 바꾸지 않는다. [리뷰 반영 10/22, 결정 D-4]
@@ -518,7 +524,7 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 
 ## 14. 미결 사항 (팀 결정)
 
-> 하네스 [PR #1](https://github.com/cortex-mem/harness/pull/1)은 10/24 승인되었고(LGTM), 승인 의견대로 4.5와 14장을 갱신했다. 아래 항목(14번, 15번, 21번, 22번)은 그 리뷰의 [요청](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)에 따라 닫았다.
+> 하네스 [PR #1](https://github.com/dure-ai/harness/pull/1)은 10/24 승인되었고(LGTM), 승인 의견대로 4.5와 14장을 갱신했다. 아래 항목(14번, 15번, 21번, 22번)은 그 리뷰의 [요청](https://github.com/dure-ai/harness/pull/1#issuecomment-6381660310)에 따라 닫았다.
 
 1. Upstage의 LLM 모델명, 임베딩 모델명, API 키 주인, 예산 상한. 계약 §6은 팀 엔진의 제공자를 Upstage, 예산을 팀 합계 $330으로 적었고, 오픈소스 측정은 OpenAI로 정했다(설계 3 §3). 팀 엔진의 제공자와 예산, 주입 방식(`EngineContext` 새 필드)은 열려 있다.
 2. 노션 원칙 6 변경(11장)에 대한 팀 동의.
@@ -533,15 +539,15 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 11. ~~질문 맥락~~ → 해결(10/20): 계약 `Caller`에 `repo`·`context`가 추가되었다. 하네스는 문항의 `repo`·`meta`로 채운다 (4.5).
 12. ~~outcome `refs` 검사 위치~~ → 해결(10/20): `Runtime.append`가 빈 `refs`를 거부한다. 하네스는 시나리오 이벤트에 `refs`를 추가하고 판정 이벤트와 단독 증거를 나눠 넣는다 (4.5).
 13. HTTP 계약: 보류. Python이 아닌 엔진이나 런타임 밖 서비스 엔진이 생기면 다시 검토한다 (4.3).
-14. ~~건너뛰기 옵션의 이름과 기본값, 건너뛴 이벤트를 읽는 방법~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): `Runtime(..., max_failures=None)`이 기본값(건너뛰기 없음)이고 건너뛴 이벤트는 `Runtime.skipped`로 읽는다. 어댑터는 `max_failures=None`을 명시하고 `skipped`가 비어 있지 않으면 시나리오 오류로 처리한다 (4.5).
-15. ~~가려진 결과 보고의 `text`를 어떻게 표시하는지~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): `Event.text_redacted`는 `conditions` 안의 키가 아니라 별도 필드라 시나리오 `meta`를 `conditions`로 옮길 때 키가 겹치지 않는다.
-16. core 레포 이름(의존 URL, 4.5). [10/21 추가]
+14. ~~건너뛰기 옵션의 이름과 기본값, 건너뛴 이벤트를 읽는 방법~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/dure-ai/harness/pull/1#issuecomment-6381660310)): `Runtime(..., max_failures=None)`이 기본값(건너뛰기 없음)이고 건너뛴 이벤트는 `Runtime.skipped`로 읽는다. 어댑터는 `max_failures=None`을 명시하고 `skipped`가 비어 있지 않으면 시나리오 오류로 처리한다 (4.5).
+15. ~~가려진 결과 보고의 `text`를 어떻게 표시하는지~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/dure-ai/harness/pull/1#issuecomment-6381660310)): `Event.text_redacted`는 `conditions` 안의 키가 아니라 별도 필드라 시나리오 `meta`를 `conditions`로 옮길 때 키가 겹치지 않는다.
+16. ~~core 레포 이름(의존 URL, 4.5)~~ → 해결(11/12): `dure-ai/core`. [10/21 추가]
 17. "독립 출처"의 단위가 `user`인지 `(user, session)`인지(계약 §7). 하네스 계열은 독립 출처를 서로 다른 **user**로 가정한다: `normal_repeat`는 서로 다른 사용자 3~4명, `coincidence`는 한 사용자가 한 세션·같은 날 반복, `single_source_poison`은 한 사용자가 여러 세션·여러 날에 걸쳐 주입하고 다른 사용자들이 참을 확인한다. 팀이 `(user, session)`으로 정하면 `single_source_poison`은 출처 여러 개로 세어져, 그 계열의 정답(오염된 사실을 막기)이 출처 규칙에서 나오지 않는다. 그 경우 계열 틀이나 이 가정을 바꿔야 한다. [10/21 추가]
 18. v0.2 개인 기록 합산(roll-up): 10/20에 HJinS가 "개인 기록 교차 확인" 하네스 시나리오를 약속했다. 5.3에 아직 자리가 없다. [10/21 추가]
 19. PR #2 리뷰 뒤 계약 문서에 추가된 문구(append는 커밋 순서, 검색 토크나이저 선택, "판정 기준선 비교는 인메모리 저장소 기준")를 계획 4 전에 다시 읽어 4.5와 맞는지 확인한다. [10/21 추가]
 20. PR #2 답글에 나온 "서버 모드" 측정: 요청이 없으면 v0.1 밖이다(4.3). [10/21 추가]
-21. ~~계획 4(런타임 어댑터)의 recall 이벤트 id~~ → 없어짐(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): 두 모드 모두 `Runtime.handoff`만 부르므로 recall 이벤트와 id가 생기지 않는다 (4.5).
-22. ~~계획 4(런타임 어댑터)의 outcome `refs`~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/cortex-mem/harness/pull/1#issuecomment-6381660310)): 이벤트 id 그대로 넘긴다. 계약 §3-2가 이를 허용하고, 이 기록을 근거로 한 강등을 런타임이 승인하는 것도 확인되었다. 번역하지 않는다. 근거가 없어 `refs`가 비면 결과 기록은 `record`로 넣는다 (4.5).
+21. ~~계획 4(런타임 어댑터)의 recall 이벤트 id~~ → 없어짐(10/24, [PR #1 리뷰](https://github.com/dure-ai/harness/pull/1#issuecomment-6381660310)): 두 모드 모두 `Runtime.handoff`만 부르므로 recall 이벤트와 id가 생기지 않는다 (4.5).
+22. ~~계획 4(런타임 어댑터)의 outcome `refs`~~ → 닫음(10/24, [PR #1 리뷰](https://github.com/dure-ai/harness/pull/1#issuecomment-6381660310)): 이벤트 id 그대로 넘긴다. 계약 §3-2가 이를 허용하고, 이 기록을 근거로 한 강등을 런타임이 승인하는 것도 확인되었다. 번역하지 않는다. 근거가 없어 `refs`가 비면 결과 기록은 `record`로 넣는다 (4.5).
 23. 되먹임 모드에서 recall 이벤트를 남기지 않는 것이 echo 계열 측정에 충분한지 (10/24 리뷰 검토에서 확인: 한재혁의 handoff-only 제안(PR #1 코멘트)의 결과. 팀 확인 필요). 하네스는 `handoff`만 부르므로 recall 이벤트를 관찰해 자기 강화를 막는 엔진(계약 §3-1 5단계, §3-8)은 그 장치를 쓰지 못한다 (4.5, 6.2).
 
 ## 15. 공정성과 편향 방지 규칙 [노션 11.2, 12장]
@@ -577,6 +583,6 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
 | 10/29 | 발표용 비교표 (dev 세트 기준) |
 | 11월 초 | core 런타임 어댑터(`CortexRuntimeAdapter`)와 팀원 엔진 연결 안내 문서. 팀원 엔진 개발 시작 전 |
 
-**진행 상황 (10/20):** 10/21·10/23 행 중 되먹임 모드까지 포함한 핵심 하네스를 완료했고, [cortex-mem/harness#1](https://github.com/cortex-mem/harness/pull/1)로 리뷰 중이다(테스트 303개, 모듈 docstring, `docs/ARCHITECTURE.md`, Apache-2.0 라이선스). 팀 엔진 계약은 10/20에 합의되었다(4.5). 남은 것은 생성 파이프라인과 검토 CLI, 오픈소스 어댑터, core 런타임 어댑터다.
+**진행 상황 (10/20):** 10/21·10/23 행 중 되먹임 모드까지 포함한 핵심 하네스를 완료했고, [dure-ai/harness#1](https://github.com/dure-ai/harness/pull/1)로 리뷰 중이다(테스트 303개, 모듈 docstring, `docs/ARCHITECTURE.md`, Apache-2.0 라이선스). 팀 엔진 계약은 10/20에 합의되었다(4.5). 남은 것은 생성 파이프라인과 검토 CLI, 오픈소스 어댑터, core 런타임 어댑터다.
 
 **10/21:** 계획 2(생성·검토 CLI)와 계획 3(오픈소스 어댑터)을 마쳤다(PR #2, 브랜치 `feat/oss-adapters`). 팀 계약 동기화를 확인했고 10/25 전에 바꿀 것은 없다. 계획 4 규칙은 4.5에 적었다.

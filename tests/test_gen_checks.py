@@ -881,8 +881,11 @@ def test_poison_with_near_verbatim_repeats_passes():
     assert "repeats_too_different" not in codes(check_draft(s, CFG, GEN))
 
 
-def test_repeat_check_only_applies_to_single_source_poison():
-    s = _poison_texts(["a b c", "d e f", "g h i"]).model_copy(update={"family": "truth_change"})
+def test_repeat_check_only_applies_to_the_poison_families():
     from harness.generate.checks import repeat_issues
 
-    assert repeat_issues(s, CFG) == []
+    s = _poison_texts(["a b c", "d e f", "g h i"])
+    assert repeat_issues(s.model_copy(update={"family": "truth_change"}), CFG) == []
+    assert [i.code for i in repeat_issues(s.model_copy(update={"family": "unconfirmed_poison"}), CFG)] == [
+        "repeats_too_different"
+    ]

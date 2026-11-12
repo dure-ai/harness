@@ -22,7 +22,7 @@ class NotAnEngine:
 
 
 class FailSecondBuild(Dummy):
-    """Raises on its 2nd construction; the test resets `built` first."""
+    """Raises on its 2nd construction (the first scenario's, after the pre-flight); the test resets `built` first."""
 
     built = 0
 

@@ -31,6 +31,7 @@ READ_ONLY = [
     "normal_repeat",
     "coincidence",
     "single_source_poison",
+    "unconfirmed_poison",
     "truth_change",
     "conditional",
     "workaround_then_root",
@@ -152,6 +153,19 @@ def test_skeleton_matches_family_row(family: str) -> None:
         true = _events_of(s, "f_true")
         users = {e.user for e in true}
         assert len(users) >= 2 and not users & {e.user for e in poison}
+    elif family == "unconfirmed_poison":
+        assert {e.signal for e in s.events} == {"self"}  # nothing is confirmed
+        assert all(not e.refs for e in s.events)
+        assert facts["f_false"].valid is False
+        poison = _events_of(s, "f_false")
+        assert len(poison) >= 3
+        assert len({e.user for e in poison}) == 1
+        assert len({e.session for e in poison}) == len(poison)
+        assert len({e.t.date() for e in poison}) == len(poison)
+        true = _events_of(s, "f_true")
+        assert len(true) == 3 and len({e.user for e in true}) == 3
+        assert len({e.session for e in true}) == 3 and len({e.t.date() for e in true}) == 3
+        assert not {e.user for e in true} & {e.user for e in poison}
     elif family == "truth_change":
         d = facts["f_old"].valid_until
         assert d is not None and facts["f_new"].valid_from == d
@@ -539,6 +553,7 @@ def test_conditional_passes_the_checks_for_every_condition_kind() -> None:
         ("normal_repeat", []),
         ("coincidence", ["f_false"]),
         ("single_source_poison", ["f_false"]),
+        ("unconfirmed_poison", ["f_false"]),
         ("truth_change", ["f_new"]),
         ("conditional", ["f_b"]),
         ("workaround_then_root", ["f_root"]),

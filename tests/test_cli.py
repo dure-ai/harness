@@ -8,6 +8,8 @@ import yaml
 from typer.testing import CliRunner
 
 from harness.cli import app
+from harness.contract import EngineUnavailable
+from harness.engines import BASELINES
 from harness.scenario.model import Review, Scenario
 from tests.test_selfcheck import poison, truth_change
 
@@ -80,6 +82,28 @@ def test_check_runs_discrimination(tmp_path):
     result = runner.invoke(app, ["scenario", "check", str(path)])
     assert result.exit_code == 0
     assert f"{path}: warning too_easy" in result.output
+
+
+def test_run_preflight_runs_before_the_baseline_selfcheck(tmp_path, monkeypatch):
+    import harness.cli
+
+    def boom(*args, **kwargs):
+        raise AssertionError("baseline selfcheck must not run before the engine pre-flight")
+
+    monkeypatch.setattr(harness.cli, "_selfcheck", boom)
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", "tests.dummy_engine:FailInit")
+    assert result.exit_code == 2
+    assert "cannot build engine" in result.output
+    assert not out.exists()
+
+
+def test_run_no_approved_scenarios_with_engine(tmp_path):
+    result, out = run_cli(tmp_path, good_dir(tmp_path, status="draft"), "--engine", "tests.dummy_engine:FailInit")
+    assert result.exit_code == 2
+    assert "승인된 시나리오가 없습니다" in result.output
+    assert "cannot build engine" not in result.output
+    assert "Traceback" not in result.output
+    assert not out.exists()
 
 
 def test_run_no_approved_scenarios(tmp_path):
@@ -213,10 +237,10 @@ def summary_of(result) -> dict:
     return json.loads((report.parent / "summary.json").read_text(encoding="utf-8"))
 
 
-def test_run_engine_build_fails_mid_run(tmp_path):
+def test_run_engine_build_fails_at_first_scenario_after_preflight(tmp_path):
     from tests.dummy_engine import FailSecondBuild
 
-    FailSecondBuild.built = 0
+    FailSecondBuild.built = 0  # build 1 is the pre-flight, build 2 the first scenario's
     result, _ = run_cli(tmp_path, good_dir(tmp_path),
                         "--engine", "tests.dummy_engine:FailSecondBuild", "--repeat", "1")
     metrics = summary_of(result)["engines"]["E1"]["metrics"]
@@ -885,7 +909,7 @@ def test_cli_generate_all_halves_normal_repeat(tmp_path, monkeypatch):
     cached_traces(tmp_path, monkeypatch)
     result = runner.invoke(app, gen_args(tmp_path, "--family", "all", "--n", "2"))
     assert result.exit_code == 0, result.output
-    assert "요청 19개 중" in result.output  # 9 families x 2 + normal_repeat x 1
+    assert "요청 21개 중" in result.output  # 10 families x 2 + normal_repeat x 1
 
 
 def test_cli_generate_repos_filter(tmp_path, monkeypatch):
@@ -1350,7 +1374,7 @@ def test_run_extra_counts_relate_over_two_repeats(tmp_path, monkeypatch):
     assert m["n_error_runs"] >= m["n_unavailable"] + m["n_skipped"]
 
 
-def _failing_builds(monkeypatch, exc, calls_before_failure=1):
+def _failing_builds(monkeypatch, exc, calls_before_failure=2):  # the pre-flight build + the first scenario
     import harness.cli
 
     real = harness.cli.make_engine
@@ -1435,3 +1459,129 @@ def test_run_extra_build_failure_sets_error_kind(tmp_path, monkeypatch):
     result, _ = _run_dummy(tmp_path, "--repeat", "1", "--sealed")
     assert "(last: EngineUnavailable)" in result.output
     assert "SECRET-TEXT" not in result.output
+
+
+# ---- engines are built once before anything runs (issue #24) -----------------------------------
+
+DUMMY = "tests.dummy_engine:Dummy"
+FAIL_INIT = "tests.dummy_engine:FailInit"
+
+
+class _Down(EngineUnavailable):
+    pass
+
+
+def _build_fails_after_preflight(monkeypatch, target: str, exc: Exception) -> list[str]:
+    """Patch `make_engine` so `target` builds the first time (the pre-flight) and raises `exc` after; returns the call log."""
+    import harness.cli
+
+    real = harness.cli.make_engine
+    calls: list[str] = []
+
+    def fake(name, scenario, cfg):
+        calls.append(name)
+        if name == target and calls.count(name) > 1:
+            raise exc
+        return real(name, scenario, cfg)
+
+    monkeypatch.setattr(harness.cli, "make_engine", fake)
+    return calls
+
+
+def _count_run_scenario(monkeypatch) -> list[str]:
+    import harness.cli
+
+    real = harness.cli.run_scenario
+    seen: list[str] = []
+
+    def counting(engine, scenario, **kwargs):
+        seen.append(type(engine).__name__)
+        return real(engine, scenario, **kwargs)
+
+    monkeypatch.setattr(harness.cli, "run_scenario", counting)
+    return seen
+
+
+def test_run_second_engine_fails_to_build_runs_nothing(tmp_path, monkeypatch):
+    ran = _count_run_scenario(monkeypatch)
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", DUMMY, "--engine", FAIL_INIT, "--repeat", "1")
+    assert result.exit_code == 2
+    assert f"cannot build engine {FAIL_INIT!r}" in result.output
+    assert "cannot construct" in result.output
+    assert ran == []
+    assert not out.exists()
+
+
+def test_run_only_the_later_engine_fails_preflight_earlier_one_never_runs(tmp_path, monkeypatch):
+    import harness.cli
+
+    real = harness.cli.make_engine
+    built: list[str] = []
+
+    def fake(name, scenario, cfg):
+        built.append(name)
+        return real(name, scenario, cfg)
+
+    monkeypatch.setattr(harness.cli, "make_engine", fake)
+    ran = _count_run_scenario(monkeypatch)
+    result, _ = run_cli(tmp_path, good_dir(tmp_path), "--engine", DUMMY, "--engine", FAIL_INIT, "--repeat", "1")
+    assert result.exit_code == 2
+    assert [n for n in built if n not in BASELINES] == [DUMMY, FAIL_INIT]  # the pre-flight went in order and stopped at the failure
+    assert ran == []
+
+
+def _late_failure_summary(tmp_path, monkeypatch, exc: Exception):
+    target = "tests.dummy_engine:LatestWins"  # builds fine; stands in for any engine that breaks only after the pre-flight
+    _build_fails_after_preflight(monkeypatch, target, exc)
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", DUMMY, "--engine", target, "--repeat", "1")
+    assert out.exists()
+    summary = summary_of(result)
+    candidates = [e for k, e in summary["engines"].items() if k not in BASELINES]  # ids are blinded: order by damage
+    engines = sorted(candidates, key=lambda e: e["metrics"]["n_error_runs"])
+    assert len(engines) == 2
+    return summary, engines
+
+
+def test_run_build_fails_at_first_scenario_after_preflight_is_an_error_run(tmp_path, monkeypatch):
+    _, engines = _late_failure_summary(tmp_path, monkeypatch, RuntimeError("late failure"))
+    healthy, broken = engines
+    assert healthy["metrics"]["n_error_runs"] == 0
+    assert broken["metrics"]["n_error_runs"] == 2
+    assert broken["metrics"]["n_unavailable"] == 0
+    assert broken["verdict"]["passed"] is False
+
+
+def test_run_unavailable_at_first_scenario_after_preflight_follows_the_stop_policy(tmp_path, monkeypatch):
+    _, engines = _late_failure_summary(tmp_path, monkeypatch, _Down("backend down"))
+    healthy, broken = engines
+    assert healthy["metrics"]["n_error_runs"] == 0
+    assert broken["metrics"]["n_unavailable"] == 2
+    assert broken["metrics"]["n_error_runs"] == 2
+    assert broken["verdict"]["passed"] is False
+
+
+def test_run_late_unavailable_builds_trip_the_stop_policy_at_the_first_scenarios(tmp_path, monkeypatch):
+    import harness.cli
+
+    monkeypatch.setattr(harness.cli, "MAX_CONSECUTIVE_ENGINE_ERRORS", 1)
+    target = "tests.dummy_engine:LatestWins"
+    _build_fails_after_preflight(monkeypatch, target, _Down("SECRET-TEXT"))
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", DUMMY, "--engine", target,
+                          "--repeat", "2", "--sealed")
+    assert out.exists()
+    summary = summary_of(result)
+    candidates = [e for k, e in summary["engines"].items() if k not in BASELINES]
+    broken = max(candidates, key=lambda e: e["metrics"]["n_error_runs"])
+    m = broken["metrics"]
+    assert (m["n_unavailable"], m["n_skipped"]) == (2, 2)  # one real attempt per repeat, the rest skipped
+    assert broken["verdict"]["passed"] is False
+    assert "SECRET-TEXT" not in result.output
+
+
+def test_run_sealed_preflight_failure_hides_the_message(tmp_path):
+    result, out = run_cli(tmp_path, good_dir(tmp_path), "--engine", FAIL_INIT, "--repeat", "1", "--sealed")
+    assert result.exit_code == 2
+    assert "(details hidden by --sealed)" in result.output
+    assert "RuntimeError" in result.output
+    assert "cannot construct" not in result.output
+    assert not out.exists()

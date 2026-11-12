@@ -448,7 +448,7 @@ def test_generate_all_families_end_to_end(tmp_path: Path) -> None:
     client = fake_client(tmp_path)
     fams = list(all_family_counts(1))
     report = run(tmp_path, client, fams, 1, traces(4), per_family=all_family_counts(1))
-    assert report.requested == 10 and report.shortfall == {}
+    assert report.requested == 11 and report.shortfall == {}
     assert sorted(sid.split("-", 1)[0] for sid in report.written) == sorted(FAMILIES)
     for sid in report.written:
         fam = sid.split("-", 1)[0]

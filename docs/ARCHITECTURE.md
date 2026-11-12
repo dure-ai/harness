@@ -30,7 +30,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
      write_report → report.md · summary.json · results.jsonl · engine_ids.json
 ```
 
-`harness run`은 항상 자가 검증부터 돌리고, 실패하면 엔진 평가로 넘어가지 않습니다. 기준선이 설계대로 줄 서지 않으면 시나리오나 하네스가 틀린 것이라 그 위의 엔진 점수도 믿을 수 없기 때문입니다.
+`harness run`은 먼저 후보 엔진을 한 번씩 만들어 보고(실패하면 아무것도 돌리지 않고 끝납니다), 이어서 항상 자가 검증부터 돌리고, 실패하면 엔진 평가로 넘어가지 않습니다. 기준선이 설계대로 줄 서지 않으면 시나리오나 하네스가 틀린 것이라 그 위의 엔진 점수도 믿을 수 없기 때문입니다.
 
 ## 모듈 지도
 
@@ -107,6 +107,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | `none_empty` | none M1 = M2 = 0, M3 = 0 |
 | `all_store_max_m1` | all_store M1 > 0이고 다른 기준선 이상 |
 | `repeat_n_poison` | repeat_n이 single_source_poison 계열에서 oracle보다 M1이 높음(반복에 속음) |
+| `repeat_n_unconfirmed` | 같은 조건을 unconfirmed_poison 계열에서 |
 | `echo_buildup` | echo 시나리오마다 all_store가 받는 거짓 사실 결과 수가 첫 block 질문보다 마지막 block 질문에서 많음(메아리가 쌓임) |
 
 `scenario check`는 시나리오 하나마다 oracle과 all_store(누출 문항이 있으면 all_store_noacl도)를 돌려, 그 시나리오가 두 기준선을 실제로 가르는지 봅니다.

@@ -23,4 +23,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked --extra core
-      - run: uv run pytest -q
+      # Lint and type checks run once, on the development default version (.python-version).
+      - if: matrix.python == '3.12'
+        run: uv run ruff check src tests
+      - if: matrix.python == '3.12'
+        run: uv run basedpyright src
+      - run: uv run pytest -q -W error

@@ -37,6 +37,8 @@ dev = [
     "openai>=3.35",
     "pyarrow>=26.0",
     "huggingface_hub>=2.2",
+    "ruff==0.17.4",
+    "basedpyright==1.40.2",
 ]
 
 [build-system]
@@ -60,3 +62,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D"]
+
+[tool.basedpyright]
+# CI fails on errors only; the existing warnings are kept visible but do not fail the run.
+failOnWarnings = false
