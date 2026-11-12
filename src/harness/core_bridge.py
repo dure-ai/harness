@@ -9,7 +9,7 @@ implementations score search differently (core `docs/contract.md` section 4).
 import json
 from importlib.metadata import PackageNotFoundError, distribution
 
-from cortex_mem.contract import CONTRACT_VERSION, Caller
+from cortex_mem.contract import CONTRACT_VERSION, Caller, Kind
 from cortex_mem.contract import Engine as CoreEngine
 from cortex_mem.contract import Event as CoreEvent
 from cortex_mem.runtime import Runtime
@@ -19,7 +19,7 @@ from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
 
 # The harness has no org scope, and "team" sees what `can_see` allows: own records and the team's.
 _QUERY_SCOPE = "team"
-_KINDS = {"agent_record": "record", "ci_result": "outcome", "human_confirm": "human_confirm", "commit": "commit"}
+_KINDS: dict[str, Kind] = {"agent_record": "record", "ci_result": "outcome", "human_confirm": "human_confirm", "commit": "commit"}
 
 
 def _core_commit() -> str:
@@ -96,7 +96,7 @@ class CoreBridge(BaseEngine):
 
     def record(self, event: Event) -> None:
         """Append the event; the runtime delivers it to the engine."""
-        self.runtime.append(to_core_event(event))
+        self._runtime().append(to_core_event(event))
 
     def search(self, query: Query) -> list[Result]:
         """Hand off through the runtime without logging a recall (design 4.5).
@@ -112,12 +112,12 @@ class CoreBridge(BaseEngine):
             repo=query.repo,
             context=query.meta,
         )
-        handoffs = self.runtime.handoff(query.text, caller, _QUERY_SCOPE, query.k)
+        handoffs = self._runtime().handoff(query.text, caller, _QUERY_SCOPE, query.k)
         return [Result(text=h.content, sources=list(h.sources)) for h in handoffs]
 
     def tick(self, t) -> None:
         """Pass virtual time on to the engine."""
-        self.runtime.tick(t)
+        self._runtime().tick(t)
 
     def flush(self) -> None:
         """Deliver anything still pending; replay calls this before every probe.
@@ -125,6 +125,12 @@ class CoreBridge(BaseEngine):
         Raises:
             RuntimeError: If the runtime skipped an event (design 4.5).
         """
-        self.runtime.sync()
-        if self.runtime.skipped:
-            raise RuntimeError(f"the runtime skipped events: {self.runtime.skipped}")
+        runtime = self._runtime()
+        runtime.sync()
+        if runtime.skipped:
+            raise RuntimeError(f"the runtime skipped events: {runtime.skipped}")
+
+    def _runtime(self) -> Runtime:
+        if self.runtime is None:
+            raise RuntimeError("reset(namespace) must be called before record/search")
+        return self.runtime
