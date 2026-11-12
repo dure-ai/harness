@@ -7,9 +7,11 @@ AI 에이전트용 메모리 엔진이 "낡았거나 거짓인 지식을 막고,
 Python 3.12 이상(3.12·3.13·3.14에서 테스트)과 [uv](https://docs.astral.sh/uv/)가 필요합니다. Python은 uv가 설치·관리합니다(pyenv 불필요). 레포의 `.python-version`이 개발 기본 버전(3.12)을 정합니다.
 
 ```bash
-uv sync            # .venv 생성 + 의존성 설치 (Python이 없으면 uv가 내려받음)
-uv run pytest      # 테스트
+uv sync --extra core   # .venv 생성 + 의존성 설치 (Python이 없으면 uv가 내려받음)
+uv run pytest          # 테스트
 ```
+
+`core` extra는 cortex-mem(core 포트) 엔진을 돌릴 때 필요합니다. 기준선과 오픈소스 엔진만 돌린다면 `uv sync`로 충분하지만, 개발할 때는 `uv sync --extra core`를 쓰세요. 없으면 `tests/test_core_bridge.py`와 `basedpyright src`가 실패합니다.
 
 ## 명령 세 가지
 
@@ -401,7 +403,7 @@ uv run ruff check src tests   # 린트
 uv run basedpyright src       # 타입 검사 (오류만 실패, 경고는 표시만)
 ```
 
-CI는 세 명령을 모두 돌리고, 테스트는 `-W error`로 경고도 실패로 칩니다.
+core extra를 설치한 환경(`uv sync --extra core`)에서 돌립니다. CI는 세 명령을 모두 돌리고, 테스트는 `-W error`로 경고도 실패로 칩니다.
 
 ## 라이선스
 
