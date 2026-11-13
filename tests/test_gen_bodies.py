@@ -282,3 +282,12 @@ def test_bodies_prompt_tells_workaround_then_root_to_keep_the_fixes_apart() -> N
     hint = text[text.index("In a `workaround_then_root` scenario") :]
     assert "do not repeat the workaround's" in hint
     assert "symptom" in hint
+
+
+def test_bodies_prompt_asks_block_probes_to_compete_on_equal_terms() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "every block probe" in text
+    assert "same component, file and repository names" in text
+
