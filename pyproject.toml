@@ -25,7 +25,7 @@ core = [
 ]
 
 [tool.uv.sources]
-cortex-mem = { git = "https://github.com/dure-ai/core", rev = "a02369d0ee8eb9818d0848dfa2dcf881c27b7beb" }
+cortex-mem = { git = "https://github.com/dure-ai/core", rev = "daaba07de2adacb83e1bdfcd2701c49763602521" }
 
 [project.scripts]
 harness = "harness.cli:app"
