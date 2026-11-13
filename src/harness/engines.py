@@ -10,6 +10,7 @@ from harness.scenario.model import Scenario
 
 BASELINES = ("none", "all_store", "repeat_n", "oracle")
 OSS_ENGINES = ("hindsight", "mem0")
+_NEEDS_CORE = "cortex-mem engines need the core extra: uv sync --extra core"
 
 
 def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
@@ -18,7 +19,7 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
     Args:
         name: A baseline name (`BASELINES` or "all_store_noacl"), an OSS engine name
             (`OSS_ENGINES`), or "package.module:ClassName" for a Python engine constructed with
-            no arguments.
+            no arguments, either a `BaseEngine` or a cortex-mem engine (run through `CoreBridge`).
         scenario: The scenario the engine will run; only the oracle reads it.
         cfg: Evaluation config (repeat_n parameters, and the models the OSS engines must match).
 
@@ -30,13 +31,28 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
             differ from the config.
         EngineHTTPError: If an OSS engine's server cannot be reached.
         TypeError: If the imported class does not produce a `BaseEngine`.
+        ModuleNotFoundError: If a cortex-mem engine is named but the core extra is not installed.
     """
     if ":" in name:
         module_name, _, class_name = name.partition(":")
-        engine = getattr(importlib.import_module(module_name), class_name)()
-        if not isinstance(engine, BaseEngine):
-            raise TypeError(f"{name} did not produce a BaseEngine (got {type(engine).__name__})")
-        return engine
+        try:
+            engine = getattr(importlib.import_module(module_name), class_name)()
+        except ModuleNotFoundError as e:
+            if (e.name or "").partition(".")[0] == "cortex_mem":
+                raise ModuleNotFoundError(_NEEDS_CORE, name=e.name) from e
+            raise
+        if isinstance(engine, BaseEngine):
+            return engine
+        # Imported only here so baselines and OSS engines run without the core extra.
+        try:
+            from cortex_mem.contract import Engine as CoreEngine
+
+            from harness.core_bridge import CoreBridge
+        except ModuleNotFoundError as e:
+            raise ModuleNotFoundError(_NEEDS_CORE, name=e.name) from e
+        if isinstance(engine, CoreEngine):
+            return CoreBridge(engine)
+        raise TypeError(f"{name} did not produce a BaseEngine (got {type(engine).__name__})")
     match name:
         case "none":
             return NoneEngine()

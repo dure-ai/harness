@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Memory evaluation harness"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "pydantic>=2.12",
     "pyyaml>=6",
@@ -19,6 +19,13 @@ gen = [
     "pyarrow>=26.0",
     "huggingface_hub>=2.2",
 ]
+# Engines written to the cortex-mem port (harness.core_bridge); baselines and OSS engines do not need it.
+core = [
+    "cortex-mem",
+]
+
+[tool.uv.sources]
+cortex-mem = { git = "https://github.com/dure-ai/core", rev = "a02369d0ee8eb9818d0848dfa2dcf881c27b7beb" }
 
 [project.scripts]
 harness = "harness.cli:app"
