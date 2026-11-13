@@ -293,3 +293,11 @@ def test_write_bodies_appends_the_revision_to_the_prompt() -> None:
     assert "REVISION-TEXT" not in plain.requests[-1][2]
     assert "REVISION-TEXT" in revised.requests[-1][2]
     assert revised.requests[-1][2] != plain.requests[-1][2]
+
+
+def test_bodies_prompt_asks_block_probes_to_compete_on_equal_terms() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "every block probe" in text
+    assert "same component, file and repository names" in text
