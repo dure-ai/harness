@@ -608,7 +608,11 @@ def generate_cmd(
     ] = 100,
     max_attempts: Annotated[
         int | None,
-        typer.Option(min=1, help="Most body-writing attempts per family; default 3 x that family's target."),
+        typer.Option(
+            min=1,
+            help="Most body-writing attempts per family; default 3 x that family's target. "
+            "Each too-easy draft may add up to `too_easy_repairs` (generation config) extra body calls.",
+        ),
     ] = None,
 ) -> None:
     """Make draft scenarios from cached traces with an LLM; they are saved with status draft."""

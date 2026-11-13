@@ -921,3 +921,50 @@ def test_too_easy_hint_lists_query_words_found_only_in_true_records():
     hint = too_easy_hint(s, CFG)
     assert "p_block: all_store followed tc_n (fact f_new)" in hint
     assert "query words found only in true-fact records: zebraword" in hint
+
+
+def test_too_easy_hint_says_when_no_query_word_is_unique_to_the_true_records():
+    hint = too_easy_hint(truth_change(), CFG)
+    assert "p_block: all_store followed tc_o3 (fact f_old); no query word is unique to the true-fact records" in hint
+    assert "so repetition or recency decides" in hint
+
+
+def test_too_easy_hint_for_a_followed_noise_record_says_fact_none_and_drops_one_letter_words(monkeypatch):
+    # `choose` only follows records of a fact the probe is about, so the replay is stubbed to
+    # reach the defensive branch where the followed record has no fact.
+    from types import SimpleNamespace
+
+    from harness import generate
+
+    s = truth_change()
+    noise = ev("tc_x", T("10-11 10:00"), fact=None, text="zebraword t")
+    probes = [p.model_copy(update={"query": "zebraword t"}) if p.kind == "block" else p for p in s.probes]
+    s = s.model_copy(update={"events": [*s.events, noise], "probes": probes})
+    result = SimpleNamespace(sources=["tc_x"], text="zebraword t")
+    rec = SimpleNamespace(probe_id="p_block", choice=SimpleNamespace(index=0), results=[result])
+    monkeypatch.setattr(generate.checks, "run_scenario", lambda *a, **kw: SimpleNamespace(probes=[rec]))
+    line = too_easy_hint(s, CFG).splitlines()[1]
+    assert line == "p_block: all_store followed tc_x (fact none); query words found only in the followed record: zebraword"
+
+
+def test_too_easy_hint_headline_describes_the_cause():
+    hint = too_easy_hint(too_easy(), CFG)
+    assert hint.startswith("too_easy: on every block probe a keyword search over all records ranks a record")
+    assert "do not compete on equal terms" in hint.splitlines()[0]
+    assert "make all_store" not in hint
+
+
+def test_too_easy_hint_lists_each_fact_with_its_markers():
+    hint = too_easy_hint(truth_change(), CFG)
+    assert "fact f_old: use vendor v1 (markers: vendor v1)" in hint
+    assert "fact f_new: use vendor v2 (markers: vendor v2)" in hint
+
+
+def test_too_easy_hint_instruction_depends_on_the_family():
+    plain = too_easy_hint(truth_change(), CFG)
+    assert "same component, file and repository names" in plain
+    root_s = truth_change().model_copy(update={"family": "workaround_then_root"})
+    root = too_easy_hint(root_s, CFG)
+    assert "same component, file and repository names" not in root
+    assert "the symptom both fixes address, in the symptom's words" in root
+    assert "no more markers of one fix than of the other" in root

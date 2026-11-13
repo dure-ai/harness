@@ -593,9 +593,9 @@ def check_draft(
 
 
 _TOO_EASY_HEAD = (
-    "too_easy: a keyword search over all records ranks a record of a true fact first on every "
-    "block probe, so a memory that stores everything never follows the false fact and the draft "
-    "cannot tell engines apart."
+    "too_easy: on every block probe a keyword search over all records ranks a record of a true "
+    "fact first, because the query and records favour that fact's wording; the facts do not "
+    "compete on equal terms."
 )
 _TOO_EASY_FIX = (
     "Rewrite so the facts of each block probe compete on equal terms: write each block probe's "
@@ -603,6 +603,12 @@ _TOO_EASY_FIX = (
     "all its facts share, reuse no more markers of one fact than of another, and write the false "
     "fact's records with the same component, file and repository names as the true fact's "
     "records, changing only the claim. Keep every label and do not use the banned words."
+)
+_TOO_EASY_FIX_ROOT = (
+    "Rewrite so the facts of each block probe compete on equal terms: ask each block probe about "
+    "the symptom both fixes address, in the symptom's words, and reuse no more markers of one fix "
+    "than of the other. Keep the root-fix records free of the workaround's command, flag and file "
+    "words. Keep every label and do not use the banned words."
 )
 _MAX_UNIQUE_WORDS = 8
 
@@ -643,20 +649,24 @@ def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
         if followed is None:
             line = f"{p.id}: all_store followed generated record {result.sources[0] if result.sources else '?'}"
         else:
-            line = f"{p.id}: all_store followed {followed.id} (fact {followed.fact})"
+            line = f"{p.id}: all_store followed {followed.id} (fact {followed.fact or 'none'})"
         if not false_texts:
             line += "; no record of a false fact is stored before this probe"
         else:
             false_tokens = {w for text in false_texts for w in tokenize(text)}
-            words = sorted((set(tokenize(p.query)) & set(tokenize(result.text))) - false_tokens)
+            words = sorted(
+                w for w in (set(tokenize(p.query)) & set(tokenize(result.text))) - false_tokens if len(w) >= 2
+            )
             if words:
-                line += "; query words found only in true-fact records: " + ", ".join(words[:_MAX_UNIQUE_WORDS])
+                own = followed is not None and followed.fact in p.about
+                where = "true-fact records" if own else "the followed record"
+                line += f"; query words found only in {where}: " + ", ".join(words[:_MAX_UNIQUE_WORDS])
             else:
                 line += "; no query word is unique to the true-fact records, so repetition or recency decides"
         lines.append(line)
-    lines.append(_TOO_EASY_FIX)
+    lines.append(_TOO_EASY_FIX_ROOT if s.family == "workaround_then_root" else _TOO_EASY_FIX)
     lines.append("Previous draft:")
-    lines += [f"fact {fid}: {f.text}" for fid, f in s.facts.items()]
+    lines += [f"fact {fid}: {f.text} (markers: {', '.join(f.markers)})" for fid, f in s.facts.items()]
     lines += [f"event {e.id} (fact {e.fact or 'none'}): {e.text}" for e in s.events]
     lines += [f"probe {p.id}: {p.query}" for p in s.probes]
     return "\n".join(lines)

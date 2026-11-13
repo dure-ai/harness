@@ -14,4 +14,5 @@ license_allowlist: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, PSF-2.0, M
 # Answer cues: never in event bodies, probe queries or fact markers. `code spans` are skipped (a marker is judged as one).
 banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated, "false", "no longer true",
   legacy, obsolete, superseded, stale, incorrect, wrong, retired, "replaced by", "not valid anymore"]
+too_easy_repairs: 1  # 0 = off; extra bodies calls per too-easy draft
 min_quote_chars: 8   # a candidate quote needs this many non-space characters and two words

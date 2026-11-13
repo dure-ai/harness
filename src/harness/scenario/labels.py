@@ -8,7 +8,8 @@ as a leak, so a body that does not fit its secret string is rejected and generat
 patched. Text the reviewer may fix
 (fact text and markers, event text, probe queries, feedback template text)
 and the whole `review` section are left out, as are the fields the harness itself writes:
-`provenance.reviewer_edited` and the two hashes `provenance.label_fingerprint` and
+`provenance.reviewer_edited`, `provenance.too_easy_repairs` (a record of how the draft was made,
+absent from files written before it existed) and the two hashes `provenance.label_fingerprint` and
 `provenance.generated_hash` (a fingerprint cannot cover itself).
 
 `content_hash` is the other hash: of a whole parsed file, labels and text, used to bind an
@@ -33,7 +34,7 @@ FINGERPRINT_VERSION = "l1"
 """Prefix of `label_fingerprint` values; a stored fingerprint without it cannot be verified."""
 HashPurpose = Literal["approval", "generated"]
 """What a `content_hash` is for. Part of the hashed material, so the two never coincide."""
-_HASH_FIELDS = {"reviewer_edited", "label_fingerprint", "generated_hash"}
+_HASH_FIELDS = {"reviewer_edited", "label_fingerprint", "generated_hash", "too_easy_repairs"}
 
 _FACT = {"valid_from", "valid_until", "valid", "conditions", "fix"}
 _EVENT = {"id", "t", "user", "session", "repo", "scope", "team", "signal", "kind", "outcome", "fact", "refs", "meta", "secret_markers"}

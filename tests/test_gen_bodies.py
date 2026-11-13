@@ -301,3 +301,11 @@ def test_bodies_prompt_asks_block_probes_to_compete_on_equal_terms() -> None:
     text = load_prompt("bodies.md")
     assert "every block probe" in text
     assert "same component, file and repository names" in text
+
+
+def test_bodies_prompt_scopes_the_same_names_rule_away_from_workaround_then_root() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "same component, file and repository names" in text
+    assert "in a `workaround_then_root` scenario rule 8 applies instead" in text

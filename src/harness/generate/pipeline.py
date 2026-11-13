@@ -63,8 +63,8 @@ class GenerateReport(BaseModel):
             LLM calls and drafts that failed the checks.
         repaired: Ids of the drafts that were too easy, were rewritten with a diagnosis and then
             saved (a subset of `written`).
-        repair_failed: Number of repair rounds after which the draft was still rejected (still
-            too easy, another check failed, or the model call failed).
+        repair_failed: Number of repaired drafts that were still rejected (still too easy,
+            another check failed, or the model call failed).
         shortfall: Family -> why fewer than requested were made.
         first_llm_error: Message of the first non-fatal LLM error of the run, if there was one.
     """
@@ -166,9 +166,13 @@ def draft_text(s: Scenario) -> str:
         s: The scenario.
 
     Returns:
-        The YAML document.
+        The YAML document. `provenance.too_easy_repairs` is left out when 0, so a scenario written
+        before that field existed is saved byte for byte as it was and keeps its hashes.
     """
-    return yaml.safe_dump(s.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+    data = s.model_dump(mode="json")
+    if not data["provenance"]["too_easy_repairs"]:
+        del data["provenance"]["too_easy_repairs"]
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
 def saved_hash(s: Scenario, purpose: HashPurpose) -> str:
@@ -457,6 +461,9 @@ def _one(
     # `too_easy_repairs` times; it is the same candidate, so it is not another attempt.
     while stop and repairs < run.gen.too_easy_repairs and all(i.code == "too_easy" for i in stop):
         repairs += 1
+        # The first too-easy draft stays next to the rejected drafts, for audit.
+        if repairs == 1:
+            save_draft(s, run.run_dir / "rejected_drafts" / family / f"{sid}.pre-repair.yaml")
         hint = too_easy_hint(s, run.cfg)
         try:
             s = write_bodies(run.client, sk, cand, bundle, run.gen, run.cfg, revision=hint)
@@ -480,6 +487,7 @@ def _one(
         if repairs:
             run.log_repair(trace, family, sid, stop[0].code)
         return None
+    s.provenance.too_easy_repairs = repairs
     mark_generated(s)
     save_draft(s, path)
     if repairs:
@@ -511,9 +519,13 @@ def generate(
     draft is saved to `out_dir/<family>/<id>.yaml` only if `check_draft` finds no error and no
     `too_easy` warning. When `too_easy` is the only blocking finding, the bodies are rewritten
     up to `gen.too_easy_repairs` times (default once) with a diagnosis (`too_easy_hint`) and
-    checked again; a repair is not another body attempt, its outcome goes to
-    `run_dir/repairs.jsonl`, and a draft still too easy afterwards is rejected as `too_easy`
-    with a message starting `after 1 repair: `. Otherwise a `Rejection` goes to `run_dir/rejected.jsonl` and the draft is
+    checked again. A repair is not another body attempt; its outcome goes to
+    `run_dir/repairs.jsonl`, the too-easy original is kept as
+    `run_dir/rejected_drafts/<family>/<id>.pre-repair.yaml`, and a saved draft records the
+    number of repairs in `provenance.too_easy_repairs`.
+
+    Every rejected draft, including one still too easy after its repairs (code `too_easy`,
+    message starting `after 1 repair: `), gets a `Rejection` in `run_dir/rejected.jsonl` and is
     kept for diagnosis at `run_dir/rejected_drafts/<family>/<id>.yaml`. A saved draft
     records its label fingerprint and content hash (`mark_generated`). A file with the same id is
     replaced only when it is an untouched LLM draft (status draft, author `llm`, not
@@ -530,8 +542,7 @@ def generate(
         gen: Generation config.
         out_dir: Root of the saved drafts.
         run_dir: Directory for `candidates.jsonl`, `rejected.jsonl`, `repairs.jsonl` and
-            `rejected_drafts/`;
-            created.
+            `rejected_drafts/`; created.
         repos: Only traces of these repositories ("owner/name" or the short name); None for all.
         per_family: Per-family override of `n`.
         max_traces: Upper bound on the distinct traces sent to candidate extraction in the whole
