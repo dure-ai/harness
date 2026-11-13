@@ -36,6 +36,9 @@ class GenConfig(_Strict):
         token_param: Name under which an OpenAI-compatible server takes the output token
             limit: `max_completion_tokens` (OpenAI), `max_tokens` (older servers) or `none`
             (send no limit). Not used by the anthropic provider.
+        too_easy_repairs: Times a draft whose only blocking finding is `too_easy` is rewritten
+            with a diagnosis before it is rejected; 0 turns the repair off. The repair asks the
+            facts to compete on equal terms, never for the false fact to win.
         reasoning_effort: Reasoning effort sent to an OpenAI-compatible reasoning model
             (`reasoning_effort`), e.g. `low` for gpt-oss, which otherwise can spend the whole output
             limit thinking. Unset: not sent (non-reasoning models reject it). Not used by anthropic.
@@ -58,6 +61,7 @@ class GenConfig(_Strict):
     max_retries: int = Field(default=2, ge=0)
     token_param: Literal["max_completion_tokens", "max_tokens", "none"] = "max_completion_tokens"
     reasoning_effort: Literal["low", "medium", "high"] | None = None
+    too_easy_repairs: int = Field(default=1, ge=0)
 
 
 def load_gen_config(path: Path) -> GenConfig:

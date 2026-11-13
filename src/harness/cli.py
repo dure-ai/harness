@@ -664,6 +664,10 @@ def generate_cmd(
             typer.echo(f"  이미 검토된 파일이라 건너뜀: {', '.join(report.skipped_existing)}")
         if report.rejected:
             typer.echo(f"  거절 {report.rejected}건: {run_dir / 'rejected.jsonl'}")
+        if report.repaired or report.repair_failed:
+            typer.echo(
+                f"  너무 쉬워 고쳐 쓴 초안: 저장 {len(report.repaired)}개, 실패 {report.repair_failed}건: {run_dir / 'repairs.jsonl'}"
+            )
         for fam, reason in report.shortfall.items():
             typer.echo(f"  부족 {fam}: {reason}")
         if report.trace_cap_hit:

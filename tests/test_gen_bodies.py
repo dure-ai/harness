@@ -282,3 +282,14 @@ def test_bodies_prompt_tells_workaround_then_root_to_keep_the_fixes_apart() -> N
     hint = text[text.index("In a `workaround_then_root` scenario") :]
     assert "do not repeat the workaround's" in hint
     assert "symptom" in hint
+
+
+def test_write_bodies_appends_the_revision_to_the_prompt() -> None:
+    sk = _skeleton()
+    plain = _client(_reply(sk))
+    write_bodies(plain, sk, _cand(), [make_trace()], _gen())
+    revised = _client(_reply(sk))
+    write_bodies(revised, sk, _cand(), [make_trace()], _gen(), revision="REVISION-TEXT")
+    assert "REVISION-TEXT" not in plain.requests[-1][2]
+    assert "REVISION-TEXT" in revised.requests[-1][2]
+    assert revised.requests[-1][2] != plain.requests[-1][2]
