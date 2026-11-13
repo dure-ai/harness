@@ -2,11 +2,14 @@ import pytest
 from pathlib import Path
 
 from harness.config import EvalConfig
-from harness.generate.checks import _secret_issues, blocking, check_draft, secret_events
+from harness.generate.checks import _secret_issues, blocking, check_draft, secret_events, too_easy_hint
 from harness.generate.config import GenConfig, load_gen_config
 from harness.scenario.model import Evidence, Provenance, Scenario
 from harness.scenario.load import load_scenario
 from harness.scenario.validate import Issue
+from harness.engines import make_engine
+from harness.replay import run_scenario
+from harness.selfcheck import RUN_ID
 from tests.factories import T, ev, fact, probe, scenario
 from tests.test_gen_families import _filled, _skeleton
 from tests.test_cli import too_easy
@@ -889,3 +892,32 @@ def test_repeat_check_only_applies_to_the_poison_families():
     assert [i.code for i in repeat_issues(s.model_copy(update={"family": "unconfirmed_poison"}), CFG)] == [
         "repeats_too_different"
     ]
+
+
+def test_too_easy_hint_names_each_block_probe_and_what_all_store_followed():
+    s = too_easy()
+    hint = too_easy_hint(s, EvalConfig())
+    assert hint.startswith("too_easy:")
+    for p in s.probes:
+        if p.kind == "block":
+            assert f"{p.id}:" in hint
+    assert "no record of a false fact" in hint  # too_easy() has none
+    assert "equal terms" in hint
+    assert "Previous draft:" in hint
+
+
+def test_too_easy_hint_lists_query_words_found_only_in_true_records():
+    s = truth_change()
+    events = [
+        e.model_copy(update={"text": "zebraword vendor v2 is required now"}) if e.fact == "f_new" else e
+        for e in s.events
+    ]
+    probes = [p.model_copy(update={"query": "zebraword"}) if p.kind == "block" else p for p in s.probes]
+    s = s.model_copy(update={"events": events, "probes": probes})
+    run = run_scenario(make_engine("all_store", s, CFG), s, run_id=RUN_ID, cfg=CFG)
+    rec = next(r for r in run.probes if r.probe_id == "p_block")
+    assert rec.choice.index is not None
+    assert rec.results[rec.choice.index].sources == ["tc_n"]
+    hint = too_easy_hint(s, CFG)
+    assert "p_block: all_store followed tc_n (fact f_new)" in hint
+    assert "query words found only in true-fact records: zebraword" in hint

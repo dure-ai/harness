@@ -5,11 +5,14 @@ import string
 from collections.abc import Mapping, Sequence
 
 from harness.config import EvalConfig
+from harness.engines import make_engine
 from harness.generate.config import GenConfig
+from harness.replay import run_scenario
 from harness.scenario.model import FeedbackTemplate, Probe, Scenario
 from harness.scenario.validate import LEAK_FAMILIES, Issue, validate_scenario
-from harness.selfcheck import check_discrimination
-from harness.text import contains_secret, jaccard
+from harness.selfcheck import RUN_ID, check_discrimination
+from harness.text import contains_secret, jaccard, tokenize
+from harness.world import probe_ctx, true_at
 
 
 def secrets_recorded(s: Scenario) -> bool:
@@ -587,3 +590,73 @@ def check_draft(
         *_evidence_issues(s),
         *repeat_issues(s, cfg),
     ]
+
+
+_TOO_EASY_HEAD = (
+    "too_easy: a keyword search over all records ranks a record of a true fact first on every "
+    "block probe, so a memory that stores everything never follows the false fact and the draft "
+    "cannot tell engines apart."
+)
+_TOO_EASY_FIX = (
+    "Rewrite so the facts of each block probe compete on equal terms: write each block probe's "
+    "query with topic words (component, file, command and repository names) that the records of "
+    "all its facts share, reuse no more markers of one fact than of another, and write the false "
+    "fact's records with the same component, file and repository names as the true fact's "
+    "records, changing only the claim. Keep every label and do not use the banned words."
+)
+_MAX_UNIQUE_WORDS = 8
+
+
+def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
+    """Explain why `all_store` never follows a false fact, as text to send back for a rewrite.
+
+    Replays the scenario against `all_store` (feedback included) and writes one line per block
+    probe: which record it followed, and which query words only the true-fact records contain.
+
+    Args:
+        s: The draft that was rejected as `too_easy`.
+        cfg: Evaluation config.
+
+    Returns:
+        The message: a headline, one line per block probe, the rewrite instruction, and the
+        previous draft's facts, events and probe queries.
+    """
+    run = run_scenario(make_engine("all_store", s, cfg), s, run_id=RUN_ID, cfg=cfg)
+    records = {r.probe_id: r for r in run.probes}
+    known = {e.id: e for e in s.events}
+    lines = [_TOO_EASY_HEAD]
+    for p in s.probes:
+        if p.kind != "block":
+            continue
+        ctx = probe_ctx(p)
+        false_texts = [
+            e.text
+            for e in s.events
+            if e.t <= p.t and e.fact in p.about and not true_at(s.facts[e.fact], p.t, ctx)
+        ]
+        rec = records.get(p.id)
+        if rec is None or rec.choice.index is None:
+            lines.append(f"{p.id}: all_store followed nothing")
+            continue
+        result = rec.results[rec.choice.index]
+        followed = next((known[i] for i in result.sources if i in known), None)
+        if followed is None:
+            line = f"{p.id}: all_store followed generated record {result.sources[0] if result.sources else '?'}"
+        else:
+            line = f"{p.id}: all_store followed {followed.id} (fact {followed.fact})"
+        if not false_texts:
+            line += "; no record of a false fact is stored before this probe"
+        else:
+            false_tokens = {w for text in false_texts for w in tokenize(text)}
+            words = sorted((set(tokenize(p.query)) & set(tokenize(result.text))) - false_tokens)
+            if words:
+                line += "; query words found only in true-fact records: " + ", ".join(words[:_MAX_UNIQUE_WORDS])
+            else:
+                line += "; no query word is unique to the true-fact records, so repetition or recency decides"
+        lines.append(line)
+    lines.append(_TOO_EASY_FIX)
+    lines.append("Previous draft:")
+    lines += [f"fact {fid}: {f.text}" for fid, f in s.facts.items()]
+    lines += [f"event {e.id} (fact {e.fact or 'none'}): {e.text}" for e in s.events]
+    lines += [f"probe {p.id}: {p.query}" for p in s.probes]
+    return "\n".join(lines)
