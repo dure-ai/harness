@@ -200,9 +200,9 @@ class Provenance(_Strict):
             does not replace a file whose content moved from it (a hand edit). None in older files.
         too_easy_repairs: How many times the draft's bodies were rewritten with a diagnosis because
             the draft was too easy, before it was saved (0: not repaired). It lets a reviewer split
-            repaired from unrepaired scenarios. It is left out of the file when 0 (`draft_text`) and
-            out of the label fingerprint, so a file written before the field existed keeps its
-            bytes and its hashes.
+            repaired from unrepaired scenarios. When 0 it is left out of the file (`draft_text`) and
+            of the label fingerprint, so a file written before the field existed keeps its bytes
+            and its hashes; any other value is part of the fingerprint and cannot be edited.
     """
 
     author: Literal["human", "llm", "generator"]

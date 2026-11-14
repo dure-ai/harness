@@ -8,9 +8,11 @@ as a leak, so a body that does not fit its secret string is rejected and generat
 patched. Text the reviewer may fix
 (fact text and markers, event text, probe queries, feedback template text)
 and the whole `review` section are left out, as are the fields the harness itself writes:
-`provenance.reviewer_edited`, `provenance.too_easy_repairs` (a record of how the draft was made,
-absent from files written before it existed) and the two hashes `provenance.label_fingerprint` and
+`provenance.reviewer_edited` and the two hashes `provenance.label_fingerprint` and
 `provenance.generated_hash` (a fingerprint cannot cover itself).
+`provenance.too_easy_repairs` is covered when it is not 0 and left out when it is 0, so a repair
+count cannot be changed, added or removed, and a file written before the field existed keeps its
+fingerprint.
 
 `content_hash` is the other hash: of a whole parsed file, labels and text, used to bind an
 approval (`review.approved_hash`) and a generated draft (`provenance.generated_hash`) to the
@@ -34,7 +36,7 @@ FINGERPRINT_VERSION = "l1"
 """Prefix of `label_fingerprint` values; a stored fingerprint without it cannot be verified."""
 HashPurpose = Literal["approval", "generated"]
 """What a `content_hash` is for. Part of the hashed material, so the two never coincide."""
-_HASH_FIELDS = {"reviewer_edited", "label_fingerprint", "generated_hash", "too_easy_repairs"}
+_HASH_FIELDS = {"reviewer_edited", "label_fingerprint", "generated_hash"}
 
 _FACT = {"valid_from", "valid_until", "valid", "conditions", "fix"}
 _EVENT = {"id", "t", "user", "session", "repo", "scope", "team", "signal", "kind", "outcome", "fact", "refs", "meta", "secret_markers"}
@@ -65,13 +67,16 @@ def _probe_view(p: Probe) -> dict[str, Any]:
 
 def _label_view(s: Scenario) -> dict[str, Any]:
     """The non-editable fields of `s` as JSON-ready nested dicts keyed by fact, event and probe id."""
+    provenance = s.provenance.model_dump(mode="json", exclude=_HASH_FIELDS)
+    if not provenance["too_easy_repairs"]:
+        del provenance["too_easy_repairs"]  # absent from older files: 0 must not move their fingerprint
     return {
         "id": s.id,
         "family": s.family,
         "mode": s.mode,
         "language": s.language,
         "world": s.world.model_dump(mode="json"),
-        "provenance": s.provenance.model_dump(mode="json", exclude=_HASH_FIELDS),
+        "provenance": provenance,
         "facts": {fid: f.model_dump(mode="json", include=_FACT) for fid, f in s.facts.items()},
         "event_order": [e.id for e in s.events],
         "events": {e.id: e.model_dump(mode="json", include=_EVENT) for e in s.events},

@@ -820,3 +820,50 @@ def test_approved_file_without_check_config_hash_still_loads(tmp_path):
     del raw["review"]["check_config_hash"]
     path.write_text(yaml.safe_dump(raw, allow_unicode=True))
     assert load_scenario(path).review.check_config_hash is None
+
+
+def _repaired(tmp_path: Path) -> Path:
+    s = truth_change()
+    s.provenance.too_easy_repairs = 1
+    return generated(tmp_path, s)
+
+
+def test_edit_cannot_change_the_repair_count(tmp_path):
+    path = _repaired(tmp_path)
+    before = path.read_bytes()
+    cmd = editor(tmp_path, "path.write_text(text.replace('too_easy_repairs: 1', 'too_easy_repairs: 0'))")
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "reverted"
+    assert result.changed_fields == ["provenance.too_easy_repairs"]
+    assert path.read_bytes() == before
+
+
+def test_edit_cannot_add_a_repair_count(tmp_path):
+    path = generated(tmp_path)
+    before = path.read_bytes()
+    cmd = editor(tmp_path, "path.write_text(text.replace('provenance:\\n', 'provenance:\\n  too_easy_repairs: 4\\n', 1))")
+    result = edit_draft(path, cmd, CFG, GEN)
+    assert result.status == "reverted"
+    assert result.changed_fields == ["provenance.too_easy_repairs"]
+    assert path.read_bytes() == before
+
+
+def test_repair_count_removed_in_an_editor_blocks_approval(tmp_path):
+    path = _repaired(tmp_path)
+    _edit_yaml(path, lambda d: d["provenance"].pop("too_easy_repairs"))
+    issues = set_status(path, "approved", "kim", None, CFG, GEN)
+    assert [i.code for i in issues] == ["labels_changed_outside_review"]
+
+
+def test_text_edit_of_a_repaired_draft_keeps_the_repair_count(tmp_path):
+    path = _repaired(tmp_path)
+    cmd = editor(tmp_path, "path.write_text(text.replace('vendor v2 is required now', 'vendor v2 is the requirement'))")
+    assert edit_draft(path, cmd, CFG, GEN).status == "saved"
+    assert load_scenario(path).provenance.too_easy_repairs == 1
+
+
+def test_show_tells_a_repaired_draft_apart():
+    s = truth_change()
+    assert "too_easy_repairs" not in render(s)
+    s.provenance.too_easy_repairs = 1
+    assert "reviewer_edited=False  too_easy_repairs=1" in render(s)

@@ -901,12 +901,19 @@ def test_too_easy_hint_names_each_block_probe_and_what_all_store_followed():
     for p in s.probes:
         if p.kind == "block":
             assert f"{p.id}:" in hint
-    assert "no record of a false fact" in hint  # too_easy() has none
+    assert "no record of another fact the probe asks about is stored before it" in hint  # too_easy() has none
     assert "equal terms" in hint
     assert "Previous draft:" in hint
 
 
-def test_too_easy_hint_lists_query_words_found_only_in_true_records():
+def _followed(s, probe_id: str) -> str:
+    run = run_scenario(make_engine("all_store", s, CFG), s, run_id=RUN_ID, cfg=CFG)
+    rec = next(r for r in run.probes if r.probe_id == probe_id)
+    assert rec.choice.index is not None
+    return rec.results[rec.choice.index].sources[0]
+
+
+def test_too_easy_hint_lists_query_words_the_other_facts_records_lack():
     s = truth_change()
     events = [
         e.model_copy(update={"text": "zebraword vendor v2 is required now"}) if e.fact == "f_new" else e
@@ -914,19 +921,23 @@ def test_too_easy_hint_lists_query_words_found_only_in_true_records():
     ]
     probes = [p.model_copy(update={"query": "zebraword"}) if p.kind == "block" else p for p in s.probes]
     s = s.model_copy(update={"events": events, "probes": probes})
-    run = run_scenario(make_engine("all_store", s, CFG), s, run_id=RUN_ID, cfg=CFG)
-    rec = next(r for r in run.probes if r.probe_id == "p_block")
-    assert rec.choice.index is not None
-    assert rec.results[rec.choice.index].sources == ["tc_n"]
+    assert _followed(s, "p_block") == "tc_n"
     hint = too_easy_hint(s, CFG)
-    assert "p_block: all_store followed tc_n (fact f_new)" in hint
-    assert "query words found only in true-fact records: zebraword" in hint
+    assert "p_block: the search followed tc_n (fact f_new); query words that the records of f_old lack: zebraword" in hint
 
 
-def test_too_easy_hint_says_when_no_query_word_is_unique_to_the_true_records():
-    hint = too_easy_hint(truth_change(), CFG)
-    assert "p_block: all_store followed tc_o3 (fact f_old); no query word is unique to the true-fact records" in hint
-    assert "so repetition or recency decides" in hint
+def test_too_easy_hint_says_when_the_other_facts_records_hold_every_query_word():
+    s = truth_change()
+    events = [e.model_copy(update={"text": "vendor required now"}) for e in s.events]
+    probes = [p.model_copy(update={"query": "vendor"}) if p.kind == "block" else p for p in s.probes]
+    s = s.model_copy(update={"events": events, "probes": probes})
+    followed = next(e for e in s.events if e.id == _followed(s, "p_block"))
+    assert followed.fact == "f_new"  # equal words: the most recent record wins, and it is the fact that holds
+    line = next(x for x in too_easy_hint(s, CFG).splitlines() if x.startswith("p_block:"))
+    assert line == (
+        f"p_block: the search followed {followed.id} (fact f_new); the records of f_old hold every query word "
+        "the followed record holds, so word counts, record length or recency decide"
+    )
 
 
 def test_too_easy_hint_for_a_followed_noise_record_says_fact_none_and_drops_one_letter_words(monkeypatch):
@@ -944,14 +955,26 @@ def test_too_easy_hint_for_a_followed_noise_record_says_fact_none_and_drops_one_
     rec = SimpleNamespace(probe_id="p_block", choice=SimpleNamespace(index=0), results=[result])
     monkeypatch.setattr(generate.checks, "run_scenario", lambda *a, **kw: SimpleNamespace(probes=[rec]))
     line = too_easy_hint(s, CFG).splitlines()[1]
-    assert line == "p_block: all_store followed tc_x (fact none); query words found only in the followed record: zebraword"
+    assert line == "p_block: the search followed tc_x (fact none); query words that the records of f_old lack: zebraword"
 
 
-def test_too_easy_hint_headline_describes_the_cause():
-    hint = too_easy_hint(too_easy(), CFG)
-    assert hint.startswith("too_easy: on every block probe a keyword search over all records ranks a record")
-    assert "do not compete on equal terms" in hint.splitlines()[0]
-    assert "make all_store" not in hint
+def test_too_easy_hint_does_not_say_which_kind_a_probe_is_or_which_fact_holds():
+    # Generation design 5.5: the prompt does not say what a probe kind is scored by, and the
+    # banned cue word "false" must not travel into the rewrite.
+    for s in (too_easy(), truth_change(), truth_change().model_copy(update={"family": "workaround_then_root"})):
+        hint = too_easy_hint(s, CFG)
+        head, _, _draft = hint.partition("Previous draft:")
+        for word in ("block probe", "promote", "true fact", "false fact", "true-fact", "all_store"):
+            assert word not in head, word
+        assert head.splitlines()[0].startswith("too_easy: on each probe below, a keyword search over all records")
+        assert "do not compete on equal terms" in head.splitlines()[0]
+
+
+def test_too_easy_hint_asks_for_every_probe_in_the_same_form_and_keeps_quoted_events():
+    for s in (truth_change(), truth_change().model_copy(update={"family": "workaround_then_root"})):
+        hint = too_easy_hint(s, CFG)
+        assert "Write all probes in the same form and tone (rule 10)." in hint
+        assert "Leave the text of quoted events as it is." in hint
 
 
 def test_too_easy_hint_lists_each_fact_with_its_markers():
@@ -960,11 +983,22 @@ def test_too_easy_hint_lists_each_fact_with_its_markers():
     assert "fact f_new: use vendor v2 (markers: vendor v2)" in hint
 
 
+def test_too_easy_hint_marks_quoted_events_in_the_previous_draft():
+    s = truth_change()
+    first = s.events[0]
+    s.provenance.evidence = [Evidence(event_id=first.id, trace_id="t", message_index=1, quote="q", origin="quoted")]
+    hint = too_easy_hint(s, CFG)
+    assert f"event {first.id} (fact {first.fact}, quoted): {first.text}" in hint
+    other = s.events[1]
+    assert f"event {other.id} (fact {other.fact}): {other.text}" in hint
+
+
 def test_too_easy_hint_instruction_depends_on_the_family():
     plain = too_easy_hint(truth_change(), CFG)
-    assert "same component, file and repository names" in plain
+    assert "the same component, file and repository names" in plain
+    assert "write every probe's query" in plain
     root_s = truth_change().model_copy(update={"family": "workaround_then_root"})
     root = too_easy_hint(root_s, CFG)
     assert "same component, file and repository names" not in root
-    assert "the symptom both fixes address, in the symptom's words" in root
+    assert "ask every probe about the symptom both fixes address, in the symptom's words" in root
     assert "no more markers of one fix than of the other" in root

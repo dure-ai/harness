@@ -593,23 +593,25 @@ def check_draft(
 
 
 _TOO_EASY_HEAD = (
-    "too_easy: on every block probe a keyword search over all records ranks a record of a true "
-    "fact first, because the query and records favour that fact's wording; the facts do not "
-    "compete on equal terms."
+    "too_easy: on each probe below, a keyword search over all records ranks one fact's record "
+    "first and never the other's, because the query and the records favour that fact's wording; "
+    "the facts a probe asks about do not compete on equal terms."
+)
+_TOO_EASY_KEEP = (
+    " Write all probes in the same form and tone (rule 10). Leave the text of quoted events as it "
+    "is. Keep every label and do not use the banned words."
 )
 _TOO_EASY_FIX = (
-    "Rewrite so the facts of each block probe compete on equal terms: write each block probe's "
-    "query with topic words (component, file, command and repository names) that the records of "
-    "all its facts share, reuse no more markers of one fact than of another, and write the false "
-    "fact's records with the same component, file and repository names as the true fact's "
-    "records, changing only the claim. Keep every label and do not use the banned words."
-)
+    "Rewrite so the facts each probe asks about compete on equal terms: write every probe's query "
+    "with topic words (component, file, command and repository names) that the records of all its "
+    "facts share, reuse no more markers of one fact than of another, and give the records of "
+    "every fact the same component, file and repository names, changing only the claim."
+) + _TOO_EASY_KEEP
 _TOO_EASY_FIX_ROOT = (
-    "Rewrite so the facts of each block probe compete on equal terms: ask each block probe about "
-    "the symptom both fixes address, in the symptom's words, and reuse no more markers of one fix "
-    "than of the other. Keep the root-fix records free of the workaround's command, flag and file "
-    "words. Keep every label and do not use the banned words."
-)
+    "Rewrite so the facts each probe asks about compete on equal terms: ask every probe about the "
+    "symptom both fixes address, in the symptom's words, and reuse no more markers of one fix than "
+    "of the other. Keep the root-fix records free of the workaround's command, flag and file words."
+) + _TOO_EASY_KEEP
 _MAX_UNIQUE_WORDS = 8
 
 
@@ -617,7 +619,10 @@ def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
     """Explain why `all_store` never follows a false fact, as text to send back for a rewrite.
 
     Replays the scenario against `all_store` (feedback included) and writes one line per block
-    probe: which record it followed, and which query words only the true-fact records contain.
+    probe: which record the search followed, and which query words the records of the probe's
+    other facts (those that do not hold at the probe) lack. The text names probes and facts by id
+    only: it does not say which kind a probe is or which fact holds (generation design 5.5), and
+    the instruction covers every probe, so paired probes keep the same form.
 
     Args:
         s: The draft that was rejected as `too_easy`.
@@ -625,7 +630,7 @@ def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
 
     Returns:
         The message: a headline, one line per block probe, the rewrite instruction, and the
-        previous draft's facts, events and probe queries.
+        previous draft's facts with their markers, events (quoted ones marked) and probe queries.
     """
     run = run_scenario(make_engine("all_store", s, cfg), s, run_id=RUN_ID, cfg=cfg)
     records = {r.probe_id: r for r in run.probes}
@@ -635,38 +640,41 @@ def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
         if p.kind != "block":
             continue
         ctx = probe_ctx(p)
-        false_texts = [
-            e.text
-            for e in s.events
-            if e.t <= p.t and e.fact in p.about and not true_at(s.facts[e.fact], p.t, ctx)
+        rivals = [
+            e for e in s.events if e.t <= p.t and e.fact in p.about and not true_at(s.facts[e.fact], p.t, ctx)
         ]
         rec = records.get(p.id)
         if rec is None or rec.choice.index is None:
-            lines.append(f"{p.id}: all_store followed nothing")
+            lines.append(f"{p.id}: the search followed no record")
             continue
         result = rec.results[rec.choice.index]
         followed = next((known[i] for i in result.sources if i in known), None)
         if followed is None:
-            line = f"{p.id}: all_store followed generated record {result.sources[0] if result.sources else '?'}"
+            line = f"{p.id}: the search followed generated record {result.sources[0] if result.sources else '?'}"
         else:
-            line = f"{p.id}: all_store followed {followed.id} (fact {followed.fact or 'none'})"
-        if not false_texts:
-            line += "; no record of a false fact is stored before this probe"
+            line = f"{p.id}: the search followed {followed.id} (fact {followed.fact or 'none'})"
+        if not rivals:
+            line += "; no record of another fact the probe asks about is stored before it"
         else:
-            false_tokens = {w for text in false_texts for w in tokenize(text)}
+            names = ", ".join(dict.fromkeys(e.fact for e in rivals if e.fact))
+            rival_tokens = {w for e in rivals for w in tokenize(e.text)}
             words = sorted(
-                w for w in (set(tokenize(p.query)) & set(tokenize(result.text))) - false_tokens if len(w) >= 2
+                w for w in (set(tokenize(p.query)) & set(tokenize(result.text))) - rival_tokens if len(w) >= 2
             )
             if words:
-                own = followed is not None and followed.fact in p.about
-                where = "true-fact records" if own else "the followed record"
-                line += f"; query words found only in {where}: " + ", ".join(words[:_MAX_UNIQUE_WORDS])
+                line += f"; query words that the records of {names} lack: " + ", ".join(words[:_MAX_UNIQUE_WORDS])
             else:
-                line += "; no query word is unique to the true-fact records, so repetition or recency decides"
+                line += (
+                    f"; the records of {names} hold every query word the followed record holds, "
+                    "so word counts, record length or recency decide"
+                )
         lines.append(line)
     lines.append(_TOO_EASY_FIX_ROOT if s.family == "workaround_then_root" else _TOO_EASY_FIX)
+    quoted = {e.event_id for e in s.provenance.evidence if e.origin == "quoted"}
     lines.append("Previous draft:")
     lines += [f"fact {fid}: {f.text} (markers: {', '.join(f.markers)})" for fid, f in s.facts.items()]
-    lines += [f"event {e.id} (fact {e.fact or 'none'}): {e.text}" for e in s.events]
+    lines += [
+        f"event {e.id} (fact {e.fact or 'none'}{', quoted' if e.id in quoted else ''}): {e.text}" for e in s.events
+    ]
     lines += [f"probe {p.id}: {p.query}" for p in s.probes]
     return "\n".join(lines)

@@ -1,7 +1,9 @@
 """Tests for the label fingerprint and the list of changed label fields."""
 
+import json
 from datetime import timedelta
 
+from harness.scenario import labels
 from harness.scenario.labels import changed_label_fields, content_hash, fingerprint_state, label_fingerprint
 from harness.scenario.model import Feedback, FeedbackTemplate, Scenario
 from tests.factories import T, ev, fact, probe, scenario
@@ -233,3 +235,13 @@ def test_scalar_type_changes_move_the_content_hash() -> None:
     assert content_hash(raw, "approval") != one
     raw["world"]["probe"] = "1"
     assert content_hash(raw, "approval") != one
+
+
+def test_fingerprint_covers_a_repair_count_but_not_its_absence() -> None:
+    a = _scenario()
+    b = a.model_copy(deep=True)
+    b.provenance.too_easy_repairs = 1
+    assert label_fingerprint(a) != label_fingerprint(b)
+    assert changed_label_fields(a, b) == ["provenance.too_easy_repairs"]
+    # 0 is what a file written before the field existed loads as: its fingerprint must not move.
+    assert "too_easy_repairs" not in json.dumps(labels._label_view(a))

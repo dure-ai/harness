@@ -299,7 +299,8 @@ def test_bodies_prompt_asks_block_probes_to_compete_on_equal_terms() -> None:
     from harness.generate.candidates import load_prompt
 
     text = load_prompt("bodies.md")
-    assert "every block probe" in text
+    assert "every probe that is about more than one fact" in text
+    assert "every block probe" not in text  # paired probes get the same rule (rule 10)
     assert "same component, file and repository names" in text
 
 
