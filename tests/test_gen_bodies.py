@@ -282,3 +282,31 @@ def test_bodies_prompt_tells_workaround_then_root_to_keep_the_fixes_apart() -> N
     hint = text[text.index("In a `workaround_then_root` scenario") :]
     assert "do not repeat the workaround's" in hint
     assert "symptom" in hint
+
+
+def test_write_bodies_appends_the_revision_to_the_prompt() -> None:
+    sk = _skeleton()
+    plain = _client(_reply(sk))
+    write_bodies(plain, sk, _cand(), [make_trace()], _gen())
+    revised = _client(_reply(sk))
+    write_bodies(revised, sk, _cand(), [make_trace()], _gen(), revision="REVISION-TEXT")
+    assert "REVISION-TEXT" not in plain.requests[-1][2]
+    assert "REVISION-TEXT" in revised.requests[-1][2]
+    assert revised.requests[-1][2] != plain.requests[-1][2]
+
+
+def test_bodies_prompt_asks_block_probes_to_compete_on_equal_terms() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "every probe that is about more than one fact" in text
+    assert "every block probe" not in text  # paired probes get the same rule (rule 10)
+    assert "same component, file and repository names" in text
+
+
+def test_bodies_prompt_scopes_the_same_names_rule_away_from_workaround_then_root() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "same component, file and repository names" in text
+    assert "in a `workaround_then_root` scenario rule 8 applies instead" in text

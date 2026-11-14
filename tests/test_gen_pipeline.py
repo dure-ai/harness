@@ -391,6 +391,7 @@ def test_generate_rejects_too_easy_and_errors_but_saves_warnings(
 ) -> None:
     verdicts = [
         [Issue("warning", "too_easy", "all_store never follows a false fact")],
+        [Issue("warning", "too_easy", "all_store never follows a false fact")],  # after the repair
         [Issue("error", "cue_word", "event e1: text contains cue word 'fake'")],
         [Issue("warning", "markers_missing", "something minor")],
     ]
@@ -407,6 +408,7 @@ def test_generate_keeps_check_rejected_drafts_under_the_run_dir_only(
 ) -> None:
     verdicts = [
         [Issue("warning", "too_easy", "all_store never follows a false fact")],
+        [Issue("warning", "too_easy", "all_store never follows a false fact")],  # after the repair
         [Issue("error", "cue_word", "event e1: text contains cue word 'fake'")],
         [],
     ]
@@ -666,3 +668,166 @@ def test_generate_marker_cue_word_that_persists_is_still_rejected(tmp_path: Path
     # both attempts failed, so it is a writer failure now, not a post-hoc check rejection
     assert (rej["stage"], rej["code"]) == ("bodies", "llm_error")
     assert "the deprecated option" in rej["message"]
+
+
+TOO_EASY = Issue("warning", "too_easy", "all_store never follows a false fact")
+CUE = Issue("error", "cue_word", "event e1: text contains cue word 'fake'")
+
+
+def _verdicts(monkeypatch: pytest.MonkeyPatch, *verdicts: list[Issue]) -> None:
+    """`check_draft` answers these in order, then `[]`; `too_easy_hint` answers `HINT`."""
+    queue = list(verdicts)
+    monkeypatch.setattr(pipeline, "check_draft", lambda *a, **kw: queue.pop(0) if queue else [])
+    monkeypatch.setattr(pipeline, "too_easy_hint", lambda *a, **kw: "HINT")
+
+
+def _bodies_users(client: FakeClient) -> list[str]:
+    return [user for kind, _, user in client.requests if kind == "bodies"]
+
+
+def _repairs(tmp_path: Path) -> list[dict[str, Any]]:
+    text = (tmp_path / "run" / "repairs.jsonl").read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.splitlines()]
+
+
+def test_too_easy_draft_is_repaired_once_and_saved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _verdicts(monkeypatch, [TOO_EASY], [])
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change"], 1)
+    assert len(report.written) == 1 and report.repaired == report.written and report.rejected == 0
+    assert report.repair_failed == 0
+    users = _bodies_users(client)
+    assert len(users) == 2 and "HINT" in users[1] and "HINT" not in users[0]
+    (line,) = _repairs(tmp_path)
+    assert line["result"] == "saved" and line["family"] == "truth_change" and line["id"] == report.written[0]
+    assert line["trace_id"]
+    assert len(list((tmp_path / "out" / "truth_change").glob("*.yaml"))) == 1
+
+
+def test_repair_that_stays_too_easy_is_rejected_as_too_easy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _verdicts(monkeypatch, [TOO_EASY], [TOO_EASY])
+    report = run(tmp_path, plain_fake(), ["truth_change"], 1)
+    first = rejections(tmp_path)[0]
+    assert (first["stage"], first["code"]) == ("checks", "too_easy")
+    assert first["message"].startswith("after 1 repair: ")
+    assert report.repair_failed == 1 and report.repaired == []
+    assert _repairs(tmp_path)[0]["result"] == "too_easy"
+
+
+def test_repair_failing_another_check_is_rejected_with_that_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _verdicts(monkeypatch, [TOO_EASY], [CUE])
+    report = run(tmp_path, plain_fake(), ["truth_change"], 1)
+    assert rejections(tmp_path)[0]["code"] == "cue_word"
+    assert _repairs(tmp_path)[0]["result"] == "cue_word"
+    assert report.repair_failed == 1
+
+
+def test_no_repair_when_too_easy_comes_with_an_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # `check_draft` emits the discrimination issues before the body issues, so too_easy comes first.
+    _verdicts(monkeypatch, [TOO_EASY, CUE])
+    client = plain_fake()
+    run(tmp_path, client, ["truth_change"], 1)
+    assert rejections(tmp_path)[0]["code"] == "too_easy"
+    assert len(_bodies_users(client)) == 2  # first draft (no repair) + the next candidate's draft
+    assert all("HINT" not in u for u in _bodies_users(client))
+    assert not (tmp_path / "run" / "repairs.jsonl").read_text(encoding="utf-8")
+
+
+def test_two_repairs_that_stay_too_easy_are_rejected_after_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _verdicts(monkeypatch, [TOO_EASY], [TOO_EASY], [TOO_EASY])
+    client = plain_fake()
+    gen = GEN.model_copy(update={"too_easy_repairs": 2})
+    report = run(tmp_path, client, ["truth_change"], 1, gen=gen, max_attempts=1)
+    first = rejections(tmp_path)[0]
+    assert (first["code"], first["message"].startswith("after 2 repairs: ")) == ("too_easy", True)
+    assert len(_bodies_users(client)) == 3
+    assert [u for u in _bodies_users(client) if "HINT" in u] == _bodies_users(client)[1:]
+    assert report.repair_failed == 1 and report.repaired == []
+
+
+def test_too_easy_original_is_kept_before_the_repair(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _verdicts(monkeypatch, [TOO_EASY], [])
+    report = run(tmp_path, plain_fake(), ["truth_change"], 1)
+    sid = report.written[0]
+    kept = tmp_path / "run" / "rejected_drafts" / "truth_change" / f"{sid}.pre-repair.yaml"
+    assert load_scenario(kept).id == sid
+    assert not (tmp_path / "out" / "truth_change" / f"{sid}.pre-repair.yaml").exists()
+
+
+def test_saved_draft_records_how_often_it_was_repaired(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _verdicts(monkeypatch, [TOO_EASY], [])
+    repaired = run(tmp_path / "a", plain_fake(), ["truth_change"], 1)
+    path = tmp_path / "a" / "out" / "truth_change" / f"{repaired.written[0]}.yaml"
+    assert load_scenario(path).provenance.too_easy_repairs == 1
+    assert "too_easy_repairs: 1" in path.read_text(encoding="utf-8")
+
+    _verdicts(monkeypatch)
+    plain = run(tmp_path / "b", plain_fake(), ["truth_change"], 1)
+    path = tmp_path / "b" / "out" / "truth_change" / f"{plain.written[0]}.yaml"
+    assert load_scenario(path).provenance.too_easy_repairs == 0
+    assert "too_easy_repairs" not in path.read_text(encoding="utf-8")
+
+
+def test_repairs_zero_disables_repair(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _verdicts(monkeypatch, [TOO_EASY])
+    client = plain_fake()
+    report = run(tmp_path, client, ["truth_change"], 1, gen=GEN.model_copy(update={"too_easy_repairs": 0}))
+    first = rejections(tmp_path)[0]
+    assert first["code"] == "too_easy" and "after" not in first["message"]
+    assert all("HINT" not in u for u in _bodies_users(client))
+    assert report.repaired == [] and report.repair_failed == 0
+
+
+def test_repair_llm_error_is_rejected_as_bodies_llm_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _verdicts(monkeypatch, [TOO_EASY])
+    calls = 0
+
+    def respond(system: str, user: str) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {} if calls in (2, 3) else fake_slots(system, user)  # the repair and its retry are malformed
+
+    client = FakeClient(responders={"candidates": fake_candidates, "bodies": respond})
+    report = run(tmp_path, client, ["truth_change"], 1)
+    first = rejections(tmp_path)[0]
+    assert (first["stage"], first["code"]) == ("bodies", "llm_error")
+    assert _repairs(tmp_path)[0]["result"] == "llm_error"
+    assert report.repair_failed == 1
+
+
+ROUND_TRIP = [
+    "echo/echo-aioesphomeapi-3c8bd9",
+    "echo/echo-meson-python-128a90",
+    "single_source_poison/single_source_poison-cel-python-6c917e",
+    "truth_change/truth_change-flask-dance-3ef268",
+]
+
+
+@pytest.mark.parametrize("name", ROUND_TRIP)
+def test_committed_scenario_saves_byte_identically_and_keeps_its_fingerprint(name: str) -> None:
+    from harness.generate.pipeline import draft_text
+    from harness.scenario.labels import label_fingerprint
+    from harness.scenario.load import read_scenario
+
+    path = Path(__file__).resolve().parent.parent / "scenarios" / "dev" / f"{name}.yaml"
+    _, s = read_scenario(path)
+    assert s.provenance.too_easy_repairs == 0
+    assert draft_text(s) == path.read_text(encoding="utf-8")
+    assert label_fingerprint(s) == s.provenance.label_fingerprint
+
+
+def test_committed_scenario_keeps_its_generated_hash() -> None:
+    from harness.scenario.labels import content_hash
+    from harness.scenario.load import read_scenario
+
+    path = Path(__file__).resolve().parent.parent / "scenarios" / "dev" / "echo" / "echo-aioesphomeapi-3c8bd9.yaml"
+    raw, s = read_scenario(path)
+    assert content_hash(raw, "generated") == s.provenance.generated_hash

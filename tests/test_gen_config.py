@@ -16,8 +16,9 @@ def test_gen_config_defaults_from_file():
     assert cfg.model == "claude-opus-5-5"
     assert cfg.effort == "medium"
     assert cfg.temperature == 0.2
-    assert cfg.prompt_version == "gen-v0.8"
+    assert cfg.prompt_version == "gen-v0.9"
     assert cfg.min_quote_chars == 8
+    assert cfg.too_easy_repairs == 1
     assert cfg.max_candidates_per_trace == 5
     assert cfg.max_output_tokens == 16000
     assert (cfg.timeout_s, cfg.max_retries, cfg.token_param) == (300, 2, "max_completion_tokens")

@@ -198,6 +198,11 @@ class Provenance(_Strict):
             None in older files.
         generated_hash: `scenario.labels.content_hash` of the file as generated; a regeneration
             does not replace a file whose content moved from it (a hand edit). None in older files.
+        too_easy_repairs: How many times the draft's bodies were rewritten with a diagnosis because
+            the draft was too easy, before it was saved (0: not repaired). It lets a reviewer split
+            repaired from unrepaired scenarios. When 0 it is left out of the file (`draft_text`) and
+            of the label fingerprint, so a file written before the field existed keeps its bytes
+            and its hashes; any other value is part of the fingerprint and cannot be edited.
     """
 
     author: Literal["human", "llm", "generator"]
@@ -213,6 +218,7 @@ class Provenance(_Strict):
     generated_at: AwareDatetime | None = None
     label_fingerprint: str | None = None
     generated_hash: str | None = None
+    too_easy_repairs: int = 0
 
 
 @dataclass(frozen=True)

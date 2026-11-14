@@ -454,7 +454,11 @@ def _header(
             f"{s.review.status}{reviewer}"
             + (f"  notes: {s.review.notes}" if s.review.notes else ""),
         ),
-        ("author", f"{p.author}  reviewer_edited={p.reviewer_edited}"),
+        (
+            "author",
+            f"{p.author}  reviewer_edited={p.reviewer_edited}"
+            + (f"  too_easy_repairs={p.too_easy_repairs}" if p.too_easy_repairs else ""),
+        ),
         ("source repos", repos),
         ("source traces", ", ".join(p.source_traces) or "-"),
         (
