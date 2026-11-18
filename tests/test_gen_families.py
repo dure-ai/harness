@@ -396,7 +396,7 @@ def test_long_repos_with_one_prefix_still_get_distinct_ids() -> None:
     assert len(ids) == 4
 
 
-def test_judging_events_have_refs_and_true_fact() -> None:
+def test_judging_events_have_refs() -> None:
     # A truth_change confirmation judges the old records (failure, no fact); the new fact is a
     # separate human record, so no success confirmation asserts `f_new` any more.
     s = _skeleton("truth_change").scenario

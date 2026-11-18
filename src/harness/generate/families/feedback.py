@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import timedelta
 
 from harness.generate.candidates import FactCandidate
-from harness.generate.families.base import SkeletonBuilder, _overturn, confirm
+from harness.generate.families.base import SkeletonBuilder, overturn, confirm
 from harness.generate.slots import Skeleton
 from harness.generate.traces import Trace
 from harness.scenario.model import Feedback, FeedbackTemplate
@@ -114,7 +114,7 @@ def failure_feedback(
     boundary = b.midnight(d)
     b.fact("f_old", valid_until=boundary)
     b.fact("f_new", fabricated=True, valid_from=boundary)
-    _overturn(b, d, confirmer)
+    overturn(b, d, confirmer)
     about = ["f_old", "f_new"]
     fb = _feedback(about, found="f_new", failure_fact="f_new")
     _block_probes(b, 2 + b.rng.randint(0, 1), asker, about, fb)

@@ -194,7 +194,7 @@ class SkeletonBuilder:
 
         Pass `refs` only for judging records: a CI result or human confirmation about earlier
         events. A `success` judgement's `fact` is the fact it asserts as true; a `failure`
-        confirmation (see `_overturn`) says only that the referenced records no longer hold, so
+        confirmation (see `overturn`) says only that the referenced records no longer hold, so
         its `fact` is None.
         """
         eid = f"e{len(self.events) + 1}"
@@ -313,7 +313,7 @@ def confirm(
 _OVERTURN_GAP = timedelta(minutes=30)
 
 
-def _overturn(b: SkeletonBuilder, day: int, confirmer: str) -> tuple[str, str]:
+def overturn(b: SkeletonBuilder, day: int, confirmer: str) -> tuple[str, str]:
     """Overturn the `f_old` records on `day`: a failure confirmation, then a human record of `f_new`.
 
     The confirmation (`human_confirm`, `failure`, `human`) refs every `f_old` event and carries

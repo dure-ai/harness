@@ -20,7 +20,7 @@ from harness.generate.candidates import FactCandidate
 from harness.generate.families.base import (
     CONFIRMS,
     SkeletonBuilder,
-    _overturn,
+    overturn,
     candidate_problem,
     confirm,
     repo_name,
@@ -179,7 +179,7 @@ def truth_change(
     boundary = b.midnight(d)
     b.fact("f_old", valid_until=boundary)
     b.fact("f_new", fabricated=True, valid_from=boundary)
-    _overturn(b, d, confirmer)
+    overturn(b, d, confirmer)
     b.event(b.at(b.next_day()), b.rng.choice([first, second]), "f_new")
     b.probe("p_promote", "promote", b.at(promote_day), asker, ["f_old", "f_new"])
     b.probe("p_block", "block", b.at(b.next_day()), asker, ["f_old", "f_new"])
