@@ -32,6 +32,7 @@ from harness.scenario.load import (
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue, validate_scenario
 from harness.selection import EngineScore, rank
+from harness.seeds import write_seed_report
 from harness.selfcheck import CheckResult, check_discrimination, run_selfcheck
 
 if TYPE_CHECKING:
@@ -376,6 +377,27 @@ def _skip_reason(name: str, streak: int, last: str | None) -> str:
     return f"skipped: {name} was {UNAVAILABLE} for {_scenarios(streak)} in a row; last: {last}"
 
 
+def _check_engine_names(engine: list[str] | None) -> None:
+    """Exit 2 on a bare name that is neither an OSS engine nor a baseline (e.g. all_store_noacl)."""
+    for name in engine or []:
+        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:
+            raise _fail(
+                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
+                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
+                2,
+            )
+
+
+def _warn_small_seed(seed: int) -> None:
+    if seed < 2**32:
+        typer.echo(
+            f"warning: --blind-seed {seed} is small and guessable; the namespace key is "
+            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
+            "unless you are only reproducing a run",
+            err=True,
+        )
+
+
 @app.command()
 def run(
     scenarios: ScenariosOpt,
@@ -404,14 +426,7 @@ def run(
     ] = None,
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
-    # First, so a typo does not pay for loading the scenarios and the baseline self-check.
-    for name in engine or []:
-        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
-            raise _fail(
-                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
-                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
-                2,
-            )
+    _check_engine_names(engine)  # first, so a typo does not pay for loading the scenarios
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
@@ -419,13 +434,8 @@ def run(
     if candidates and scenario_list:  # no scenarios: _selfcheck reports it
         _preflight(candidates, scenario_list[0], cfg, infos, sealed)
     seed = secrets.randbits(64) if blind_seed is None else blind_seed
-    if blind_seed is not None and blind_seed < 2**32:
-        typer.echo(
-            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
-            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
-            "unless you are only reproducing a run",
-            err=True,
-        )
+    if blind_seed is not None:
+        _warn_small_seed(blind_seed)
     key = blind_key(seed)  # one seed: candidate ids and namespaces, so engine_ids.json reproduces both
     checks, base_runs = _selfcheck(loaded, cfg, sealed, key)
     if not all(c.ok for c in checks):
@@ -493,6 +503,92 @@ def run(
             **candidate_repeats,
         },
     )
+    typer.echo(str(out_dir / "report.md"))
+
+
+@app.command()
+def seeds(
+    scenarios: ScenariosOpt,
+    engine: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--engine",
+            help="Extra engine, as in `run` (repeatable). Baselines always run.",
+        ),
+    ] = None,
+    config: ConfigOpt = Path("config/eval-v0.1.yaml"),
+    out: Annotated[
+        Path, typer.Option("--out", help="Directory for run reports.")
+    ] = Path("runs"),
+    include_drafts: DraftsOpt = False,
+    sealed: SealedOpt = False,
+    n: Annotated[int, typer.Option("--n", min=2, help="Number of random blind seeds.")] = 5,
+    blind_seed: Annotated[
+        list[int] | None,
+        typer.Option(
+            "--blind-seed",
+            help="Use these seeds (repeatable, at least two) instead of --n random ones, e.g. to reproduce a seed report.",
+        ),
+    ] = None,
+) -> None:
+    """Run every engine once per blind seed; report the mean and min-max of each metric.
+
+    The blind seed decides the opaque event ids an engine sees, so an engine that breaks score
+    ties on ids can pick a different result under another seed. One `run` is one draw of that
+    tie order; this command shows the draws, per metric and per family, and lists the probes
+    whose outcome changed. It writes report.md, summary.json and engine_ids.json to
+    `<out>/<run id>-seeds/` and does not judge or rank.
+    """
+    _check_engine_names(engine)
+    if blind_seed is not None:
+        if len(set(blind_seed)) < 2:
+            raise _fail("error: give at least two different --blind-seed values", 2)
+        for s in blind_seed:
+            _warn_small_seed(s)
+    seed_list = list(dict.fromkeys(blind_seed)) if blind_seed else [secrets.randbits(64) for _ in range(n)]
+    cfg, loaded = _load(scenarios, config, include_drafts, sealed)
+    scenario_list = loaded.scenarios
+    by_id = {s.id: s for s in scenario_list}
+    candidates = list(dict.fromkeys(name for name in engine or [] if name not in BASELINES))
+    infos: dict[str, EngineInfo] = {}
+    if candidates and scenario_list:  # no scenarios: _selfcheck reports it
+        _preflight(candidates, scenario_list[0], cfg, infos, sealed)
+
+    started_at = datetime.now().astimezone()
+    run_id = started_at.strftime("%Y%m%d-%H%M%S")
+    runs: dict[str, list[list[ScenarioRun]]] = {name: [] for name in [*BASELINES, *candidates]}
+    for i, seed in enumerate(seed_list, 1):
+        key = blind_key(seed)
+        if i == 1:
+            checks, base_runs = _selfcheck(loaded, cfg, sealed, key)  # also validates the set
+        else:
+            checks, base_runs = run_selfcheck(scenario_list, cfg, key)
+        if not all(c.ok for c in checks):
+            typer.echo(f"self-check failed with seed #{i}", err=True)
+            _echo_checks(checks, sealed)
+            raise typer.Exit(1)
+        for name in BASELINES:
+            runs[name].append(base_runs[name])
+        for name in candidates:
+            runs[name] += _run_extra(name, 1, scenario_list, cfg, f"{run_id}-s{i}", infos, key, sealed=sealed)
+
+    meta = RunMeta(
+        run_id=run_id,
+        started_at=started_at,
+        harness_version=harness_version(),
+        config_hash=config_hash(cfg),
+        scenario_set_hash=loaded.hash,
+        n_scenarios=len(scenario_list),
+        machine=machine_info(),
+        engine_infos=infos,
+        sealed=sealed,
+        include_drafts=include_drafts,
+        scenario_roots=[str(root) for root in scenarios],
+        repeats=dict.fromkeys(runs, 1),
+    )
+    metrics = {name: [compute_metrics(r, by_id) for r in per_seed] for name, per_seed in runs.items()}
+    out_dir = out / f"{run_id}-seeds"
+    write_seed_report(out_dir, meta, seed_list, metrics, runs)
     typer.echo(str(out_dir / "report.md"))
 
 

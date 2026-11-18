@@ -127,6 +127,27 @@ cmp /tmp/r1/*/results.jsonl /tmp/r2/*/results.jsonl && echo same
 
 LLM을 쓰는 엔진은 같은 입력에도 답이 달라질 수 있습니다. 그런 엔진은 `--repeat`(기본 3회)로 여러 번 돌리고, 리포트의 재실행 뒤집힘률(`flip`)로 흔들림을 봅니다. M1·M2 값은 회차 평균이고, 그 신뢰구간과 순위 부트스트랩은 첫 회차 기준이며, 나머지 표는 회차를 합산합니다(리포트 머리말에 표시).
 
+### 한 시드의 수치 읽기 (`seeds`)
+
+블라인드 시드는 엔진이 보는 이벤트 id도 정합니다. 그래서 점수가 같은 결과를 id 순으로 두는 엔진(core의 지식 검색이 그렇습니다)은 시드가 바뀌면 동점 중 다른 결과를 맨 위에 둘 수 있고, 동점에 걸린 문항은 결과가 뒤집힙니다. 예: dev 세트에서 core `PromoteAllEngine`의 M1은 시드에 따라 12/17 또는 13/17입니다. 기준선 네 개는 시드와 무관합니다. 측정과 원인은 [docs/research/2026-11-18-blind-seed-ties.md](docs/research/2026-11-18-blind-seed-ties.md)에 있습니다.
+
+따라서 `run` 한 번의 수치는 동점 순서를 한 번 뽑은 결과입니다. 두 실행(엔진이나 core를 바꾼 전후)을 비교할 때는 `seeds`로 시드 여러 개의 분포를 봅니다.
+
+```bash
+# 시드 5개(무작위)로 기준선과 후보를 한 번씩 돌려 평균과 [최소, 최대]를 쓴다
+uv run harness seeds --scenarios scenarios/dev --engine cortex_mem.engines.baseline:PromoteAllEngine --n 5
+# 전후 비교는 같은 시드 목록으로: 앞 실행의 engine_ids.json에 적힌 seeds를 --blind-seed로 반복해 준다
+uv run harness seeds --scenarios scenarios/dev --engine ... --blind-seed <시드1> --blind-seed <시드2> ...
+```
+
+`runs/<실행 id>-seeds/`에 `report.md`, `summary.json`, `engine_ids.json`(시드 목록과 블라인드 id 대응표)이 생깁니다. 리포트의 값은 `평균 [최소, 최대] (k/n)`이고 모든 시드에서 같으면 `값 (k/n)`만 적습니다. 전체·계열별·되먹임 계열별 표와, 시드마다 결과가 바뀐 문항 목록(`--sealed`면 개수만)이 있습니다. 판정과 순위는 내지 않습니다.
+
+읽는 규칙:
+
+- 차이가 양쪽의 [최소, 최대] 안에 있으면 동점 순서 차이일 수 있으므로 효과로 읽지 않습니다. 같은 시드 목록으로 돌렸다면 시드별 값이 모두 같은 방향으로 움직였는지도 봅니다(`summary.json`의 `k` 목록이 시드 순서입니다).
+- 비교·발표 수치에는 시드 5개 이상을 씁니다. 시드 하나를 고정하면 재현은 되지만 그 시드의 추첨에 묶입니다.
+- `seeds`는 후보를 시드당 한 번 돌립니다. LLM 엔진이면 이 분산에 표본 잡음도 섞이고, 표본 잡음 자체는 `run --repeat`의 뒤집힘률로 봅니다.
+
 ### 직접 만든 엔진 붙여 보기
 
 ```bash
