@@ -20,6 +20,7 @@ from harness.generate.candidates import FactCandidate
 from harness.generate.families.base import (
     CONFIRMS,
     SkeletonBuilder,
+    _overturn,
     candidate_problem,
     confirm,
     repo_name,
@@ -162,9 +163,10 @@ def truth_change(
 ) -> Skeleton | None:
     """`f_old` (the candidate) holds until day D, the fabricated `f_new` from D.
 
-    A human confirmation on day D overturns the `f_old` records (it refs them and asserts
-    `f_new`); another user records `f_new` later. The promote probe is asked before D, the
-    block probe after.
+    On day D a human confirmer overturns the `f_old` records with a failure confirmation (it
+    refs them and asserts no fact), then records `f_new` 30 minutes later as a plain
+    human-signed record; another user records `f_new` later still. The promote probe is asked
+    before D, the block probe after.
     """
     b = SkeletonBuilder("truth_change", cand, traces, seed)
     first, second, confirmer, asker = b.users(4)
@@ -177,15 +179,7 @@ def truth_change(
     boundary = b.midnight(d)
     b.fact("f_old", valid_until=boundary)
     b.fact("f_new", fabricated=True, valid_from=boundary)
-    b.event(
-        b.at(d),
-        confirmer,
-        "f_new",
-        signal="human",
-        kind="human_confirm",
-        outcome="success",
-        refs=b.events_of("f_old"),
-    )
+    _overturn(b, d, confirmer)
     b.event(b.at(b.next_day()), b.rng.choice([first, second]), "f_new")
     b.probe("p_promote", "promote", b.at(promote_day), asker, ["f_old", "f_new"])
     b.probe("p_block", "block", b.at(b.next_day()), asker, ["f_old", "f_new"])

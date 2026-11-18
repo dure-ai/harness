@@ -397,12 +397,14 @@ def test_long_repos_with_one_prefix_still_get_distinct_ids() -> None:
 
 
 def test_judging_events_have_refs_and_true_fact() -> None:
+    # A truth_change confirmation judges the old records (failure, no fact); the new fact is a
+    # separate human record, so no success confirmation asserts `f_new` any more.
     s = _skeleton("truth_change").scenario
     old_ids = {e.id for e in _events_of(s, "f_old")}
     confirms = [e for e in s.events if e.kind == "human_confirm"]
     assert confirms
     for e in confirms:
-        assert e.fact == "f_new"
+        assert e.outcome == "failure" and e.fact is None
         assert e.refs and set(e.refs) <= old_ids
     # Standalone evidence and plain records carry no refs.
     assert all(not e.refs for e in s.events if e.kind == "agent_record")
@@ -417,7 +419,50 @@ def test_refs_point_to_earlier_events_of_the_judged_fact(family: str) -> None:
             assert by_id[r].t < e.t
         if e.refs:
             assert e.kind in ("ci_result", "human_confirm")
-            assert e.fact is not None
+            # A failure confirmation judges records without asserting a fact of its own.
+            assert e.fact is not None or e.outcome == "failure"
+
+
+def _day_d_events(s: Scenario) -> tuple[Any, Any]:
+    d = s.facts["f_old"].valid_until
+    assert d is not None
+    on_d = [e for e in s.events if d <= e.t < d + timedelta(days=1) and e.user == _confirmer(s)]
+    confirm = next(e for e in on_d if e.kind == "human_confirm")
+    record = next(e for e in on_d if e.kind == "agent_record")
+    return confirm, record
+
+
+def _confirmer(s: Scenario) -> str:
+    return next(e.user for e in s.events if e.kind == "human_confirm")
+
+
+@pytest.mark.parametrize("family", ["truth_change", "failure_feedback"])
+def test_overturn_old_records_with_a_failure_confirmation(family: str) -> None:
+    s = _skeleton(family).scenario
+    old_ids = [e.id for e in _events_of(s, "f_old")]
+    d = s.facts["f_old"].valid_until
+    assert d is not None
+    on_d = [e for e in s.events if d <= e.t < d + timedelta(days=1) and e.user == _confirmer(s)]
+    assert len(on_d) == 2
+    confirm, record = _day_d_events(s)
+    assert (confirm.kind, confirm.outcome, confirm.signal) == ("human_confirm", "failure", "human")
+    assert confirm.refs == old_ids and confirm.fact is None
+    assert (record.kind, record.outcome, record.signal) == ("agent_record", "unknown", "human")
+    assert record.refs == [] and record.fact == "f_new"
+    assert record.user == confirm.user
+    assert not [e for e in s.events if e.kind == "human_confirm" and e.fact == "f_new"]
+    assert not [e for e in s.events if e.outcome == "success" and e.kind == "human_confirm"]
+
+
+@pytest.mark.parametrize("family", ["truth_change", "failure_feedback"])
+@pytest.mark.parametrize("seed", [SEED, 1, 7])
+def test_overturn_record_comes_after_the_confirmation_on_day_d(family: str, seed: int) -> None:
+    s = _skeleton(family, seed=seed).scenario
+    confirm, record = _day_d_events(s)
+    d = s.facts["f_old"].valid_until
+    assert d is not None
+    assert record.t == confirm.t + timedelta(minutes=30)
+    assert confirm.t >= d and record.t < d + timedelta(days=1)
 
 
 def test_workaround_needs_fix_label() -> None:

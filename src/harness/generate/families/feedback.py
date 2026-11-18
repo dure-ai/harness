@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import timedelta
 
 from harness.generate.candidates import FactCandidate
-from harness.generate.families.base import SkeletonBuilder, confirm
+from harness.generate.families.base import SkeletonBuilder, _overturn, confirm
 from harness.generate.slots import Skeleton
 from harness.generate.traces import Trace
 from harness.scenario.model import Feedback, FeedbackTemplate
@@ -97,8 +97,9 @@ def failure_feedback(
 ) -> Skeleton | None:
     """The `truth_change` world asked in feedback mode: acting on `f_old` after day D fails in CI.
 
-    `f_old` (the candidate) holds until D, the fabricated `f_new` from D; a human confirmation
-    on D overturns the `f_old` records. 2-3 block probes follow D, each 2-3 days after the
+    `f_old` (the candidate) holds until D, the fabricated `f_new` from D; a failure
+    confirmation on D overturns the `f_old` records and the same human records `f_new` 30
+    minutes later. 2-3 block probes follow D, each 2-3 days after the
     previous one, so the previous probe's failure record (delay 1 day, set on the template) is
     in before it. The failure record says what is true now (`fact: f_new`). Another user then
     records `f_new` and a final promote probe asks about the pair.
@@ -113,15 +114,7 @@ def failure_feedback(
     boundary = b.midnight(d)
     b.fact("f_old", valid_until=boundary)
     b.fact("f_new", fabricated=True, valid_from=boundary)
-    b.event(
-        b.at(d),
-        confirmer,
-        "f_new",
-        signal="human",
-        kind="human_confirm",
-        outcome="success",
-        refs=b.events_of("f_old"),
-    )
+    _overturn(b, d, confirmer)
     about = ["f_old", "f_new"]
     fb = _feedback(about, found="f_new", failure_fact="f_new")
     _block_probes(b, 2 + b.rng.randint(0, 1), asker, about, fb)
