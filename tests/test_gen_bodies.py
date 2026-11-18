@@ -282,3 +282,12 @@ def test_bodies_prompt_tells_workaround_then_root_to_keep_the_fixes_apart() -> N
     hint = text[text.index("In a `workaround_then_root` scenario") :]
     assert "do not repeat the workaround's" in hint
     assert "symptom" in hint
+
+
+def test_bodies_prompt_explains_a_failure_confirmation_without_a_fact() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    rule = text[text.index("4. Events that list") : text.index("5. The labels")]
+    assert "no longer hold" in rule
+    assert "without any fact's marker" in rule
