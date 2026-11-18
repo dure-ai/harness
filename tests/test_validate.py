@@ -207,6 +207,36 @@ def test_refs_to_earlier_events_are_fine():
     assert validate_scenario(s) == []
 
 
+def warnings(s) -> list[Issue]:
+    return [i for i in validate_scenario(s) if i.level == "warning"]
+
+
+def test_success_judgement_that_asserts_another_fact_warns():
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), kind="human_confirm", signal="human",
+           outcome="success", refs=["e1"], fact="f_new"),
+    ])
+    found = [i for i in warnings(s) if i.code == "confirm_asserts_other_fact"]
+    assert len(found) == 1
+    assert "e3" in found[0].message and "f_new" in found[0].message
+
+
+def test_success_judgement_of_its_own_fact_does_not_warn():
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), kind="ci_result", signal="test",
+           outcome="success", refs=["e2"], fact="f_new"),
+    ])
+    assert "confirm_asserts_other_fact" not in codes(s)
+
+
+def test_failure_confirmation_without_a_fact_does_not_warn():
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), kind="human_confirm", signal="human",
+           outcome="failure", refs=["e1"]),
+    ])
+    assert "confirm_asserts_other_fact" not in codes(s)
+
+
 def test_unknown_ref():
     s = base(events=events() + [ev("e3", T("10-10 09:00"), kind="ci_result", refs=["nope"])])
     assert codes(s) == {"unknown_ref"}
