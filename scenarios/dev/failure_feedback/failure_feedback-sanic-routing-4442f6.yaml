@@ -99,16 +99,32 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: success
-  text: 'Review note on the router-setup notes from this week: as of today''s merge
-    to main, sanic_routing exports a concrete DefaultRouter with get already wired
-    to resolve. tests/conftest.py now just does `router = DefaultRouter()`, so drop
-    the hand-written subclass in the repro and new tests.'
+  outcome: failure
+  text: 'Review on e1, e2 and e3: please don''t follow these steps; see my follow-up
+    note.'
   meta: {}
   refs:
   - e1
   - e2
   - e3
+  fact: null
+  secret_markers: []
+- id: e6
+  t: '2026-10-06T16:30:00+09:00'
+  user: u4
+  session: s20
+  repo: sanic-org/sanic-routing
+  scope: team
+  team: null
+  signal: human
+  kind: agent_record
+  outcome: unknown
+  text: 'Review note on the router-setup notes from this week: as of today''s merge
+    to main, sanic_routing exports a concrete DefaultRouter with get already wired
+    to resolve. tests/conftest.py now just does `router = DefaultRouter()`, so drop
+    the hand-written subclass in the repro and new tests.'
+  meta: {}
+  refs: []
   fact: f_new
   secret_markers: []
 - id: e5
@@ -288,10 +304,11 @@ probes:
       scope: team
     on_true: null
 review:
-  status: approved
-  reviewer: sunmin
-  notes: ''
-  approved_hash: v1:d96a4cede6e8c6535c1242f0d23eb4a8aed5510457adc7f123654a8006c79105
+  status: draft
+  reviewer: null
+  notes: ' | 11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
+  approved_hash: null
+  check_config_hash: null
 provenance:
   author: llm
   source_traces:
@@ -332,7 +349,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-29T02:07:14.655171Z'
   label_fingerprint: l1:523459e9f440b087a11c2d225c9cfdde2640bf8b1c46701263ed2fbf56df84fa
   generated_hash: v1:8d3f18ee06899f88da1bb0851f2f11cb1a006d2281fa1a23b67ab2c57be40442

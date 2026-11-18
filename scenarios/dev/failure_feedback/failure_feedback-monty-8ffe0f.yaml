@@ -95,16 +95,32 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: success
-  text: 'Review on the recent jsanitize notes: the JSON code was split into a package
-    on main today. jsanitize now lives in src/monty/json/sanitize.py and its tests
-    are in tests/json/test_sanitize.py, so please point patches and new test cases
-    there.'
+  outcome: failure
+  text: 'Review on e1, e2 and e3: please don''t follow these steps; see my follow-up
+    note.'
   meta: {}
   refs:
   - e1
   - e2
   - e3
+  fact: null
+  secret_markers: []
+- id: e6
+  t: '2026-10-06T16:00:00+09:00'
+  user: u3
+  session: s20
+  repo: materialsvirtuallab/monty
+  scope: team
+  team: null
+  signal: human
+  kind: agent_record
+  outcome: unknown
+  text: 'Review on the recent jsanitize notes: the JSON code was split into a package
+    on main today. jsanitize now lives in src/monty/json/sanitize.py and its tests
+    are in tests/json/test_sanitize.py, so please point patches and new test cases
+    there.'
+  meta: {}
+  refs: []
   fact: f_new
   secret_markers: []
 - id: e5
@@ -330,10 +346,11 @@ probes:
       scope: team
     on_true: null
 review:
-  status: approved
-  reviewer: jaehyuk
-  notes: ''
-  approved_hash: v1:4dce329e5a1689365fdf960cfc58001c310b0fe9a0d94ad6ea6febdda1b2f683
+  status: draft
+  reviewer: null
+  notes: ' | 11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
+  approved_hash: null
+  check_config_hash: null
 provenance:
   author: llm
   source_traces:
@@ -373,7 +390,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-27T11:05:34.415095Z'
   label_fingerprint: l1:6454f67a7fef465b9450573c58d7ce026fa6db739684a3c7894a2a245fdf6208
   generated_hash: v1:b384f0de35db0266e590ae879adf1c62768906aace476d49d2ad3a1b91e86f89
