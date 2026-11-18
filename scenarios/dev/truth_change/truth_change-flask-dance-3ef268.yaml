@@ -178,14 +178,15 @@ probes:
   k: null
   feedback: null
 review:
-  status: draft
-  reviewer: null
+  status: approved
+  reviewer: HJinS
   notes: 'Reviewer edit (HJinS, 10/29, PR #13 review): the test-file location never
     changed, so it moved out of f_old (text and marker tests/contrib/test_) into f_new,
-    and e4 now confirms it; the probes'' test-file question no longer marks a correct
-    answer as stale. | 11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
-  approved_hash: null
-  check_config_hash: null
+    and e6 (the follow-up human record) states it; the probes'' test-file question
+    no longer marks a correct answer as stale. | 11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인
+    + 사람 기록으로 나눔)'
+  approved_hash: v1:8b067f8a058d712886d2a55dda762e9d1218b4fb432fdeb11e22581bc3418c0d
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:

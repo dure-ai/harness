@@ -117,10 +117,10 @@ events:
   signal: human
   kind: agent_record
   outcome: unknown
-  text: 'Reviewing the notes in e1–e3: since the env update, running pytest directly
-    from the root imports the `storages` copy in site-packages, not your edits. Please
-    use `tox -e py3-django -- tests/test_gcloud.py`; tox installs the checkout into
-    its env and I confirmed it picks up the GzipCompressionWrapper change.'
+  text: 'Reviewing the earlier pytest notes: since the env update, running pytest
+    directly from the root imports the `storages` copy in site-packages, not your
+    edits. Please use `tox -e py3-django -- tests/test_gcloud.py`; tox installs the
+    checkout into its env and I confirmed it picks up the GzipCompressionWrapper change.'
   meta: {}
   refs: []
   fact: f_new
@@ -352,14 +352,14 @@ probes:
       scope: team
     on_true: null
 review:
-  status: draft
-  reviewer: null
+  status: approved
+  reviewer: HJinS
   notes: 'reviewer edit (sunmin): the four on_false texts said the tox command failed
     although the wrong action ran plain pytest; rewritten so the failure follows the
     pytest run and points to tox. Markers, labels and structure unchanged. | 11/18
     #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
-  approved_hash: null
-  check_config_hash: null
+  approved_hash: v1:3804bcfb8d1e10ad048137535b8d6dc22c842f28c99344c242393f66b2b7a785
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:

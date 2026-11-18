@@ -169,11 +169,11 @@ probes:
   k: null
   feedback: null
 review:
-  status: draft
-  reviewer: null
+  status: approved
+  reviewer: HJinS
   notes: '11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
-  approved_hash: null
-  check_config_hash: null
+  approved_hash: v1:9a7ae910b27b411de575bd0482a663ef66bb7395111a20a4dabc40078f05e92b
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:
