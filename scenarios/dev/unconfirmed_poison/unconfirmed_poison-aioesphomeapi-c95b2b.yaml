@@ -50,9 +50,8 @@ events:
   outcome: unknown
   text: 'Test note for the BLE advertisement name fix: with protobuf 6.x on the default
     upb backend, a 0xff byte in a proto `string` field makes ParseFromString raise
-    a generic DecodeError. Running the same test with PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-    gives the real UnicodeDecodeError (''utf-8'' codec can''t decode byte 0xff in
-    position 0).'
+    a generic DecodeError. With PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python the
+    same input gives the underlying UnicodeDecodeError.'
   meta: {}
   refs: []
   fact: f_true
@@ -84,10 +83,9 @@ events:
   signal: self
   kind: agent_record
   outcome: unknown
-  text: 'Note for tests/test_client.py: with the default upb backend, bad UTF-8 in
-    BluetoothLEAdvertisementResponse.name raises a generic DecodeError at parse. Export
-    PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python if you need to see the UnicodeDecodeError
-    behind it.'
+  text: 'Note for tests/test_client.py: with the default upb backend, invalid UTF-8
+    in a proto `string` field raises a generic DecodeError at parse. Export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+    if you need to see the UnicodeDecodeError behind it.'
   meta: {}
   refs: []
   fact: f_true
@@ -152,8 +150,7 @@ probes:
   session: s20
   repo: esphome/aioesphomeapi
   query: With the protobuf 6.x upb backend, what does ParseFromString do when a proto
-    string field contains invalid UTF-8, and what should the advertisement name test
-    assert?
+    string field contains invalid UTF-8?
   about:
   - f_false
   - f_true
@@ -166,8 +163,8 @@ probes:
   user: u4
   session: s21
   repo: esphome/aioesphomeapi
-  query: When a BLE advertisement name has invalid UTF-8, what happens at parse time
-    with the upb backend in protobuf 6.x, and how should the test check it?
+  query: When a proto string field has invalid UTF-8, what does ParseFromString do
+    with the upb backend in protobuf 6.x?
   about:
   - f_false
   - f_true
@@ -178,11 +175,14 @@ review:
   status: approved
   reviewer: sunmin
   notes: 'Approved 11/18. Facts source-checked against the trace (msgs 18, 29, 43:
-    upb raises DecodeError, pure Python raises UnicodeDecodeError). Reviewer edit:
-    e3 reworded so it no longer says the failure was reproduced. Note: after the fix
-    made in this trace the name test asserts U+FFFD, so f_false overlaps the post-fix
-    test; it is false for the string field the facts describe.'
-  approved_hash: v1:3a82f5e000d8ca7a66316f8c26f8fac209dc2a109d1e60170c5009d571af5a79
+    upb raises DecodeError, pure Python raises UnicodeDecodeError). Reviewer edits:
+    both probes now ask only what ParseFromString does with a proto string field (they
+    also asked what the name test should assert, and after the fix made in this trace
+    that test expects U+FFFD, a marker of f_false); e1 and e3 no longer say a test
+    was run or name BluetoothLEAdvertisementResponse.name (a bytes field after the
+    fix); e3 says ''invalid UTF-8'' like the f_false records, so no probe word is
+    found in the records of one fact only.'
+  approved_hash: v1:6c6a10ae98542f47d23379bc0c88552851307a9e0bb13cfed70ebc595e67e5b5
   check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
