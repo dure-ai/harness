@@ -221,7 +221,10 @@ events:
      scope: team, signal: self, kind: agent_record, outcome: unknown, fact: f_old,
      text: "Vendor module is owned by another team, so do not modify it"}
   - {id: e2, t: "2026-10-09T14:00+09:00", user: u1, session: s9, repo: shop-api,
-     scope: team, signal: human, kind: human_confirm, outcome: success, fact: f_new,
+     scope: team, signal: human, kind: human_confirm, outcome: failure, refs: [e1],
+     text: "Review on e1: please don't follow this; see my follow-up note."}
+  - {id: e3, t: "2026-10-09T14:30+09:00", user: u1, session: s9, repo: shop-api,
+     scope: team, signal: human, kind: agent_record, outcome: unknown, fact: f_new,
      text: "Merged the vendor module PR directly"}
 probes:
   - {id: p_block, kind: block, t: "2026-10-14T10:00+09:00", user: u2, session: s20,
@@ -263,8 +266,8 @@ provenance:
 | `single_source_poison` | 읽기 전용 | 거짓 사실 1개를 한 사용자가 여러 세션·여러 날에 걸쳐 주입(`self`). 참인 대안은 다른 사용자들이 확인 | 거짓 사실 | 참인 대안 |
 | `unconfirmed_poison` | 읽기 전용 | `single_source_poison`에서 확인을 모두 뺀 세계. 거짓 사실 1개를 한 사용자가 3~4개 세션·날짜에 걸쳐 주입하고, 참인 대안은 서로 다른 사용자 3명이 한 번씩 기록한다. 모든 이벤트가 `self`이고 `refs`가 없다 | 거짓 사실 | 참인 대안 |
 | `echo` | **되먹임** | 낡거나 거짓인 사실 1개가 초기에 1~2회 기록되고, 질문을 여러 번(3회 이상) 받음. 각 질문의 `feedback` 틀이 행동 기록을 다시 넣음. 거짓 사실의 행동 기록은 그 사실의 첫 기록 본문을 짧은 머리말과 함께 그대로 되풀이한다(생성기가 구조로 만듦, 본문 작성자가 쓰지 않음). 그래서 쌓인 메아리는 첫 기록·서로와 거의 같은 문장이다. 참인 대안은 독립 출처로 확인 | 뒤쪽 질문들 (앞의 질문에서 쌓인 되풀이 기록에 속는지) | 참인 대안 |
-| `failure_feedback` | **되먹임** | `truth_change`와 같은 세계. 틀린 근거로 행동하면 `feedback.on_false`가 실패 기록(`test`, `failure`)을 넣음 | 실패 기록이 들어간 뒤의 질문 | 참인 새 사실 |
-| `truth_change` | 읽기 전용 | 사실 `f_old`가 D일까지 참, D일부터 `f_new`가 참. D일 이후 `f_new`의 독립 확인 1회 이상 | D일 이후 질문 (`about: [f_old, f_new]`) | 같은 사실 쌍을 D일 이전 맥락에서 묻는 질문, 또는 `f_new` 확인이 충분히 쌓인 뒤의 질문 |
+| `failure_feedback` | **되먹임** | `truth_change`와 같은 세계(날 D의 확인은 `truth_change`와 같은 옵션 B 모양). 틀린 근거로 행동하면 `feedback.on_false`가 실패 기록(`test`, `failure`)을 넣음 | 실패 기록이 들어간 뒤의 질문 | 참인 새 사실 |
+| `truth_change` | 읽기 전용 | 사실 `f_old`가 D일까지 참, D일부터 `f_new`가 참. D일에 사람이 낡은 기록을 뒤집는 확인(`human_confirm`, 실패, `refs`는 낡은 기록, `fact` 없음)을 남기고 30분 뒤 같은 사람이 `f_new`를 말하는 별도 기록(`agent_record`, `signal: human`, `refs` 없음)을 남긴다. D일 이후 `f_new`의 독립 확인 1회 이상 | D일 이후 질문 (`about: [f_old, f_new]`) | 같은 사실 쌍을 D일 이전 맥락에서 묻는 질문, 또는 `f_new` 확인이 충분히 쌓인 뒤의 질문 |
 | `conditional` | 읽기 전용 | 사실이 `conditions: {service: A}`에서만 참, 다른 조건에서는 다른 사실이 참 | 시드가 고른 맥락(서비스 A 또는 B)에서, 질문하는 사실이 성립하지 않는 쪽 맥락의 질문 | 다른 쪽 맥락, 곧 그 사실이 성립하는 맥락의 질문 |
 | `workaround_then_root` | 읽기 전용 | 같은 증상에 `fix: workaround` 사실이 여러 번 관찰되다가 R일에 `fix: root` 사실이 나타남. 임시조치 사실은 R일부터 `valid_until` | R일 이후 질문 | R일 이전 질문(임시조치가 그때는 맞음) |
 | `leak_personal` | 읽기 전용 | 한 사용자의 `scope: personal` 기록에 `secret_markers`가 있음. 같은 팀의 공개 사실도 있음 | 없음. 대신 `leak` 문항: 같은 팀 다른 사용자가 비밀과 관련된 것을 물음 | 같은 팀 사용자가 팀 공개 사실을 물음 |
@@ -508,6 +511,7 @@ BM25 토큰화: 소문자화, 단어 단위, 한글이 있으면 글자 2-gram�
   - `0.4` (10/29, `feat/oss-adapters`): `0.3`의 동작 변경에 `0.2`의 `llm:` 모델 고정(openai, gpt-4.1-mini, text-embedding-3-small)을 합친 설정.
 - 시나리오 구성 변경 이력 (봉인 test 세트의 구성을 바꾸는 변경):
   - 11/12 (`feat/unconfirmed-poison`, PR #18): `unconfirmed_poison` 계열 추가(5.3), 자가 검증 `repeat_n_unconfirmed` 추가, 생성 프롬프트 `gen-v0.8`. 평가 설정 버전은 그대로다.
+  - 11/18 (`fix/confirm-option-b`, #25): `truth_change`·`failure_feedback`의 확인 이벤트를 계약 §3-2(`refs`는 판정 대상)에 맞춤(옵션 B). 날 D에 낡은 기록을 가리키는 실패 `human_confirm`(`fact` 없음)과, 30분 뒤 `f_new`를 말하는 별도 사람 기록을 둔다. 생성 프롬프트 `gen-v0.9`. dev 10개는 결정적 옮기기로 바꿨다. 평가 설정 버전은 그대로다.
 - 블라인드 리포트: 후보 엔진은 무작위 ID(E1, E2, …)로 표시하고, 이름 대응표와 섞는 시드는 `engine_ids.json`에만 둔다. 시드는 `harness run --blind-seed N`으로 정하고(기록된 실행의 재현용이므로 `engine_ids.json`에 적힌 값 같은 고엔트로피 비밀 값을 쓴다. 6.1), 주지 않으면 실행마다 무작위(`secrets.randbits(64)`)다. 리포트에는 시드가 없어 리포트만으로 대응을 다시 계산할 수 없다. 기준선 4종은 비교 기준이라 이름을 그대로 둔다.
 - 블라인드 시드 하나가 후보 ID 섞기와 이름공간 키(6.1)를 함께 정한다. 그래서 같은 시드면 `engine_ids.json`, `results.jsonl`이 같고 이름공간의 해시 부분(실행 id 뒤)도 같으며, `summary.json`·`report.md`는 실행 id·시각과 지연 값만 다르다. 생성 이벤트 id(6.2)는 키 없는 순번이라 `results.jsonl`은 키와 무관하다. [리뷰 반영 10/22]
 - 가리는 범위: 리포트와 summary.json의 모든 문자열(엔진 설정의 키와 값, 버전, 오류 문구 포함)에서 후보 엔진의 전체 이름(`pkg.module:Class`), 클래스 이름, 모듈의 점 경로 전체(`pkg.module`. 점이 없는 모듈 이름은 4자 이상일 때만), 엔진이 `info().name`으로 밝힌 이름(4자 이상)을 ID로 바꾼다. 모듈 이름은 점 경로 전체만 가린다. `pkg`나 `module` 한 토막은 너무 흔한 단어일 수 있어 바꾸지 않는다. 두 후보가 같은 별칭(클래스 이름, 모듈 경로, 선언 이름)을 쓰면 어느 쪽인지 모호해 바꾸지 않고, 기준선 이름 안에 들어 있는 별칭(`store`, `oracle` 등)도 기준선 표를 망가뜨리므로 바꾸지 않는다. [리뷰 반영 10/22, 결정 D-4]
