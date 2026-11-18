@@ -190,11 +190,18 @@ def test_next_id_is_max_plus_one_for_gappy_ids():
     assert [e.id for e in overturn_option_b(s).events] == ["e1", "e2", "e3", "e10", "e9"]
 
 
-def test_secret_markers_follow_the_text_to_the_new_record():
+def test_overturn_refuses_a_confirmation_with_secret_markers():
     s = old_shape()
     events = [e.model_copy(update={"secret_markers": ["sek"]}) if e.id == "e3" else e for e in s.events]
-    out = overturn_option_b(s.model_copy(update={"events": events}))
-    assert out.events[3].secret_markers == ["sek"]
+    with pytest.raises(ValueError, match=s.id):
+        overturn_option_b(s.model_copy(update={"events": events}))
+
+
+def test_overturn_refuses_a_confirmation_listed_in_secret_events():
+    s = old_shape()
+    prov = s.provenance.model_copy(update={"secret_events": ["e3"]})
+    with pytest.raises(ValueError, match=s.id):
+        overturn_option_b(s.model_copy(update={"provenance": prov}))
 
 
 def test_overturn_refuses_a_probe_exactly_at_the_new_record_time():

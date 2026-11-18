@@ -330,7 +330,8 @@ def overturn(b: SkeletonBuilder, day: int, confirmer: str) -> tuple[str, str]:
         outcome="failure",
         refs=b.events_of("f_old"),
     )
-    record_id = b.event(t + _OVERTURN_GAP, confirmer, "f_new", signal="human")
+    session = next(e.session for e in b.events if e.id == confirm_id)
+    record_id = b.event(t + _OVERTURN_GAP, confirmer, "f_new", session=session, signal="human")
     return confirm_id, record_id
 
 

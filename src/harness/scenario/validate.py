@@ -225,7 +225,9 @@ def validate_scenario(s: Scenario) -> list[Issue]:
     for e in s.events:
         if e.outcome != "success" or e.fact is None or not e.refs:
             continue
-        judged = {by_id[r].fact for r in e.refs if r in by_id}
+        if any(r not in by_id for r in e.refs):
+            continue  # `unknown_ref` already reports it
+        judged = {by_id[r].fact for r in e.refs}
         if e.fact not in judged:
             issues.append(
                 Issue(

@@ -465,6 +465,12 @@ def test_overturn_record_comes_after_the_confirmation_on_day_d(family: str, seed
     assert confirm.t >= d and record.t < d + timedelta(days=1)
 
 
+@pytest.mark.parametrize("family", ["truth_change", "failure_feedback"])
+def test_overturn_record_reuses_the_confirmations_session(family: str) -> None:
+    confirm, record = _day_d_events(_skeleton(family).scenario)
+    assert record.session == confirm.session
+
+
 def test_workaround_needs_fix_label() -> None:
     cand = _cand(fix=None)
     assert TEMPLATES["workaround_then_root"](cand, _traces(), SEED) is None

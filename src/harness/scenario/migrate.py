@@ -48,7 +48,8 @@ def overturn_option_b(s: Scenario) -> Scenario:
 
     Raises:
         ValueError: If `s` has not exactly one old-shape confirmation, or the new record would
-            come after the next event or at or after the next probe (a probe after the confirmation).
+            come after the next event or at or after the next probe (a probe after the confirmation),
+            or the confirmation holds secrets (`secret_markers`, `provenance.secret_events`).
     """
     was = fingerprint_state(s)
     if was == "changed":
@@ -58,6 +59,11 @@ def overturn_option_b(s: Scenario) -> Scenario:
         raise ValueError(f"scenario {s.id}: expected exactly one old-shape confirmation, found {len(old)}")
     idx = old[0]
     conf = s.events[idx]
+    if conf.secret_markers or conf.id in (s.provenance.secret_events or []):
+        raise ValueError(
+            f"scenario {s.id}: the confirmation {conf.id} holds secrets; "
+            "splitting it would leave provenance.secret_events stale"
+        )
     new_t = conf.t + OVERTURN_GAP
     if idx + 1 < len(s.events) and new_t > s.events[idx + 1].t:
         raise ValueError(f"scenario {s.id}: the new record at {new_t} would come after event {s.events[idx + 1].id}")
@@ -80,13 +86,11 @@ def overturn_option_b(s: Scenario) -> Scenario:
         meta=dict(conf.meta),
         refs=[],
         fact=conf.fact,
-        secret_markers=list(conf.secret_markers),
     )
     failure = conf.model_copy(
         update={
             "outcome": "failure",
             "fact": None,
-            "secret_markers": [],
             "text": FAILURE_TEXT.format(refs_text=_refs_text(conf.refs)),
         }
     )

@@ -237,6 +237,32 @@ def test_failure_confirmation_without_a_fact_does_not_warn():
     assert "confirm_asserts_other_fact" not in codes(s)
 
 
+def test_all_unknown_refs_report_unknown_ref_only():
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), kind="human_confirm", signal="human",
+           outcome="success", refs=["nope"], fact="f_new"),
+    ])
+    assert codes(s) == {"unknown_ref"}
+
+
+def test_mixed_refs_that_include_the_asserted_fact_do_not_warn():
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), fact="f_new"),
+        ev("e4", T("10-10 10:00"), kind="human_confirm", signal="human",
+           outcome="success", refs=["e1", "e3"], fact="f_new"),
+    ])
+    assert "confirm_asserts_other_fact" not in codes(s)
+
+
+def test_refs_only_to_factless_events_still_warn():
+    s = base(events=events() + [
+        ev("e3", T("10-10 09:00"), fact=None),
+        ev("e4", T("10-10 10:00"), kind="human_confirm", signal="human",
+           outcome="success", refs=["e3"], fact="f_new"),
+    ])
+    assert "confirm_asserts_other_fact" in codes(s)
+
+
 def test_unknown_ref():
     s = base(events=events() + [ev("e3", T("10-10 09:00"), kind="ci_result", refs=["nope"])])
     assert codes(s) == {"unknown_ref"}

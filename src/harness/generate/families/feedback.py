@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import timedelta
 
 from harness.generate.candidates import FactCandidate
-from harness.generate.families.base import SkeletonBuilder, overturn, confirm
+from harness.generate.families.base import SkeletonBuilder, confirm, overturn
 from harness.generate.slots import Skeleton
 from harness.generate.traces import Trace
 from harness.scenario.model import Feedback, FeedbackTemplate
