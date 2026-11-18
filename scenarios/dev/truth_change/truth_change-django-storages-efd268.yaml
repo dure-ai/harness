@@ -98,7 +98,7 @@ events:
   signal: human
   kind: human_confirm
   outcome: failure
-  text: 'Review on e1, e2 and e3: please don''t follow these steps; see my follow-up
+  text: 'Review on e1, e2, e3: please don''t follow these steps; see my follow-up
     note.'
   meta: {}
   refs:
@@ -177,7 +177,7 @@ probes:
 review:
   status: draft
   reviewer: null
-  notes: ' | 11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
+  notes: '11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
   approved_hash: null
   check_config_hash: null
 provenance:
@@ -221,5 +221,5 @@ provenance:
   secret_events: []
   reviewer_edited: true
   generated_at: '2026-10-29T01:50:18.567199Z'
-  label_fingerprint: l1:cde1908dc719fd5edb8921a13e806fb312cc1243aa9516ed7194a5ea6826b48d
+  label_fingerprint: l1:1cc65aeb34a155ef98c0ca525bf79f0faf95176ef75b9ba2b10adaa82dbcbe0d
   generated_hash: v1:d298e7baef26f520625c65420d6ead29157bca4e72bb05693358e3ff60aa346c

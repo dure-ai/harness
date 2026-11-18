@@ -98,7 +98,7 @@ events:
   signal: human
   kind: human_confirm
   outcome: failure
-  text: 'Review on e1, e2 and e3: please don''t follow these steps; see my follow-up
+  text: 'Review on e1, e2, e3: please don''t follow these steps; see my follow-up
     note.'
   meta: {}
   refs:
@@ -402,5 +402,5 @@ provenance:
   secret_events: []
   reviewer_edited: true
   generated_at: '2026-10-29T01:49:47.307970Z'
-  label_fingerprint: l1:367218f9e70c446cd7e4d8755be7faf8694998477dadd8065fd8ace576f1ccb5
+  label_fingerprint: l1:d79563861be723f585946912a7ce8517f4140a7cab052efac40ec8e23a9c4842
   generated_hash: v1:2205a2dd479d82a09ffc4d5c91d94bc9b8dec91fe1579264f98ece887bcd8826
