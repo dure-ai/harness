@@ -613,6 +613,17 @@ _TOO_EASY_FIX_ROOT = (
     "of the other. Keep the root-fix records free of the workaround's command, flag and file words."
 ) + _TOO_EASY_KEEP
 _MAX_UNIQUE_WORDS = 8
+# Words that carry no topic: listed in a hint they only push out the names that matter.
+_HINT_STOPWORDS = frozenset(
+    "a an and are as at be been but by can could did do does for from had has have how if in into is it its "
+    "may might must no not of on or should so than that the then there these this those to was were what when "
+    "where which while who will with would you your".split()
+)
+
+
+def _hint_order(word: str) -> tuple[bool, str]:
+    """Identifiers first (they hold `_`, a digit, `.` or `/`), then plain words; each alphabetical."""
+    return (not any(c in word for c in "_./") and not any(c.isdigit() for c in word), word)
 
 
 def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
@@ -659,7 +670,12 @@ def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
             names = ", ".join(dict.fromkeys(e.fact for e in rivals if e.fact))
             rival_tokens = {w for e in rivals for w in tokenize(e.text)}
             words = sorted(
-                w for w in (set(tokenize(p.query)) & set(tokenize(result.text))) - rival_tokens if len(w) >= 2
+                (
+                    w
+                    for w in (set(tokenize(p.query)) & set(tokenize(result.text))) - rival_tokens
+                    if len(w) >= 2 and w not in _HINT_STOPWORDS
+                ),
+                key=_hint_order,
             )
             if words:
                 line += f"; query words that the records of {names} lack: " + ", ".join(words[:_MAX_UNIQUE_WORDS])

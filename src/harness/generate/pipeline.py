@@ -470,7 +470,8 @@ def _one(
         except LLMError as e:
             if e.fatal:
                 raise
-            reject("bodies", "llm_error", str(e))
+            # Keep the first cause in the message: the draft was too easy before the repair failed.
+            reject("bodies", "llm_error", f"while repairing a too_easy draft (repair {repairs}): {e}")
             run.log_repair(trace, family, sid, "llm_error")
             run.llm_failed(e)
             return None

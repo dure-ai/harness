@@ -799,6 +799,8 @@ def test_repair_llm_error_is_rejected_as_bodies_llm_error(
     report = run(tmp_path, client, ["truth_change"], 1)
     first = rejections(tmp_path)[0]
     assert (first["stage"], first["code"]) == ("bodies", "llm_error")
+    # The first rejection cause stays in the message, so too_easy counts per family can still be read
+    assert first["message"].startswith("while repairing a too_easy draft (repair 1): ")
     assert _repairs(tmp_path)[0]["result"] == "llm_error"
     assert report.repair_failed == 1
 

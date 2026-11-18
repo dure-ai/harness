@@ -310,3 +310,11 @@ def test_bodies_prompt_scopes_the_same_names_rule_away_from_workaround_then_root
     text = load_prompt("bodies.md")
     assert "same component, file and repository names" in text
     assert "in a `workaround_then_root` scenario rule 8 applies instead" in text
+
+
+def test_bodies_prompt_lets_a_conditional_fabricated_fact_rename_what_tells_the_conditions_apart() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "in a `conditional` scenario" in text
+    assert "the names that tell the conditions apart (the service, repository or file the condition is about)" in text

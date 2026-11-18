@@ -1002,3 +1002,17 @@ def test_too_easy_hint_instruction_depends_on_the_family():
     assert "same component, file and repository names" not in root
     assert "ask every probe about the symptom both fixes address, in the symptom's words" in root
     assert "no more markers of one fix than of the other" in root
+
+
+def test_too_easy_hint_drops_common_words_and_lists_identifiers_first():
+    s = truth_change()
+    events = [
+        e.model_copy(update={"text": "and with should zebraword api_v2 vendor required now"}) if e.fact == "f_new" else e
+        for e in s.events
+    ]
+    probes = [
+        p.model_copy(update={"query": "and with should zebraword api_v2"}) if p.kind == "block" else p for p in s.probes
+    ]
+    s = s.model_copy(update={"events": events, "probes": probes})
+    line = next(x for x in too_easy_hint(s, CFG).splitlines() if x.startswith("p_block:"))
+    assert line.endswith("query words that the records of f_old lack: api_v2, zebraword")
