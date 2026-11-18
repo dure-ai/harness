@@ -98,17 +98,33 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: success
+  outcome: failure
+  text: 'Review on the earlier notes: please don''t follow these steps; see my follow-up
+    note.'
+  meta: {}
+  refs:
+  - e1
+  - e2
+  - e3
+  fact: null
+  secret_markers: []
+- id: e6
+  t: '2026-10-06T11:45:00+09:00'
+  user: u3
+  session: s19
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: human
+  kind: agent_record
+  outcome: unknown
   text: 'Review on the ORCID/provider-docs PRs: provider docs are split out now, so
     please don''t add another block to the single providers page. Create docs/providers/orcid.rst
     with `.. automodule:: flask_dance.contrib.orcid` and `:members:`, then add `orcid`
     to the toctree in docs/providers/index.rst, alphabetically. Tests stay in tests/contrib/test_orcid.py
     as before.'
   meta: {}
-  refs:
-  - e1
-  - e2
-  - e3
+  refs: []
   fact: f_new
   secret_markers: []
 - id: e5
@@ -162,14 +178,14 @@ probes:
   k: null
   feedback: null
 review:
-  status: approved
-  reviewer: HJinS
+  status: draft
+  reviewer: null
   notes: 'Reviewer edit (HJinS, 10/29, PR #13 review): the test-file location never
     changed, so it moved out of f_old (text and marker tests/contrib/test_) into f_new,
     and e4 now confirms it; the probes'' test-file question no longer marks a correct
-    answer as stale.'
-  approved_hash: v1:aa575ea14b0ec16fccd6c826c14b66ca4d19ca65c006031da6bea8b15e1be9a0
-  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
+    answer as stale. | 11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
+  approved_hash: null
+  check_config_hash: null
 provenance:
   author: llm
   source_traces:
@@ -211,5 +227,5 @@ provenance:
   secret_events: []
   reviewer_edited: true
   generated_at: '2026-10-27T11:09:06.955390Z'
-  label_fingerprint: l1:d205522c57d600e26b7a5e9850e657767e7d59618d0c8d5814b8effafce986d5
+  label_fingerprint: l1:b1dc5e1a3df6cb5c99c0f753a150ccd69555ed672ebff95563f32b5b0c5fbc80
   generated_hash: v1:e46fafd53ff59af7263bda09dc78868fa34c16375224a39fe14f3b67b0616942
