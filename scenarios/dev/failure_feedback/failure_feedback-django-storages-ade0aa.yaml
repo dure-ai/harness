@@ -97,32 +97,16 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: failure
-  text: 'Review on e1, e2, e3: please don''t follow these steps; see my follow-up
-    note.'
-  meta: {}
-  refs:
-  - e1
-  - e2
-  - e3
-  fact: null
-  secret_markers: []
-- id: e6
-  t: '2026-10-05T10:15:00+09:00'
-  user: u5
-  session: s10
-  repo: jschneier/django-storages
-  scope: team
-  team: null
-  signal: human
-  kind: agent_record
-  outcome: unknown
+  outcome: success
   text: 'Reviewing the notes in e1–e3: since the env update, running pytest directly
     from the root imports the `storages` copy in site-packages, not your edits. Please
     use `tox -e py3-django -- tests/test_gcloud.py`; tox installs the checkout into
     its env and I confirmed it picks up the GzipCompressionWrapper change.'
   meta: {}
-  refs: []
+  refs:
+  - e1
+  - e2
+  - e3
   fact: f_new
   secret_markers: []
 - id: e5
@@ -352,14 +336,10 @@ probes:
       scope: team
     on_true: null
 review:
-  status: draft
-  reviewer: null
-  notes: 'reviewer edit (sunmin): the four on_false texts said the tox command failed
-    although the wrong action ran plain pytest; rewritten so the failure follows the
-    pytest run and points to tox. Markers, labels and structure unchanged. | 11/18
-    #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
-  approved_hash: null
-  check_config_hash: null
+  status: approved
+  reviewer: sunmin
+  notes: 'reviewer edit (sunmin): the four on_false texts said the tox command failed although the wrong action ran plain pytest; rewritten so the failure follows the pytest run and points to tox. Markers, labels and structure unchanged.'
+  approved_hash: v1:e3873977a13b99df8a790770b7e2ec214500350619e985680409d6eb67c348b5
 provenance:
   author: llm
   source_traces:
@@ -402,5 +382,5 @@ provenance:
   secret_events: []
   reviewer_edited: true
   generated_at: '2026-10-29T01:49:47.307970Z'
-  label_fingerprint: l1:d79563861be723f585946912a7ce8517f4140a7cab052efac40ec8e23a9c4842
+  label_fingerprint: l1:367218f9e70c446cd7e4d8755be7faf8694998477dadd8065fd8ace576f1ccb5
   generated_hash: v1:2205a2dd479d82a09ffc4d5c91d94bc9b8dec91fe1579264f98ece887bcd8826

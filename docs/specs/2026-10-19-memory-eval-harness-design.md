@@ -222,7 +222,7 @@ events:
      text: "Vendor module is owned by another team, so do not modify it"}
   - {id: e2, t: "2026-10-09T14:00+09:00", user: u1, session: s9, repo: shop-api,
      scope: team, signal: human, kind: human_confirm, outcome: failure, refs: [e1],
-     text: "Review on e1: please don't follow this; see my follow-up note."}
+     text: "Review on the earlier note: please don't follow this; see my follow-up note."}
   - {id: e3, t: "2026-10-09T14:30+09:00", user: u1, session: s9, repo: shop-api,
      scope: team, signal: human, kind: agent_record, outcome: unknown, fact: f_new,
      text: "Merged the vendor module PR directly"}

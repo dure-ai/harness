@@ -96,33 +96,17 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: failure
-  text: 'Review on e1, e2, e3: please don''t follow these steps; see my follow-up
-    note.'
-  meta: {}
-  refs:
-  - e1
-  - e2
-  - e3
-  fact: null
-  secret_markers: []
-- id: e6
-  t: '2026-10-06T13:30:00+09:00'
-  user: u1
-  session: s19
-  repo: optimizely/python-sdk
-  scope: team
-  team: null
-  signal: human
-  kind: agent_record
-  outcome: unknown
+  outcome: success
   text: 'Review: after today''s test refactor the sample datafile lives in tests/fixtures/datafiles.py,
     and tests must call self.load_sample_datafile(''experiments_and_groups'') in setUp;
     BaseTest does not build the dict inline anymore, so the notes from the last few
     sessions need updating. Verified locally, the full tests/ suite passes with this
     pattern.'
   meta: {}
-  refs: []
+  refs:
+  - e1
+  - e2
+  - e3
   fact: f_new
   secret_markers: []
 - id: e5
@@ -300,11 +284,10 @@ probes:
       scope: team
     on_true: null
 review:
-  status: draft
-  reviewer: null
-  notes: '11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
-  approved_hash: null
-  check_config_hash: null
+  status: approved
+  reviewer: jaehyuk
+  notes: ''
+  approved_hash: v1:67ad284ec2de9565ac55b7339f2d631be990b9f286ebd1884c294e2ad63e4927
 provenance:
   author: llm
   source_traces:
@@ -344,7 +327,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: true
+  reviewer_edited: false
   generated_at: '2026-10-27T11:07:16.225317Z'
-  label_fingerprint: l1:e2977711b5bf7d3cfbeb6a57621337d5095fc0baf386bd13c1dc8a15688f8a32
+  label_fingerprint: l1:f0606d3ac7c9b35c425f1b4dada8abb812e4ce3e2d60f760613ce91de24a20ef
   generated_hash: v1:31b2fefbc2b6795fa1a79ad66ef07c90922b1555480a6ca188320159e26fb60e

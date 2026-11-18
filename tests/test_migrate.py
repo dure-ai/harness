@@ -65,7 +65,7 @@ def test_overturn_splits_the_success_confirmation_into_two_events():
     c, r = out.events[2], out.events[3]
     assert (c.id, c.t, c.outcome, c.fact, c.refs, c.kind, c.signal) == (
         "e3", s.events[2].t, "failure", None, ["e1", "e2"], "human_confirm", "human")
-    assert c.text == "Review on e1, e2: please don't follow these steps; see my follow-up note."
+    assert c.text == "Review on the earlier notes: please don't follow these steps; see my follow-up note."
     assert r.t == c.t + (T("10-09 14:30") - T("10-09 14:00"))
     assert (r.user, r.session, r.repo, r.scope, r.team, r.meta) == ("u2", "s2", "r", "personal", "a", {"k": "v"})
     assert (r.kind, r.signal, r.outcome, r.refs, r.fact) == ("agent_record", "human", "unknown", [], "f_new")
@@ -167,13 +167,14 @@ def test_migrated_file_can_be_approved_again(tmp_path):
     assert load_scenario(path).review.status == "approved"
 
 
-def test_failure_text_joins_three_refs_with_commas():
+def test_failure_text_names_no_event_ids():
     s = old_shape()
     extra = ev("e0", T("10-03 10:00"), fact="f_old")
     events = [s.events[0], s.events[1], extra, *s.events[2:]]
     events = [e.model_copy(update={"refs": ["e1", "e2", "e0"]}) if e.id == "e3" else e for e in events]
     out = overturn_option_b(s.model_copy(update={"events": events}))
-    assert out.events[3].text == "Review on e1, e2, e0: please don't follow these steps; see my follow-up note."
+    assert out.events[3].text == "Review on the earlier notes: please don't follow these steps; see my follow-up note."
+    assert not any(r in out.events[3].text for r in ("e0", "e1", "e2"))
     assert out.events[4].id == "e5"
 
 

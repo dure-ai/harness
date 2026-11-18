@@ -11,12 +11,10 @@ from harness.scenario.labels import fingerprint_state, label_fingerprint
 from harness.scenario.model import Review, Scenario, ScenarioEvent
 
 OVERTURN_GAP = timedelta(minutes=30)
-FAILURE_TEXT = "Review on {refs_text}: please don't follow these steps; see my follow-up note."
+# The judged events are in `refs`; the text names none of them, because engines never see
+# the harness's internal event ids.
+FAILURE_TEXT = "Review on the earlier notes: please don't follow these steps; see my follow-up note."
 REVIEW_NOTE = "11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)"
-
-
-def _refs_text(refs: list[str]) -> str:
-    return ", ".join(refs)
 
 
 def _is_old_confirmation(s: Scenario, e: ScenarioEvent) -> bool:
@@ -91,7 +89,7 @@ def overturn_option_b(s: Scenario) -> Scenario:
         update={
             "outcome": "failure",
             "fact": None,
-            "text": FAILURE_TEXT.format(refs_text=_refs_text(conf.refs)),
+            "text": FAILURE_TEXT,
         }
     )
     events = [*s.events[:idx], failure, record, *s.events[idx + 1 :]]
