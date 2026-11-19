@@ -601,12 +601,21 @@ _TOO_EASY_KEEP = (
     " Write all probes in the same form and tone (rule 10). Leave the text of quoted events as it "
     "is. Keep every label and do not use the banned words."
 )
-_TOO_EASY_FIX = (
+_TOO_EASY_FIX_HEAD = (
     "Rewrite so the facts each probe asks about compete on equal terms: write every probe's query "
     "with topic words (component, file, command and repository names) that the records of all its "
     "facts share, reuse no more markers of one fact than of another, and give the records of "
-    "every fact the same component, file and repository names, changing only the claim."
-) + _TOO_EASY_KEEP
+    "every fact the same component, file and repository names, changing only the claim"
+)
+_TOO_EASY_FIX = _TOO_EASY_FIX_HEAD + "." + _TOO_EASY_KEEP
+# conditional: the facts hold under different conditions, so the names that tell those apart
+# stay different (the exception in bodies.md rule 1).
+_TOO_EASY_FIX_CONDITIONAL = (
+    _TOO_EASY_FIX_HEAD
+    + "; each fact keeps its own value for the names that tell the conditions apart "
+    "(the service, repository or file its condition is about)."
+    + _TOO_EASY_KEEP
+)
 _TOO_EASY_FIX_ROOT = (
     "Rewrite so the facts each probe asks about compete on equal terms: ask every probe about the "
     "symptom both fixes address, in the symptom's words, and reuse no more markers of one fix than "
@@ -669,23 +678,32 @@ def too_easy_hint(s: Scenario, cfg: EvalConfig) -> str:
         else:
             names = ", ".join(dict.fromkeys(e.fact for e in rivals if e.fact))
             rival_tokens = {w for e in rivals for w in tokenize(e.text)}
-            words = sorted(
-                (
-                    w
-                    for w in (set(tokenize(p.query)) & set(tokenize(result.text))) - rival_tokens
-                    if len(w) >= 2 and w not in _HINT_STOPWORDS
-                ),
-                key=_hint_order,
-            )
+            lacking = {
+                w for w in (set(tokenize(p.query)) & set(tokenize(result.text))) - rival_tokens if len(w) >= 2
+            }
+            words = sorted(lacking - _HINT_STOPWORDS, key=_hint_order)
             if words:
                 line += f"; query words that the records of {names} lack: " + ", ".join(words[:_MAX_UNIQUE_WORDS])
+            elif lacking:
+                # The search still scores these words, so the records do differ; there is just
+                # no topic word to point at.
+                line += (
+                    f"; the records of {names} lack only common query words "
+                    f"({', '.join(sorted(lacking)[:_MAX_UNIQUE_WORDS])}), so no topic word tells the records apart"
+                )
             else:
                 line += (
                     f"; the records of {names} hold every query word the followed record holds, "
                     "so word counts, record length or recency decide"
                 )
         lines.append(line)
-    lines.append(_TOO_EASY_FIX_ROOT if s.family == "workaround_then_root" else _TOO_EASY_FIX)
+    lines.append(
+        _TOO_EASY_FIX_ROOT
+        if s.family == "workaround_then_root"
+        else _TOO_EASY_FIX_CONDITIONAL
+        if s.family == "conditional"
+        else _TOO_EASY_FIX
+    )
     quoted = {e.event_id for e in s.provenance.evidence if e.origin == "quoted"}
     lines.append("Previous draft:")
     lines += [f"fact {fid}: {f.text} (markers: {', '.join(f.markers)})" for fid, f in s.facts.items()]
