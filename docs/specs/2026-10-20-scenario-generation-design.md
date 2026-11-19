@@ -128,9 +128,11 @@ flowchart LR
 - 시드가 날짜, 사용자, 세션, 순서를 정한다. 같은 (후보, 시드)면 같은 뼈대가 나온다.
 - 판정하는 기록(CI 결과, 사람 확인)은 판정 대상 이벤트를 `refs`로 가리킨다. 팀 런타임이 `refs` 없는 판정 이벤트를 거부하기 때문이다(설계 4.5).
 - **판정 기록의 숨은 `fact` 라벨** [판단]. 채점은 이벤트의 `fact`를 "그 기록이 말하는 사실"로 보므로, 판정 기록의 라벨은 **그 기록이 참이라고 말하는 사실**이다. 반박당하는 사실을 라벨로 달지 않는다.
-  - 예: `truth_change`에서 `f_old` 기록을 `refs`로 가리키며 "벤더 모듈 PR을 직접 머지했다"고 확인하는 사람 확인 기록은 `fact: f_new`다.
-  - 예: `failure_feedback`에서 틀린 근거로 행동한 뒤의 실패 기록은 "그 방법은 실패했고 X가 맞다"처럼 참인 사실을 말하게 쓰고 `fact`를 그 참인 사실로 단다. 참인 대안을 말하지 않는 순수한 실패 보고만 필요하면 `fact: null`(잡음)로 둔다.
-  - 그래서 5.6의 판정 문자열 검사도 판정 기록에 그대로 적용된다(`fact`가 있으면 그 사실의 `markers`가 본문에 있어야 함).
+  - 예(옵션 B, 11/18): `truth_change`·`failure_feedback`의 날 D에서 낡은 기록을 뒤집는 사람 확인은 `refs`로 낡은 기록을 가리키는 실패 `human_confirm`이고 `fact`를 달지 않는다(`null`). 판단이 어느 사실도 보증하지 않게 하려는 것이다. 새 사실은 30분 뒤 같은 사용자의 별도 `agent_record`(`signal: human`, `outcome: unknown`, `refs` 없음, `fact: f_new`)로 들어온다.
+  - `failure_feedback`에서 틀린 근거로 행동한 뒤 CI 실패 기록(되먹임 틀의 `on_false`, `ci_result`)은 "그 방법은 실패했고 X가 맞다"처럼 참인 사실을 말하게 쓰고 `fact: f_new`를 단다. `refs`는 따른 결과를 가리킨다. 위의 사람 실패 확인(`fact: null`, `refs` = 낡은 사실의 이벤트)과는 다른 기록이다. 두 기록을 섞지 않는다.
+  - 성공 판정이 `refs`가 가리키는 기록의 사실과 다른 사실을 말하면 검증이 `confirm_asserts_other_fact` 경고를 낸다. 옛 모양(성공 확인에 `f_new`)이 다시 들어오는 것을 막는다.
+  - 참인 대안을 말하지 않는 순수한 실패 보고는 `fact: null`(잡음)이다.
+  - 5.6의 판정 문자열 검사는 `fact`가 있는 기록에 적용된다(`fact`가 있으면 그 사실의 `markers`가 본문에 있어야 함). `fact`가 없는 실패 확인에는 걸리지 않는다.
 - **판정 기록인 자리와 단독 증거인 자리**는 계열 틀이 정한다. 기본 규칙: 앞선 기록의 사실을 확인하거나 뒤집는 CI·사람 확인은 판정 기록(`refs` 있음), 새 사실을 처음 보여 주는 CI·사람 확인은 단독 증거(`refs` 없음)다. [판단]
 - **`conditional`의 구조 단서 제거** [결정 D-5]. 엔진은 문항의 맥락(`repo`, `meta`)과 기록을 볼 수 있으므로, 구조만으로 정답 종류가 드러나지 않게 한다.
   - 두 번째 맥락 B의 값은 A의 값에 접미사를 붙이지 않고, 같은 종류의 이름 풀에서 A와 다른 값을 시드로 고른다(서비스 이름, 환경 `prod`/`staging`/`dev`/`qa`, 운영체제, 저장소는 같은 소유자 아래 서비스 이름, 버전은 숫자 하나를 바꿈, 그 밖은 배포 채널 이름).
@@ -261,7 +263,7 @@ flowchart LR
   timeout_s: 300               # per request
   max_retries: 2               # SDK retries
   token_param: max_completion_tokens   # openai only: max_completion_tokens | max_tokens | none
-  prompt_version: gen-v0.8   # 11/12: 규칙 8의 근접 반복 규칙을 unconfirmed_poison에도 적용. 10/29: 디코드된 도구 메시지·인자 읽기(T1), 독 반복 기록 규칙(T2: 반복 거짓 기록은 근접 반복이어야 함), on_false 규칙(행동 기록과 같은 명령·파일의 실패를 말함). 10/29: echo 계열의 거짓 사실 행동 기록을 LLM에 묻지 않고 첫 기록으로 채움. 10/24: 마커에 금지어 금지(규칙 5의 마커 예외 삭제)로 올림. 10/22: 문항 표현 규칙(9·10), quoted 규칙, 사실·되먹임 본문에 비밀 문자열 금지
+  prompt_version: gen-v0.9   # 11/18: truth_change·failure_feedback의 확인을 옵션 B로(실패 확인에는 사실을 달지 않고, 새 사실은 별도 사람 기록으로 들어옴). 11/12: 규칙 8의 근접 반복 규칙을 unconfirmed_poison에도 적용. 10/29: 디코드된 도구 메시지·인자 읽기(T1), 독 반복 기록 규칙(T2: 반복 거짓 기록은 근접 반복이어야 함), on_false 규칙(행동 기록과 같은 명령·파일의 실패를 말함). 10/29: echo 계열의 거짓 사실 행동 기록을 LLM에 묻지 않고 첫 기록으로 채움. 10/24: 마커에 금지어 금지(규칙 5의 마커 예외 삭제)로 올림. 10/22: 문항 표현 규칙(9·10), quoted 규칙, 사실·되먹임 본문에 비밀 문자열 금지
   max_candidates_per_trace: 5
   banned_cue_words: [outdated, "no longer", rumor, unverified, fake, deprecated, "false", "no longer true",
     legacy, obsolete, superseded, stale, incorrect, wrong, retired, "replaced by", "not valid anymore"]
