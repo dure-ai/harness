@@ -48,6 +48,8 @@ review_app = typer.Typer(help="Review drafts: list, show, edit, approve or rejec
 app.add_typer(review_app, name="review")
 traces_app = typer.Typer(help="Source trajectories for scenario generation.", no_args_is_help=True)
 app.add_typer(traces_app, name="traces")
+bench_app = typer.Typer(help="External benchmarks converted into scenarios.", no_args_is_help=True)
+app.add_typer(bench_app, name="bench")
 
 ScenariosOpt = Annotated[
     list[Path],
@@ -559,6 +561,49 @@ def traces_fetch(
         except Exception as e:
             raise _fail(f"error: download failed: {type(e).__name__}: {e}", 2) from e
         typer.echo(str(path))
+
+
+@bench_app.command("list")
+def bench_list() -> None:
+    """Show the registered external datasets and whether they are in the cache."""
+    from harness.bench.dataset import is_cached
+    from harness.bench.datasets import DATASETS
+
+    for name in sorted(DATASETS):
+        ds = DATASETS[name]
+        size = sum(f.size for f in ds.files())
+        typer.echo(f"{name}  {ds.license}  {_mb(size)}  cached: {'yes' if is_cached(ds) else 'no'}")
+
+
+@bench_app.command("fetch")
+def bench_fetch(
+    dataset: Annotated[str, typer.Option("--dataset", help="Dataset name; see harness bench list.")],
+    yes: Annotated[bool, typer.Option("--yes", help="Download without asking.")] = False,
+    timeout: Annotated[
+        float, typer.Option(help="Seconds a server may stay silent before giving up (>0).")
+    ] = 60.0,
+) -> None:
+    """Download a dataset's files into the cache, after showing their size."""
+    from harness.bench.dataset import FetchError, bench_cache, fetch_file
+    from harness.bench.datasets import DATASETS
+
+    if not timeout > 0:
+        raise _fail(f"error: --timeout must be greater than 0, got {timeout:g}", 2)
+    ds = DATASETS.get(dataset)
+    if ds is None:
+        raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
+    files = ds.files()
+    for f in files:
+        typer.echo(f"{f.name}  {_mb(f.size)}")
+    if not yes and not typer.confirm("받을까요?", default=False):
+        raise _fail("취소했습니다. 아무것도 받지 않았습니다.", 1)
+    dest = bench_cache(ds.name)
+    try:
+        for f in files:
+            fetch_file(f, dest, timeout=timeout)
+    except FetchError as e:
+        raise _fail(f"error: {e}", 2) from e
+    typer.echo(str(dest))
 
 
 @traces_app.command("list")
