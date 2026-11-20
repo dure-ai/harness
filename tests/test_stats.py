@@ -61,3 +61,38 @@ def test_bootstrap_quantile_indices():
 def test_bootstrap_rejects_bad_input(a, b):
     with pytest.raises(ValueError):
         bootstrap_diff(a, b, 10, 1)
+
+
+def _reference_bootstrap_diff(a, b, iters, seed):
+    """The original definition: each resample sums both lists' numerators and denominators."""
+    import math
+    import random
+
+    def pooled(pairs, indices):
+        k = sum(pairs[i][0] for i in indices)
+        n = sum(pairs[i][1] for i in indices)
+        return k / n if n else 0.0
+
+    rng = random.Random(seed)
+    diffs = []
+    for _ in range(iters):
+        indices = [rng.randrange(len(a)) for _ in range(len(a))]
+        diffs.append(pooled(a, indices) - pooled(b, indices))
+    diffs.sort()
+    return diffs[math.floor(0.025 * (iters - 1))], diffs[math.ceil(0.975 * (iters - 1))]
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_bootstrap_diff_is_exactly_the_reference(seed):
+    import random
+
+    from harness.stats import bootstrap_diff
+
+    rng = random.Random(seed)
+    n = rng.randint(1, 40)
+    a = [(rng.randint(0, 3), rng.choice([0, 1, 2, 4])) for _ in range(n)]  # zero denominators too
+    b = [(rng.randint(0, 3), rng.choice([0, 1, 2, 4])) for _ in range(n)]
+    a = [(min(k, d), d) for k, d in a]
+    b = [(min(k, d), d) for k, d in b]
+    iters = rng.choice([1, 7, 500])
+    assert bootstrap_diff(a, b, iters, seed) == _reference_bootstrap_diff(a, b, iters, seed)

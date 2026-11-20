@@ -82,10 +82,20 @@ def contains_secret(text: str, marker: str) -> bool:
 
 def jaccard(a: str, b: str) -> float:
     """Jaccard similarity of the two texts' token sets; 0.0 when both are empty."""
-    sa, sb = set(tokenize(a)), set(tokenize(b))
+    return set_jaccard(set(tokenize(a)), set(tokenize(b)))
+
+
+def set_jaccard(sa: set[str], sb: set[str]) -> float:
+    """`jaccard` of two token sets already made, for comparing one text with many."""
     if not sa and not sb:
         return 0.0
     return len(sa & sb) / len(sa | sb)
+
+
+def counted(text: str) -> tuple[Counter[str], int]:
+    """A text's term counts and token count, as `BM25.add` indexes it."""
+    tokens = tokenize(text)
+    return Counter(tokens), len(tokens)
 
 
 class BM25:
@@ -109,12 +119,21 @@ class BM25:
         Raises:
             ValueError: If `doc_id` was already added.
         """
+        self.add_counted(doc_id, *counted(text))
+
+    def add_counted(self, doc_id: str, tf: Counter[str], length: int) -> None:
+        """Index one document from its term counts and token count (see `counted`).
+
+        A caller that indexes the same text for many queries tokenizes it once this way. `tf` is
+        not copied and must not change afterwards.
+
+        Raises:
+            ValueError: If `doc_id` was already added.
+        """
         if doc_id in self._tf:
             raise ValueError(f"duplicate doc id: {doc_id}")
-        tokens = tokenize(text)
-        tf = Counter(tokens)
         self._tf[doc_id] = tf
-        self._len[doc_id] = len(tokens)
+        self._len[doc_id] = length
         self._df.update(tf.keys())
 
     def scores(self, query: str) -> dict[str, float]:
