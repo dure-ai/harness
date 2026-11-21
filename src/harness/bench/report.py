@@ -7,17 +7,17 @@ from pathlib import Path
 from typing import Any
 
 from harness.bench.gold import CELLS, compare_modes, gold_only_wrong_examples
-from harness.bench.run import BenchRun
+from harness.bench.run import BenchMeta, BenchRun
 from harness.bench.timing import cost_rows
 from harness.contract import EngineInfo
-from harness.metrics import _m1, _m2
+from harness.metrics import m1_rate, m2_rate
 from harness.replay import ScenarioRun
+from harness.scenario.model import EXT_FAMILIES
 from harness.stats import Rate, rate
-from harness.report import _info_json, _order_key, _rate, _result_lines, _scrubber, _table, blind_ids, jsonable
+from harness.report import info_json, order_key, rate_text, result_lines, scrubber, markdown_table, blind_ids, jsonable
 
 HEADER = "**외부 벤치마크 트랙. 사전 등록한 판정 기준이 아니며 `harness run` 결과와 섞지 않는다.**"
 M2_TITLE = "근거 도달(M2)"
-FAMILIES = ("ext_recall", "ext_update")
 KU_NOTE = (
     "LongMemEval의 원래 판정 프롬프트는 옛 값과 새 값을 같이 말해도 새 값이 답이면 정답으로 본다. "
     "이 하네스는 옛 사실을 근거로 행동하면 `block` FP로 세므로, 섞인 근거는 틀린 것으로 채점한다. "
@@ -33,8 +33,8 @@ def _row(runs: list[ScenarioRun]) -> dict[str, Any]:
     """
     scored = [r for r in runs if r.error is None and r.mode == "read_only"]
     return {
-        "m1": _m1(scored),
-        "m2": _m2(scored),
+        "m1": m1_rate(scored),
+        "m2": m2_rate(scored),
         "n_scenarios": len(runs),
         "n_errors": sum(r.error is not None for r in runs),
     }
@@ -55,7 +55,7 @@ def _split(runs: list[ScenarioRun], key: Callable[[ScenarioRun], str]) -> dict[s
 
 def _tables(b: BenchRun, ids: Mapping[str, str]) -> dict[str, dict[str, Any]]:
     """Per engine (blind id): its rows by family and by dataset group, and its errored scenarios."""
-    order = _order_key(ids)
+    order = order_key(ids)
     out: dict[str, dict[str, Any]] = {}
     for name in sorted(b.runs, key=order):
         runs = b.runs[name]
@@ -80,30 +80,30 @@ def _skipped(b: BenchRun) -> dict[str, Any]:
 def _family_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
     """Rows per engine and family: the external families first, then any other family by name."""
     rows = [
-        [eid, fam, row["n_scenarios"], _rate(row["m2"]), _rate(row["m1"]), row["n_errors"]]
+        [eid, fam, row["n_scenarios"], rate_text(row["m2"]), rate_text(row["m1"]), row["n_errors"]]
         for eid, t in tables.items()
-        for fam in sorted(t["by_family"], key=lambda f: (f not in FAMILIES, f))
+        for fam in sorted(t["by_family"], key=lambda f: (f not in EXT_FAMILIES, f))
         if (row := t["by_family"].get(fam)) is not None
     ]
-    return _table(["엔진", "계열", "문항 수", "M2", "M1", "오류"], rows)
+    return markdown_table(["엔진", "계열", "문항 수", "M2", "M1", "오류"], rows)
 
 
 def _sourceless_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    return _table(["엔진", "출처 없는 결과"], [[eid, _rate(t["sourceless"])] for eid, t in tables.items()])
+    return markdown_table(["엔진", "출처 없는 결과"], [[eid, rate_text(t["sourceless"])] for eid, t in tables.items()])
 
 
 def _group_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
     rows = [
-        [eid, group, row["n_scenarios"], _rate(row["m2"]), row["n_errors"]]
+        [eid, group, row["n_scenarios"], rate_text(row["m2"]), row["n_errors"]]
         for eid, t in tables.items()
         for group, row in t["by_group"].items()
     ]
-    return _table(["엔진", "유형", "문항 수", "M2", "오류"], rows)
+    return markdown_table(["엔진", "유형", "문항 수", "M2", "오류"], rows)
 
 
 def _comparison(normal: BenchRun, gold: BenchRun, ids: Mapping[str, str]) -> dict[str, dict[str, Any]]:
     """Per engine (blind id): the four mode-comparison counts and up to 5 `gold_only_wrong` probes."""
-    order = _order_key(ids)
+    order = order_key(ids)
     return {
         ids[name]: {
             "counts": compare_modes(normal.runs[name], gold.runs[name]),
@@ -115,7 +115,7 @@ def _comparison(normal: BenchRun, gold: BenchRun, ids: Mapping[str, str]) -> dic
 
 def _comparison_table(comparison: Mapping[str, Mapping[str, Any]]) -> list[str]:
     rows = [[eid, *(c["counts"][cell] for cell in CELLS)] for eid, c in comparison.items()]
-    out = _table(["엔진", "둘 다 맞음", "검색·잡음", "판단·사용", "골드에서만 틀림"], rows)
+    out = markdown_table(["엔진", "둘 다 맞음", "검색·잡음", "판단·사용", "골드에서만 틀림"], rows)
     for eid, c in comparison.items():
         examples = ", ".join(f"{s}/{p}" for s, p in c["gold_only_wrong_examples"])
         if examples:
@@ -124,7 +124,7 @@ def _comparison_table(comparison: Mapping[str, Mapping[str, Any]]) -> list[str]:
 
 
 def _markdown(
-    meta: Mapping[str, Any],
+    meta: BenchMeta,
     normal: BenchRun,
     gold: BenchRun | None,
     tables: Mapping[str, Mapping[str, Any]],
@@ -138,7 +138,7 @@ def _markdown(
     files = ", ".join(f"{name} {sha}" for name, sha in meta["file_sha256"].items())
     infos = [
         [ids[name], scrub(info.name), scrub(info.version)]
-        for name, info in sorted(normal.infos.items(), key=lambda kv: _order_key(ids)(kv[0]))
+        for name, info in sorted(normal.infos.items(), key=lambda kv: order_key(ids)(kv[0]))
     ]
     lines = [
         HEADER,
@@ -159,7 +159,7 @@ def _markdown(
         f"- 건너뛴 id: {', '.join(skipped['ids']) or '-'}",
         f"- 머신: {meta['machine']}",
         "",
-        *_table(["엔진", "이름", "버전"], infos),
+        *markdown_table(["엔진", "이름", "버전"], infos),
         "## 표 1. 계열별 M2·M1",
         "",
         *_family_table(tables),
@@ -191,7 +191,7 @@ def _markdown(
         "시간은 호출 한 번의 벽시계 ms(문항 전체를 모아 p50/p95), 컨텍스트는 프로브당 평균 글자 수다. "
         "사용량은 엔진이 `usage()`로 알린 값을 문항 전체에서 합한 것이고, 알리지 않으면 알 수 없음이다.",
         "",
-        *_table(
+        *markdown_table(
             ["엔진", "record p50", "record p95", "flush p50", "flush p95", "search p50", "search p95",
              "컨텍스트 글자", "LLM 호출", "입력 토큰", "출력 토큰", "임베딩 호출"],
             [[ids[r[0]], *r[1:]] for r in cost_rows(normal.timed, normal.runs)],
@@ -202,7 +202,7 @@ def _markdown(
     return "\n".join(lines)
 
 
-def write_bench_report(out_dir: Path, meta: dict[str, Any], normal: BenchRun, gold: BenchRun | None) -> None:
+def write_bench_report(out_dir: Path, meta: BenchMeta, normal: BenchRun, gold: BenchRun | None) -> None:
     """Write report.md, summary.json, results.jsonl and engine_ids.json to `out_dir`.
 
     Engine names other than the baselines become blind ids everywhere except engine_ids.json.
@@ -210,19 +210,17 @@ def write_bench_report(out_dir: Path, meta: dict[str, Any], normal: BenchRun, go
 
     Args:
         out_dir: Directory to create and write into.
-        meta: Run-level facts: `run_id`, `started_at`, `harness_version`, `config_hash`,
-            `machine`, `dataset`, `license`, `file_sha256` (name to sha256), `converter`,
-            `label_sha256` (or None) and `blind_seed`; the seed goes to engine_ids.json only.
+        meta: Run-level facts; its `blind_seed` goes to engine_ids.json only.
         normal: The run on the full event stream.
         gold: The run on gold events, if there was one.
     """
-    meta = dict(meta)
-    seed: int = meta.pop("blind_seed")
+    seed = meta["blind_seed"]
+    facts = {k: v for k, v in meta.items() if k != "blind_seed"}
     names = {*normal.runs, *normal.infos, *(gold.runs if gold is not None else [])}
     ids = blind_ids(sorted(names), seed)
     infos: dict[str, EngineInfo] = normal.infos
-    scrub = _scrubber(ids, infos)
-    key = _order_key(ids)
+    scrub = scrubber(ids, infos)
+    key = order_key(ids)
     tables = _tables(normal, ids)
     gold_tables = _tables(gold, ids) if gold is not None else None
     comparison = _comparison(normal, gold, ids) if gold is not None else None
@@ -234,10 +232,10 @@ def write_bench_report(out_dir: Path, meta: dict[str, Any], normal: BenchRun, go
     )
     summary: dict[str, Any] = {
         "meta": {
-            **jsonable(meta),
+            **jsonable(facts),
             "mode": normal.mode,
             "engine_infos": {
-                ids[name]: _info_json(name, info, ids, scrub)
+                ids[name]: info_json(name, info, ids, scrub)
                 for name, info in sorted(infos.items(), key=lambda kv: key(kv[0]))
             },
         },
@@ -248,7 +246,7 @@ def write_bench_report(out_dir: Path, meta: dict[str, Any], normal: BenchRun, go
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for run, name in ((normal, "results.jsonl"), (gold, "results-gold.jsonl")):
         if run is not None:
-            lines = _result_lines(run.runs, sorted(run.runs, key=key), ids)
+            lines = result_lines(run.runs, sorted(run.runs, key=key), ids)
             (out_dir / name).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
     (out_dir / "report.md").write_text(_markdown(meta, normal, gold, tables, gold_tables, comparison, ids, scrub) + "\n", encoding="utf-8")
 

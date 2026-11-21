@@ -1,6 +1,7 @@
 """LongMemEval-S (MIT): long chat histories converted into `ext_update` and `ext_recall` scenarios."""
 
 import json
+from dataclasses import dataclass
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from importlib import resources
@@ -11,7 +12,7 @@ import yaml
 
 from harness.bench.convert import Clock
 from harness.bench.dataset import Converted, RemoteFile
-from harness.scenario.model import Fact, Probe, Provenance, Scenario, ScenarioEvent, World
+from harness.scenario.model import ExtFamily, Fact, Probe, Provenance, Scenario, ScenarioEvent, World
 
 REPO = "longmemeval-s"
 KU = "knowledge-update"
@@ -27,6 +28,7 @@ def parse_lme_date(text: str) -> datetime:
 
 
 LABELS = ("new", "old", "both", "exclude")
+LABEL_FILE = "longmemeval_ku_labels.yaml"
 
 
 def parse_ku_labels(text: str) -> dict[str, str]:
@@ -45,15 +47,15 @@ def parse_ku_labels(text: str) -> dict[str, str]:
 def load_ku_labels() -> dict[str, str]:
     """The knowledge-update labels shipped with the package: question id to new/old/both/exclude."""
     return parse_ku_labels(
-        (resources.files("harness.bench.datasets") / "longmemeval_ku_labels.yaml").read_text(encoding="utf-8")
+        (resources.files("harness.bench.datasets") / LABEL_FILE).read_text(encoding="utf-8")
     )
 
 
+@dataclass(frozen=True, slots=True)
 class _Session:
-    def __init__(self, sid: str, t: datetime, turns: list[dict[str, Any]]) -> None:
-        self.sid = sid
-        self.t = t
-        self.turns = turns
+    sid: str
+    t: datetime
+    turns: list[dict[str, Any]]
 
 
 def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
@@ -136,25 +138,29 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
 
     # Probe sessions continue the event numbering, so no session id tells a block probe from a promote probe.
     next_session = len(sessions)
-    if label == "new":
-        old, new = ids[0], ids[-1]
-        facts[old].valid_until = first_evidence[new]
-        probes = [
-            Probe(
-                id="p-block", kind="block", t=qdate, user="u1", session=f"sess-{next_session}", repo=REPO,
-                query=q["question"], about=[old, new],
-            ),
-            promote("p-promote", f"sess-{next_session + 1}", [new]),
-        ]
-        family = "ext_update"
-    else:
-        about = {"old": ids[:1], "both": [ids[0], ids[-1]]}.get(label or "", ids)
-        probes = [promote("p-promote", f"sess-{next_session}", about)]
-        family = "ext_recall"
+    family: ExtFamily
+    match label:
+        case "new":  # the new value is the answer: acting on the old one is a block FP
+            old, new = ids[0], ids[-1]
+            facts[old].valid_until = first_evidence[new]
+            probes = [
+                Probe(
+                    id="p-block", kind="block", t=qdate, user="u1", session=f"sess-{next_session}", repo=REPO,
+                    query=q["question"], about=[old, new],
+                ),
+                promote("p-promote", f"sess-{next_session + 1}", [new]),
+            ]
+            family = "ext_update"
+        case "old":  # the question asks about the earlier value
+            probes, family = [promote("p-promote", f"sess-{next_session}", ids[:1])], "ext_recall"
+        case "both":
+            probes, family = [promote("p-promote", f"sess-{next_session}", [ids[0], ids[-1]])], "ext_recall"
+        case _:  # not a knowledge-update question: every evidence session is the answer
+            probes, family = [promote("p-promote", f"sess-{next_session}", ids)], "ext_recall"
 
     scenario = Scenario(
         id=f"lme-{qid}",
-        family=family,  # pyright: ignore[reportArgumentType]
+        family=family,
         mode="read_only",
         language="en",
         world=World(timezone="UTC", teams={"t1": ["u1", "assistant"]}),
@@ -172,6 +178,8 @@ class LongMemEvalS:
     name = "longmemeval-s"
     license = "MIT"
     commit_ok = True
+    converter_version = 1
+    label_file: str | None = LABEL_FILE
 
     def files(self) -> list[RemoteFile]:
         """The one JSON file of the dataset."""

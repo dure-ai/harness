@@ -44,6 +44,8 @@ class FakeDataset:
     name = "fake"
     license = "MIT"
     commit_ok = True
+    converter_version = 3
+    label_file = None
 
     def __init__(self, files: list[RemoteFile]) -> None:
         self._files = files
@@ -81,3 +83,21 @@ def test_bench_list_and_fetch_cli(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 
     again = runner.invoke(app, ["bench", "list"])
     assert "cached: yes" in again.output
+
+
+def test_dataset_facts_come_from_the_dataset_itself() -> None:
+    import hashlib
+    from importlib import resources
+
+    from harness.bench.datasets.longmemeval import LongMemEvalS
+    from harness.bench.run import dataset_facts, scenario_facts
+
+    assert dataset_facts(FakeDataset([]), {"a.json": "ab"}) == {
+        "dataset": "fake", "license": "MIT", "file_sha256": {"a.json": "ab"}, "converter": "fake/3", "label_sha256": None,
+    }
+    lme = dataset_facts(LongMemEvalS(), {})
+    label = (resources.files("harness.bench.datasets") / "longmemeval_ku_labels.yaml").read_bytes()
+    assert lme["converter"] == "longmemeval-s/1" and lme["label_sha256"] == hashlib.sha256(label).hexdigest()
+    assert scenario_facts("scenarios/dev") == {
+        "dataset": "scenarios/dev", "license": "n/a", "file_sha256": {}, "converter": "n/a", "label_sha256": None,
+    }

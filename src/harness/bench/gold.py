@@ -17,8 +17,11 @@ def gold_copy(s: Scenario) -> Scenario:
     return s.model_copy(update={"events": [e for e in s.events if e.fact in wanted]})
 
 
-def _correct(kind: str, outcome: str) -> bool:
-    """Block probes are right unless they ended in FP; promote probes only on TP."""
+def probe_correct(kind: str, outcome: str) -> bool:
+    """Whether a block or promote probe was answered right: block unless FP, promote only on TP.
+
+    Other probe kinds (leak) are never right by this rule; callers keep them out.
+    """
     if kind == "block":
         return outcome != "FP"
     return kind == "promote" and outcome == "TP"
@@ -26,7 +29,7 @@ def _correct(kind: str, outcome: str) -> bool:
 
 def _verdicts(runs: list[ScenarioRun]) -> dict[tuple[str, str], bool]:
     return {
-        (r.scenario_id, p.probe_id): _correct(p.kind, p.outcome)
+        (r.scenario_id, p.probe_id): probe_correct(p.kind, p.outcome)
         for r in runs
         if r.error is None
         for p in r.probes

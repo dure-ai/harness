@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable, Iterator
 from harness.baselines.oracle import OracleEngine
 from harness.baselines.simple import NoneEngine
 from harness.bench.dataset import Converted
+from harness.bench.gold import probe_correct
 from harness.config import EvalConfig
 from harness.contract import BaseEngine
 from harness.replay import ScenarioRun, blind_key, run_scenario
@@ -15,11 +16,11 @@ _RUN_ID = "bench-check"
 
 
 def _wrong(run: ScenarioRun, kinds: dict[str, str]) -> list[str]:
-    """Ids of the probes the engine answered wrongly: a block probe is wrong on FP, a promote probe unless TP."""
+    """Ids of the block and promote probes the engine answered wrongly, see `probe_correct`."""
     return [
         r.probe_id
         for r in run.probes
-        if (kinds[r.probe_id] == "block" and r.outcome == "FP") or (kinds[r.probe_id] == "promote" and r.outcome != "TP")
+        if kinds[r.probe_id] in ("block", "promote") and not probe_correct(kinds[r.probe_id], r.outcome)
     ]
 
 
