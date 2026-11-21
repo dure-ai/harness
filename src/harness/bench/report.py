@@ -12,6 +12,7 @@ from harness.bench.timing import cost_rows
 from harness.contract import EngineInfo
 from harness.metrics import _m1, _m2
 from harness.replay import ScenarioRun
+from harness.stats import Rate, rate
 from harness.report import _info_json, _order_key, _rate, _result_lines, _scrubber, _table, blind_ids, jsonable
 
 HEADER = "**외부 벤치마크 트랙. 사전 등록한 판정 기준이 아니며 `harness run` 결과와 섞지 않는다.**"
@@ -39,6 +40,12 @@ def _row(runs: list[ScenarioRun]) -> dict[str, Any]:
     }
 
 
+def _sourceless(runs: list[ScenarioRun]) -> Rate:
+    """Share of all results of the finished runs that came back without `sources`, as `Metrics.sourceless`."""
+    results = [res for r in runs if r.error is None for rec in r.probes for res in rec.results]
+    return rate(sum(not res.sources for res in results), len(results))
+
+
 def _split(runs: list[ScenarioRun], key: Callable[[ScenarioRun], str]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, list[ScenarioRun]] = defaultdict(list)
     for r in runs:
@@ -55,6 +62,7 @@ def _tables(b: BenchRun, ids: Mapping[str, str]) -> dict[str, dict[str, Any]]:
         out[ids[name]] = {
             "by_family": _split(runs, lambda r: r.family),
             "by_group": _split(runs, lambda r: b.groups[r.scenario_id]),
+            "sourceless": _sourceless(runs),
             "errors": sorted(r.scenario_id for r in runs if r.error is not None),
         }
     return out
@@ -70,13 +78,18 @@ def _skipped(b: BenchRun) -> dict[str, Any]:
 
 
 def _family_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Rows per engine and family: the external families first, then any other family by name."""
     rows = [
         [eid, fam, row["n_scenarios"], _rate(row["m2"]), _rate(row["m1"]), row["n_errors"]]
         for eid, t in tables.items()
-        for fam in FAMILIES
+        for fam in sorted(t["by_family"], key=lambda f: (f not in FAMILIES, f))
         if (row := t["by_family"].get(fam)) is not None
     ]
     return _table(["엔진", "계열", "문항 수", "M2", "M1", "오류"], rows)
+
+
+def _sourceless_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    return _table(["엔진", "출처 없는 결과"], [[eid, _rate(t["sourceless"])] for eid, t in tables.items()])
 
 
 def _group_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -150,6 +163,12 @@ def _markdown(
         "## 표 1. 계열별 M2·M1",
         "",
         *_family_table(tables),
+        "## 표 1-1. 출처 없는 결과 수",
+        "",
+        "엔진이 돌려준 결과 중 `sources`가 빈 것의 비율이다. 이 트랙은 표지(marker)가 없어 출처가 없으면 근거로 인정받지 못하므로 "
+        "M2가 0이 된다. 출처를 채우지 않는 엔진의 낮은 점수는 이 표와 함께 읽는다.",
+        "",
+        *_sourceless_table(tables),
         f"## 표 2. {M2_TITLE}",
         "",
         *_group_table(tables),
@@ -178,7 +197,8 @@ def _markdown(
             [[ids[r[0]], *r[1:]] for r in cost_rows(normal.timed, normal.runs)],
         ),
     ]
-    lines += ["## 표 5. knowledge-update 판정 차이", "", KU_NOTE, ""]
+    if any("knowledge-update" in t["by_group"] for t in tables.values()):
+        lines += ["## 표 5. knowledge-update 판정 차이", "", KU_NOTE, ""]
     return "\n".join(lines)
 
 
