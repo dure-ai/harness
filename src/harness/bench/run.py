@@ -9,6 +9,7 @@ from typing import Any, Literal
 from harness.bench.config import BenchConfig
 from harness.bench.dataset import Converted, Dataset
 from harness.bench.gold import gold_copy
+from harness.bench.timing import TimedEngine
 from harness.contract import EngineInfo, EngineUnavailable
 from harness.engines import make_engine
 from harness.replay import ScenarioRun, error_kind_of, run_scenario
@@ -25,6 +26,7 @@ class BenchRun:
         groups: Scenario id to the dataset's own type of the item (e.g. LongMemEval `question_type`).
         skipped: (source id, reason) of every item that was not converted or did not pass screening.
         infos: Engine name to its `info()`.
+        timed: Engine name to its `TimedEngine` wrappers, one per scenario that built an engine.
     """
 
     dataset: str
@@ -33,6 +35,7 @@ class BenchRun:
     groups: dict[str, str]
     skipped: list[tuple[str, str]]
     infos: dict[str, EngineInfo] = field(default_factory=dict)
+    timed: dict[str, list[TimedEngine]] = field(default_factory=dict)
 
 
 def run_bench(
@@ -59,7 +62,7 @@ def run_bench(
         gold: Drop the events no probe asks about (spec section 6).
         dataset: Dataset name, recorded in the result.
     """
-    out = BenchRun(dataset, "gold" if gold else "normal", {name: [] for name in engines}, {}, [], {})
+    out = BenchRun(dataset, "gold" if gold else "normal", {name: [] for name in engines}, {}, [], {}, {})
     for c in converted:
         if c.scenario is None:
             out.skipped.append((c.source_id, c.skipped or "skipped"))
@@ -81,7 +84,9 @@ def run_bench(
                     status="unavailable" if isinstance(e, EngineUnavailable) else "error",
                 )
             else:
-                run = run_scenario(engine, s, run_id=run_id, cfg=cfg.eval, blind_key=key)
+                wrapper = TimedEngine(engine)
+                out.timed.setdefault(name, []).append(wrapper)
+                run = run_scenario(wrapper, s, run_id=run_id, cfg=cfg.eval, blind_key=key)
             out.runs[name].append(run)
     return out
 
