@@ -1,3 +1,5 @@
+import gc
+import weakref
 from dataclasses import asdict
 from typing import Any
 
@@ -101,3 +103,34 @@ def test_report_has_table_4(tmp_path):
     text = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "## 표 4. 비용" in text
     assert "| 엔진 |" in text.split("## 표 4.")[1]
+
+
+class Counting(Reporting):
+    """Reports a usage that changes after the scenario is over."""
+
+    instances: "list[weakref.ref[Counting]]" = []
+    calls = 0
+
+    def __init__(self) -> None:
+        self.after = False
+        Counting.instances.append(weakref.ref(self))
+
+    @override
+    def reset(self, namespace: str) -> None:
+        self.after = False
+
+    @override
+    def usage(self) -> dict[str, float] | None:
+        Counting.calls += 1
+        return {"llm_calls": 100 if self.after else 1}
+
+
+def test_usage_is_read_once_right_after_each_scenario_and_no_engine_is_kept():
+    Counting.instances, Counting.calls = [], 0
+    b = run_bench(converted(), ["tests.bench.test_timing:Counting"], BenchConfig(), run_id="t", key=blind_key(1))
+    assert Counting.calls == 3 and len(Counting.instances) == 3
+    gc.collect()
+    assert all(ref() is None for ref in Counting.instances)
+    (row,) = cost_rows(b.timed, b.runs)
+    assert row[-4] == "3"
+    assert Counting.calls == 3  # the report reads the snapshot, not the engine

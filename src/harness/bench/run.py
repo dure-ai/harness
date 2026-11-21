@@ -86,7 +86,11 @@ def run_bench(
             else:
                 wrapper = TimedEngine(engine)
                 out.timed.setdefault(name, []).append(wrapper)
-                run = run_scenario(wrapper, s, run_id=run_id, cfg=cfg.eval, blind_key=key)
+                try:
+                    run = run_scenario(wrapper, s, run_id=run_id, cfg=cfg.eval, blind_key=key)
+                finally:
+                    wrapper.finish()
+                    del engine, wrapper  # keep no engine alive between scenarios
             out.runs[name].append(run)
     return out
 

@@ -24,8 +24,20 @@ class TimedEngine(BaseEngine):
     """
 
     def __init__(self, inner: BaseEngine) -> None:
-        self.inner: BaseEngine = inner
+        self.inner: BaseEngine | None = inner
+        self.reported: dict[str, float] | None = None
         self.ms: dict[str, list[float]] = {"reset": [], "record": [], "flush": [], "search": []}
+
+    def _engine(self) -> BaseEngine:
+        if self.inner is None:
+            raise RuntimeError("the engine was released by finish()")
+        return self.inner
+
+    def finish(self) -> None:
+        """Snapshot the engine's `usage()` once and release the engine, keeping only the timings."""
+        if self.inner is not None:
+            self.reported = self.inner.usage()
+            self.inner = None
 
     def _timed[T](self, name: str, call: Callable[[], T]) -> T:
         t0 = time.perf_counter()
@@ -36,31 +48,31 @@ class TimedEngine(BaseEngine):
 
     @override
     def info(self) -> EngineInfo:
-        return self.inner.info()
+        return self._engine().info()
 
     @override
     def reset(self, namespace: str) -> None:
-        self._timed("reset", lambda: self.inner.reset(namespace))
+        self._timed("reset", lambda: self._engine().reset(namespace))
 
     @override
     def record(self, event: Event) -> None:
-        self._timed("record", lambda: self.inner.record(event))
+        self._timed("record", lambda: self._engine().record(event))
 
     @override
     def search(self, query: Query) -> list[Result]:
-        return self._timed("search", lambda: self.inner.search(query))
+        return self._timed("search", lambda: self._engine().search(query))
 
     @override
     def tick(self, t: datetime) -> None:
-        self.inner.tick(t)
+        self._engine().tick(t)
 
     @override
     def flush(self) -> None:
-        self._timed("flush", self.inner.flush)
+        self._timed("flush", self._engine().flush)
 
     @override
     def usage(self) -> dict[str, float] | None:
-        return self.inner.usage()
+        return self.reported if self.inner is None else self.inner.usage()
 
 
 def _ms(values: list[float], p: int) -> str:
