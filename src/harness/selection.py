@@ -358,7 +358,9 @@ def rank(
     entries = []
     for i, score in enumerate(order):
         if i == 0:
-            entries.append(RankEntry(score.engine_id, position=1, tied_with_previous=False, tiebreak=None, diff_ci=None))
+            entries.append(
+                RankEntry(score.engine_id, position=1, tied_with_previous=False, tiebreak=None, diff_ci=None)
+            )
             continue
         prev = order[i - 1]
         tied = pairs.tied(prev.engine_id, score.engine_id)

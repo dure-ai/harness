@@ -188,7 +188,9 @@ def check_discrimination(s: Scenario, cfg: EvalConfig) -> list[Issue]:
         if rec.kind == "block" and not probe_correct(rec.kind, rec.outcome):
             issues.append(Issue.error("oracle_wrong", f"oracle follows a false fact on block probe {rec.probe_id}"))
         if rec.kind == "promote" and not probe_correct(rec.kind, rec.outcome):
-            issues.append(Issue.error("oracle_wrong", f"oracle outcome {rec.outcome} (want TP) on promote probe {rec.probe_id}"))
+            issues.append(
+                Issue.error("oracle_wrong", f"oracle outcome {rec.outcome} (want TP) on promote probe {rec.probe_id}")
+            )
         if rec.leaks:
             issues.append(Issue.error("oracle_wrong", f"oracle leaks on probe {rec.probe_id}"))
 

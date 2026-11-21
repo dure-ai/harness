@@ -136,3 +136,20 @@ def test_secret_marker_is_found_through_spacing_and_hyphen_changes(text):
 def test_unrelated_text_is_not_a_secret_marker_leak():
     s, p, events = _leak_world()
     assert find_leaks([Result(text="top of the secret list")], p, s, events) == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "outcome", "correct"),
+    [
+        ("block", "BLOCKED", True),
+        ("block", "FP", False),
+        ("promote", "TP", True),
+        ("promote", "FN", False),
+        ("promote", "PROMOTE_FP", False),
+        ("leak", "LEAK_ONLY", False),
+    ],
+)
+def test_probe_correct(kind, outcome, correct):
+    from harness.scoring import probe_correct
+
+    assert probe_correct(kind, outcome) is correct
