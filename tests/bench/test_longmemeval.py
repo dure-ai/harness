@@ -241,3 +241,43 @@ def test_no_engine_visible_probe_field_names_the_probe_or_family():
         sessions = [p.session for p in s.probes]
         assert len(set(sessions)) == len(sessions)
         assert not {e.session for e in s.events} & set(sessions)  # the probe sessions are new ones
+
+
+def test_turns_timed_at_or_after_the_question_are_dropped():
+    sessions = [("2023/07/01 (Sat) 09:58", [("user", "hi"), ("assistant", "a"), ("user", "b"), ("assistant", "c")])]
+    q = lme_question("late", "single-session-user", sessions, [0], QDATE)
+    s = convert_question(q, {}).scenario
+    assert s is not None
+    assert [e.id for e in s.events] == ["s0-t0", "s0-t1"]
+    assert all(e.t < p.t for e in s.events for p in s.probes)
+
+
+def test_an_evidence_turn_timed_after_the_question_skips_it():
+    sessions = [("2023/07/01 (Sat) 09:59", [("user", "hi"), ("assistant", "a"), ("user", "I own a red bike")])]
+    q = lme_question("late_ev", "single-session-user", sessions, [0], QDATE, has_answer={0: [2]})
+    c = convert_question(q, {})
+    assert c.scenario is None and c.skipped == "evidence after the question"
+
+
+def test_label_values_are_checked():
+    import pytest
+
+    from harness.bench.datasets.longmemeval import parse_ku_labels
+
+    assert parse_ku_labels("a: new\nb: old\nc: both\nd: exclude\n") == {
+        "a": "new", "b": "old", "c": "both", "d": "exclude"
+    }
+    with pytest.raises(ValueError, match="nwe"):
+        parse_ku_labels("a: nwe\n")
+
+
+def test_a_dropped_late_turn_does_not_push_the_next_session_past_the_question():
+    sessions = [
+        ("2023/07/01 (Sat) 09:58", [("user", "a"), ("assistant", "b"), ("user", "c"), ("assistant", "d")]),
+        ("2023/07/01 (Sat) 09:59", [("user", "I own a red bike")]),
+    ]
+    q = lme_question("late2", "single-session-user", sessions, [1], QDATE)
+    s = convert_question(q, {}).scenario
+    assert s is not None
+    assert [e.id for e in s.events] == ["s0-t0", "s0-t1", "s1-t0"]
+    assert s.events[-1].fact == "f1"

@@ -15,7 +15,7 @@ from harness.bench.datasets import longmemeval
 from harness.bench.datasets.longmemeval import LongMemEvalS, convert_question
 from harness.bench.run import run_bench
 from harness.cli import app
-from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
+from harness.contract import BaseEngine, EngineInfo, EngineUnavailable, Event, Query, Result
 from harness.replay import blind_key
 from tests.bench.lme_fixture import lme_question, write_lme
 
@@ -295,3 +295,75 @@ def test_the_gold_pass_has_its_own_run_id(tmp_path: Path, cached: Path, monkeypa
     (normal_id, normal_gold), (gold_id, gold_gold) = seen
     assert (normal_gold, gold_gold) == (False, True)
     assert gold_id == normal_id + "-gold"
+
+
+class AlwaysDown(BaseEngine):
+    """Cannot be built: its backend never answers. Counts the attempts."""
+
+    built = 0
+
+    def __init__(self) -> None:
+        type(self).built += 1
+        raise EngineUnavailable("connection refused")
+
+    def info(self) -> EngineInfo:
+        return EngineInfo(name="down", version="0")
+
+    def reset(self, namespace: str) -> None:
+        pass
+
+    def record(self, event: Event) -> None:
+        pass
+
+    def search(self, query: Query) -> list[Result]:
+        return []
+
+
+DOWN = "tests.bench.test_run:AlwaysDown"
+
+
+def test_run_bench_stops_building_an_engine_that_stays_unavailable(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(AlwaysDown, "built", 0)
+    b = run_bench(converted(), ["oracle", DOWN], BenchConfig(), run_id="t", key=blind_key(1), max_unavailable=2)
+    assert AlwaysDown.built == 2
+    assert [r.status for r in b.runs[DOWN]] == ["unavailable", "unavailable", "skipped"]
+    assert b.runs[DOWN][2].error is not None and "unavailable for 2 scenarios in a row" in b.runs[DOWN][2].error
+    assert b.tripped == {DOWN} and all(r.error is None for r in b.runs["oracle"])
+    # The gold pass tries a tripped engine once and skips the rest when it is still down.
+    monkeypatch.setattr(AlwaysDown, "built", 0)
+    g = run_bench(
+        converted(), ["oracle", DOWN], BenchConfig(), run_id="t-gold", key=blind_key(1), gold=True,
+        max_unavailable=2, tripped=b.tripped,
+    )
+    assert AlwaysDown.built == 1
+    assert [r.status for r in g.runs[DOWN]] == ["unavailable", "skipped", "skipped"]
+
+
+def test_a_tripped_engine_that_answers_again_resumes():
+    b = run_bench(
+        converted(), ["oracle"], BenchConfig(), run_id="t", key=blind_key(1), max_unavailable=2, tripped={"oracle"}
+    )
+    assert all(r.status == "ok" for r in b.runs["oracle"]) and b.tripped == set()
+
+
+def test_harness_run_refuses_external_scenarios(tmp_path: Path, cached: Path):
+    sc = tmp_path / "sc"
+    r = runner.invoke(app, ["bench", "export", "--dataset", "longmemeval-s", "--out", str(sc)])
+    assert r.exit_code == 0, r.output
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["run", "--scenarios", str(sc), "--include-drafts", "--out", str(runs)])
+    assert r.exit_code == 2 and "harness bench run --scenarios" in r.output
+    assert not runs.exists()
+
+
+def test_the_cost_estimate_counts_the_gold_pass(tmp_path: Path, cached: Path):
+    from harness.bench.gold import gold_copy
+
+    scenarios = [c.scenario for c in screened(converted(), BenchConfig().eval) if c.scenario is not None]
+    normal = sum(len(s.events) for s in scenarios)
+    gold = sum(len(gold_copy(s).events) for s in scenarios)
+    base = ["bench", "run", "--dataset", "longmemeval-s", "--engine", "mem0", "--out", str(tmp_path / "o")]
+    r = runner.invoke(app, base, input="n\n")
+    assert f"mem0: about {normal} LLM calls" in r.output
+    r = runner.invoke(app, [*base, "--gold"], input="n\n")
+    assert f"mem0: about {normal + gold} LLM calls" in r.output

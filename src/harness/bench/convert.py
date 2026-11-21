@@ -25,10 +25,13 @@ class Clock:
     def __init__(self) -> None:
         self._last: datetime | None = None
 
+    def peek(self, wanted: datetime) -> datetime:
+        """The time `at(wanted)` would hand out, without handing it out."""
+        if self._last is not None and wanted <= self._last:
+            return self._last + timedelta(seconds=1)
+        return wanted
+
     def at(self, wanted: datetime) -> datetime:
         """Return `wanted`, or one second after the previous time if that is not later."""
-        t = wanted
-        if self._last is not None and t <= self._last:
-            t = self._last + timedelta(seconds=1)
-        self._last = t
+        self._last = t = self.peek(wanted)
         return t

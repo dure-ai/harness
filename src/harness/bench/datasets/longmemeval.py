@@ -26,10 +26,27 @@ def parse_lme_date(text: str) -> datetime:
     return datetime.strptime(f"{day} {clock}", "%Y/%m/%d %H:%M").replace(tzinfo=UTC)
 
 
+LABELS = ("new", "old", "both", "exclude")
+
+
+def parse_ku_labels(text: str) -> dict[str, str]:
+    """Parse a label file: question id to one of `LABELS`.
+
+    Raises:
+        ValueError: A label is not one of `LABELS`, naming the id and the value.
+    """
+    labels = {str(k): str(v) for k, v in yaml.safe_load(text).items()}
+    for qid, label in labels.items():
+        if label not in LABELS:
+            raise ValueError(f"knowledge-update label of {qid} is {label!r}; use one of {', '.join(LABELS)}")
+    return labels
+
+
 def load_ku_labels() -> dict[str, str]:
     """The knowledge-update labels shipped with the package: question id to new/old/both/exclude."""
-    text = (resources.files("harness.bench.datasets") / "longmemeval_ku_labels.yaml").read_text(encoding="utf-8")
-    return {str(k): str(v) for k, v in yaml.safe_load(text).items()}
+    return parse_ku_labels(
+        (resources.files("harness.bench.datasets") / "longmemeval_ku_labels.yaml").read_text(encoding="utf-8")
+    )
 
 
 class _Session:
@@ -81,8 +98,14 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
                 return skip("answer session without evidence turns")
             facts[f"f{si}"] = Fact(text="\n".join(evidence)[:FACT_CHARS])
         for ti, turn in enumerate(sess.turns):
-            t = clock.at(sess.t + timedelta(minutes=ti))
             fact = f"f{si}" if is_answer and turn.get("has_answer") else None
+            # Turns are a minute apart, so a session that starts just before the question can run
+            # past it; such turns would come after the probe. Dropped turns do not move the clock.
+            if clock.peek(sess.t + timedelta(minutes=ti)) >= qdate:
+                if fact is not None:
+                    return skip("evidence after the question")
+                continue
+            t = clock.at(sess.t + timedelta(minutes=ti))
             if fact is not None:
                 first_evidence.setdefault(fact, t)
             events.append(
@@ -156,7 +179,7 @@ class LongMemEvalS:
 
     def convert(self, cache: Path, *, types: set[str] | None, limit: int | None) -> Iterator[Converted]:
         """Convert the cached file; `types` filters by `question_type`, `limit` counts converted and skipped items."""
-        records: list[dict[str, Any]] = json.loads((cache / self.files()[0].name).read_text(encoding="utf-8"))
+        records: list[dict[str, Any]] = json.loads((cache / self.files()[0].name).read_bytes())
         labels = load_ku_labels()
         n = 0
         for q in records:
