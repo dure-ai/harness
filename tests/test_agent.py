@@ -166,3 +166,9 @@ def test_stale_about_source_is_not_hidden_by_an_outside_marker():
         choice = choose([r], p, s, events)
         assert choice.basis == frozenset({"stale", "other"})
         assert judge(p, choice, s) == expected
+
+
+def test_choice_abstained_when_nothing_or_an_empty_basis_was_followed():
+    assert Choice(None, frozenset()).abstained
+    assert Choice(0, frozenset()).abstained
+    assert not Choice(0, frozenset({"f1"})).abstained

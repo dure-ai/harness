@@ -10,13 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from harness.yamlio import load_yaml
 
 
-class _Strict(BaseModel):
+class StrictModel(BaseModel):
     """Base for config models: unknown keys are errors."""
 
     model_config = ConfigDict(extra="forbid")
 
 
-class Judgment(_Strict):
+class Judgment(StrictModel):
     """Pass criteria relative to the all_store baseline (pre-registered).
 
     Attributes:
@@ -30,7 +30,7 @@ class Judgment(_Strict):
     m1_abs_cap: float | None = Field(default=None, ge=0, le=1)
 
 
-class Stats(_Strict):
+class Stats(StrictModel):
     """Bootstrap settings for comparing engines.
 
     Attributes:
@@ -42,7 +42,7 @@ class Stats(_Strict):
     seed: int = 20261019
 
 
-class RepeatN(_Strict):
+class RepeatN(StrictModel):
     """Parameters of the repeat_n baseline.
 
     Attributes:
@@ -56,7 +56,7 @@ class RepeatN(_Strict):
     tau: float = Field(default=0.5, ge=0, le=1)
 
 
-class FeedbackDelays(_Strict):
+class FeedbackDelays(StrictModel):
     """Default delays of harness-generated events in feedback mode, relative to the probe time.
 
     Attributes:
@@ -78,7 +78,7 @@ class FeedbackDelays(_Strict):
         return value
 
 
-class LLM(_Strict):
+class LLM(StrictModel):
     """The model shared by every engine that calls an LLM (same model for fairness).
 
     Attributes:
@@ -92,7 +92,7 @@ class LLM(_Strict):
     embedding_model: str | None = None
 
 
-class EvalConfig(_Strict):
+class EvalConfig(StrictModel):
     """Everything that affects scores; committed and hashed before results are seen.
 
     Attributes:

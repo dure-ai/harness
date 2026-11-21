@@ -247,8 +247,7 @@ def compress(trace: Trace, budget: int = 15000) -> str:
         room = budget - used - (2 if kept else 0)
         if room > 0:
             kept[i] = text[:room]
-            n += 1
-        tail = rest[n:]
+        tail = rest[n + 1 if room > 0 else n :]
         if tail:
             marker = f"[… #{msgs[tail[0]].index}-#{msgs[tail[-1]].index} omitted …]"
         break

@@ -160,6 +160,11 @@ def find_draft(root: Path, scenario_id: str) -> list[Path]:
 # ---- edit and set -------------------------------------------------------------------------------
 
 
+def _review_key(review: Review) -> tuple[object, ...]:
+    """The review fields only `harness review set` may change."""
+    return (review.status, review.reviewer, review.approved_hash, review.check_config_hash)
+
+
 def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> EditResult:
     """Let the reviewer edit a draft in `editor`; keep the edit only if it leaves the labels alone.
 
@@ -225,12 +230,7 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     edited.provenance.generated_hash = original.provenance.generated_hash
     if edited.model_dump(mode="json") == original.model_dump(mode="json"):
         return EditResult("unchanged")
-    if (edited.review.status, edited.review.reviewer, edited.review.approved_hash, edited.review.check_config_hash) != (
-        original.review.status,
-        original.review.reviewer,
-        original.review.approved_hash,
-        original.review.check_config_hash,
-    ):
+    if _review_key(edited.review) != _review_key(original.review):
         return revert(
             "review status, reviewer and approved_hash change only with `harness review set`",
             after,
@@ -389,8 +389,7 @@ def set_status(
             fingerprint = "changed"
         if fingerprint == "changed":
             return [
-                Issue(
-                    "error",
+                Issue.error(
                     LABELS_CHANGED,
                     "the labels were changed outside the review tool (the label fingerprint "
                     "differs from the one recorded at generation); undo that change, or reject "
@@ -402,8 +401,7 @@ def set_status(
             return issues
         if fingerprint == "unverified":
             issues.append(
-                Issue(
-                    "warning",
+                Issue.warning(
                     FINGERPRINT_NOT_RECORDED,
                     "no usable label fingerprint was recorded at generation, so label edits made "
                     "outside review edit cannot be detected; check the labels yourself",

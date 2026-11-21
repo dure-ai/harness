@@ -40,7 +40,7 @@ def _config_model(reply: Any, section: str) -> str:
 
 def _expected_dims(env: Mapping[str, str]) -> int:
     raw = env.get(ENV_DIMS)
-    if raw is None or raw == "":  # like compose's ${VAR:-default}: only unset or empty is the default
+    if not raw:  # like compose's ${VAR:-default}: only unset or empty is the default
         return DEFAULT_DIMS
     msg = f"{ENV_DIMS} must be a positive whole number, got {raw!r}"
     try:
@@ -124,9 +124,9 @@ class Mem0Engine(BaseEngine):
             unset_note = " (unset, so the default)" if env.get(ENV_DIMS, "") == "" else ""
             raise ValueError(
                 f"{seen}, but {ENV_DIMS} for the harness is {self._dims}{unset_note}. "
-                + f"If the server is right, set {ENV_DIMS}={running_dims} where you run the harness; "
-                + "if the server must change, set it where you start the containers and recreate them "
-                + "with `down -v` (an existing table keeps its size)."
+                f"If the server is right, set {ENV_DIMS}={running_dims} where you run the harness; "
+                "if the server must change, set it where you start the containers and recreate them "
+                "with `down -v` (an existing table keeps its size)."
             )
         self._run: str | None = None
         self._event_ids: set[str] = set()

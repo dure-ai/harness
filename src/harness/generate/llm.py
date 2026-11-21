@@ -9,13 +9,12 @@ import os
 from collections.abc import Callable, Mapping
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ValidationError
 
 from harness.generate.config import GenConfig
 
-T = TypeVar("T", bound=BaseModel)
 
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 _AUTH_ERRORS = frozenset({"AuthenticationError", "PermissionDeniedError"})
@@ -62,7 +61,7 @@ class LLMClient(Protocol):
     model: str
     last_model: str | None
 
-    def complete_json(
+    def complete_json[T: BaseModel](
         self,
         kind: str,
         system: str,
@@ -101,7 +100,7 @@ def _summarize(exc: ValueError) -> str:
     return " ".join(str(exc).split())
 
 
-def _ask_with_retry(
+def _ask_with_retry[T: BaseModel](
     ask: Callable[[str], str],
     user: str,
     schema: type[T],
@@ -110,7 +109,7 @@ def _ask_with_retry(
     """Call `ask(user)`, validate the text, and ask once more with the error if it fails."""
     prompt = user
     last = ""
-    for attempt in range(2):
+    for _ in range(2):
         text = ask(prompt)
         try:
             value = schema.model_validate_json(text)
@@ -154,7 +153,7 @@ class FakeClient:
         self.requests: list[tuple[str, str, str]] = []
         self.last_model: str | None = None
 
-    def complete_json(
+    def complete_json[T: BaseModel](
         self,
         kind: str,
         system: str,
@@ -250,7 +249,7 @@ class CachedClient:
             json.dumps(parts, sort_keys=True).encode("utf-8")
         ).hexdigest()
 
-    def complete_json(
+    def complete_json[T: BaseModel](
         self,
         kind: str,
         system: str,
@@ -396,7 +395,7 @@ class AnthropicClient:
             raise LLMError(f"anthropic: {_TRUNCATED} ({self._cfg.max_output_tokens})")
         return "".join(block.text for block in reply.content if block.type == "text")
 
-    def complete_json(
+    def complete_json[T: BaseModel](
         self,
         kind: str,
         system: str,
@@ -499,7 +498,7 @@ class OpenAIClient:
             raise LLMError(f"openai: {_TRUNCATED}")
         return choice.message.content or ""
 
-    def complete_json(
+    def complete_json[T: BaseModel](
         self,
         kind: str,
         system: str,

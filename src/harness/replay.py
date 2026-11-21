@@ -6,18 +6,18 @@ import hmac
 import time
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import count
-from typing import Literal
+from typing import Literal, Self, get_args
 
 from harness.agent import Choice, choose, result_basis
 from harness.config import EvalConfig
-from harness.contract import BaseEngine, EngineUnavailable, Event, Result
-from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, Scenario
+from harness.contract import BaseEngine, EngineUnavailable, Event, Query, Result
+from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, ProbeKind, Scenario
 from harness.scoring import Leak, ProbeOutcome, find_leaks, is_wrong, judge
 
 Status = Literal["ok", "error", "unavailable", "skipped"]
-STATUSES: frozenset[str] = frozenset({"ok", "error", "unavailable", "skipped"})
+STATUSES: frozenset[str] = frozenset(get_args(Status))
 
 EVENT, PROBE = 0, 1  # tie-break order: events at the same time come before probes
 
@@ -126,7 +126,7 @@ class ProbeRecord:
     """
 
     probe_id: str
-    kind: str
+    kind: ProbeKind
     results: list[Result]
     choice: Choice
     outcome: ProbeOutcome
@@ -182,6 +182,19 @@ class ScenarioRun:
         if (self.status == "ok") != (self.error is None):
             raise ValueError(f"status {self.status!r} does not match error {self.error!r}")
 
+    @classmethod
+    def failed(cls, scenario_id: str, family: str, mode: str, e: Exception) -> Self:
+        """A run that ended on engine exception `e` before any step, see `fail`."""
+        run = cls(scenario_id, family, mode)
+        run.fail(e)
+        return run
+
+    def fail(self, e: Exception) -> None:
+        """Mark the run as ended by engine exception `e`: its error text, kind and status."""
+        self.error = f"{type(e).__name__}: {e}"
+        self.error_kind = error_kind_of(e)
+        self.status = failure_status(e)
+
 
 def error_kind_of(e: BaseException) -> str:
     """The exception class name, plus " <status>" when it has an int `status`; no message."""
@@ -190,8 +203,8 @@ def error_kind_of(e: BaseException) -> str:
     return f"{name} {status}" if isinstance(status, int) and not isinstance(status, bool) else name
 
 
-def _failure_status(e: Exception) -> Status:
-    """The `ScenarioRun.status` for an engine exception."""
+def failure_status(e: Exception) -> Status:
+    """The `ScenarioRun.status` for an engine exception: "unavailable" or "error"."""
     return "unavailable" if isinstance(e, EngineUnavailable) else "error"
 
 
@@ -245,7 +258,7 @@ def _score_probe(
         leaks=find_leaks(results, probe, scenario, recorded),
         bases=bases,
         contaminated=any(wrong),
-        reached=any(bool(b) and not w for b, w in zip(bases, wrong)),
+        reached=any(bool(b) and not w for b, w in zip(bases, wrong, strict=True)),
         search_ms=search_ms,
         context_chars=sum(len(r.text) for r in results),
     )
@@ -281,7 +294,7 @@ def _generated(
     probe: Probe,
     tmpl: FeedbackTemplate,
     event_id: str,
-    default_delay,
+    default_delay: timedelta,
     scenario: Scenario,
     refs: Sequence[str] = (),
     not_before: datetime | None = None,
@@ -341,7 +354,7 @@ def feedback_events(
     def make(
         tmpl: FeedbackTemplate,
         slot: str,
-        delay,
+        delay: timedelta,
         refs: Sequence[str] = (),
         not_before: datetime | None = None,
     ) -> tuple[str, LabeledEvent]:
@@ -352,8 +365,7 @@ def feedback_events(
     feedback = probe.feedback
     if feedback is None:
         return []
-    abstained = choice.index is None or not choice.basis  # same rule as scoring.judge
-    if abstained:
+    if choice.abstained:
         action_tmpl = feedback.abstain
     else:
         # The basis can state facts outside `about` (design 7.2); the action templates are keyed
@@ -368,7 +380,7 @@ def feedback_events(
     if action_tmpl is not None:
         generated.append(make(action_tmpl, "action", cfg.feedback.action))
         action_t = generated[0][1].event.t
-    if not abstained:
+    if not choice.abstained:
         if is_wrong(choice.basis, probe, scenario):
             tmpl, delay = feedback.on_false, cfg.feedback.on_false
         else:
@@ -449,44 +461,25 @@ def run_scenario(
         virtual_clock = engine.info().virtual_clock
         engine.reset(namespace(run_id, scenario.id, blind_key))
     except Exception as e:
-        run.error = f"{type(e).__name__}: {e}"
-        run.error_kind = error_kind_of(e)
-        run.status = _failure_status(e)
+        run.fail(e)
         return run
 
     while timeline:
         t, item = timeline.pop()
+        tick_at = t if virtual_clock else None
         if isinstance(item, LabeledEvent):
             try:
-                if virtual_clock:
-                    engine.tick(t)
-                start = time.perf_counter()
-                engine.record(ids.out(item.event))
-                run.record_ms.append((time.perf_counter() - start) * 1000)
+                run.record_ms.append(_record(engine, ids, item.event, tick_at))
             except Exception as e:
-                run.error = f"{type(e).__name__}: {e}"
-                run.error_kind = error_kind_of(e)
-                run.status = _failure_status(e)
+                run.fail(e)
                 return run
             recorded[item.event.id] = item
             continue
-        query = scenario.query_for(
-            item, cfg.k
-        )  # harness code: not wrapped, so harness bugs surface
+        query = scenario.query_for(item, cfg.k)  # harness code: not wrapped, so harness bugs surface
         try:
-            if virtual_clock:
-                engine.tick(t)
-            engine.flush()
-            start = time.perf_counter()
-            raw = list(engine.search(query))
-            search_ms = (time.perf_counter() - start) * 1000
-            raw = [
-                _as_result(r) for r in raw
-            ]  # a malformed return errors this scenario only
+            raw, search_ms = _search(engine, query, tick_at)
         except Exception as e:
-            run.error = f"{type(e).__name__}: {e}"
-            run.error_kind = error_kind_of(e)
-            run.status = _failure_status(e)
+            run.fail(e)
             return run
         results = [ids.back(r) for r in raw[: cfg.k if item.k is None else item.k]]
         record = _score_probe(item, results, scenario, recorded, search_ms)
@@ -494,11 +487,32 @@ def run_scenario(
         if scenario.mode == "feedback" and item.feedback is not None:
             index = record.choice.index
             judged = results[index].sources if index is not None else ()
-            for slot, generated in feedback_events(
-                item, record.choice, scenario, cfg, taken, judged
-            ):
+            for slot, generated in feedback_events(item, record.choice, scenario, cfg, taken, judged):
                 taken.add(generated.event.id)  # id numbering/clash set only; evidence is `recorded`
                 run.generated.append(generated)
                 run.generated_ids[(item.id, slot)] = generated.event.id
                 push_event(timeline, generated)
     return run
+
+
+def _record(engine: BaseEngine, ids: _EngineIds, event: Event, tick_at: datetime | None) -> float:
+    """`tick` (with a virtual clock), then `record` the event under its opaque id; the call's ms."""
+    if tick_at is not None:
+        engine.tick(tick_at)
+    start = time.perf_counter()
+    engine.record(ids.out(event))
+    return (time.perf_counter() - start) * 1000
+
+
+def _search(engine: BaseEngine, query: Query, tick_at: datetime | None) -> tuple[list[Result], float]:
+    """`tick` (with a virtual clock), `flush`, then `search`; the validated results and the search ms.
+
+    A malformed item raises here, so it errors this scenario only.
+    """
+    if tick_at is not None:
+        engine.tick(tick_at)
+    engine.flush()
+    start = time.perf_counter()
+    raw = list(engine.search(query))
+    search_ms = (time.perf_counter() - start) * 1000
+    return [_as_result(r) for r in raw], search_ms

@@ -28,6 +28,7 @@ Family = Literal[
 ]
 FAMILIES: tuple[str, ...] = get_args(Family)
 FEEDBACK_FAMILIES = ("echo", "failure_feedback")
+ProbeKind = Literal["block", "promote", "leak"]
 
 
 class _Strict(BaseModel):
@@ -110,7 +111,7 @@ class Probe(_Strict):
     """
 
     id: str
-    kind: Literal["block", "promote", "leak"]
+    kind: ProbeKind
     t: AwareDatetime
     user: str
     session: str

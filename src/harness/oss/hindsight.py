@@ -212,8 +212,4 @@ class HindsightEngine(BaseEngine):
             found: list[Any] = [(facts.get(fid) or {}).get("document_id") for fid in row.get("source_fact_ids") or []]
         else:
             found = [row.get("document_id")]
-        sources: list[str] = []
-        for doc in found:
-            if isinstance(doc, str) and doc in self._event_ids and doc not in sources:
-                sources.append(doc)
-        return sources
+        return list(dict.fromkeys(doc for doc in found if isinstance(doc, str) and doc in self._event_ids))

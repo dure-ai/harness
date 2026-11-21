@@ -6,11 +6,11 @@ from typing import Literal
 
 from pydantic import Field
 
-from harness.config import _Strict
+from harness.config import StrictModel
 from harness.yamlio import load_yaml
 
 
-class GenConfig(_Strict):
+class GenConfig(StrictModel):
     """How candidate scenarios are generated and which sources are allowed.
 
     Attributes:

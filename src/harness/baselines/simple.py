@@ -6,7 +6,7 @@ from harness.contract import BaseEngine, EngineInfo, Event, Query, Result, can_s
 from harness.text import BM25, jaccard
 
 
-class _NamespacedEngine(BaseEngine, ABC):
+class NamespacedEngine(BaseEngine, ABC):
     """Keeps a dict of namespace -> stored events; `reset` selects and clears one."""
 
     def __init__(self) -> None:
@@ -39,7 +39,7 @@ def _rank(events: list[Event], q: Query) -> list[Result]:
     return [Result(text=e.text, sources=[e.id]) for e in hits[: q.k]]
 
 
-class NoneEngine(_NamespacedEngine):
+class NoneEngine(NamespacedEngine):
     """Hands over nothing: the "no memory" floor (M1 = M2 = 0)."""
 
     def info(self) -> EngineInfo:
@@ -52,7 +52,7 @@ class NoneEngine(_NamespacedEngine):
         return []
 
 
-class AllStoreEngine(_NamespacedEngine):
+class AllStoreEngine(NamespacedEngine):
     """Stores everything and hands over the best BM25 matches: the judgment baseline.
 
     Args:
@@ -77,7 +77,7 @@ class AllStoreEngine(_NamespacedEngine):
         return _rank(events, query)
 
 
-class RepeatNEngine(_NamespacedEngine):
+class RepeatNEngine(NamespacedEngine):
     """Hands over only events that recur: at least `n` similar visible events (itself included).
 
     Similarity is token-set Jaccard >= `tau`; who said it is ignored, so repeated injection by one

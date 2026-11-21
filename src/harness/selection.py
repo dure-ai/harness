@@ -4,6 +4,7 @@ import math
 import statistics
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from typing import Self
 
 from harness.config import EvalConfig
 from harness.metrics import FamilyRow, Metrics, per_scenario_counts, worst_family
@@ -62,7 +63,7 @@ class EngineScore:
         base: Metrics,
         cfg: EvalConfig,
         flip: Rate | None = None,
-    ) -> "EngineScore":
+    ) -> Self:
         """Average the repeats (see `averaged`) and judge the result against `base`."""
         metrics = averaged(repeats) if len(repeats) > 1 else repeats[0]
         return cls(engine_id, metrics, judge_engine(metrics, base, cfg), repeats, flip)
@@ -119,7 +120,8 @@ def judge_engine(m: Metrics, base: Metrics, cfg: EvalConfig) -> Verdict:
     return Verdict(m1_ok, m2_ok, m3_ok, abs_cap_ok, passed, reasons)
 
 
-def _mean(values: list[float | None]) -> float | None:
+def _mean_of_all(values: list[float | None]) -> float | None:
+    """Mean of the repeats' values; None when any repeat has none."""
     present = [v for v in values if v is not None]
     if len(present) != len(values):
         return None
@@ -183,8 +185,8 @@ def averaged(repeats: list[Metrics]) -> Metrics:
     by_family = _pool_rows([r.by_family for r in repeats])
     return replace(
         first,
-        m1=replace(first.m1, value=_mean([r.m1.value for r in repeats])),
-        m2=replace(first.m2, value=_mean([r.m2.value for r in repeats])),
+        m1=replace(first.m1, value=_mean_of_all([r.m1.value for r in repeats])),
+        m2=replace(first.m2, value=_mean_of_all([r.m2.value for r in repeats])),
         m3=max(r.m3 for r in repeats),  # a leak in any repeat fails the gate
         promote_fn=_pool([r.promote_fn for r in repeats]),
         promote_fp=_pool([r.promote_fp for r in repeats]),
@@ -226,11 +228,6 @@ def relative_metrics(
     return {"improvement_ratio": improvement, "repeat_mistake_reduction": reduction}
 
 
-def _promote_tp_by_scenario(runs: list[ScenarioRun]) -> dict[str, tuple[int, int]]:
-    ids = sorted(r.scenario_id for r in runs if r.error is None and r.mode == "read_only")
-    return dict(zip(ids, per_scenario_counts(runs, "promote", "TP")))
-
-
 def _canonical_ci(
     first: str, second: str, runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig
 ) -> tuple[float, float] | None:
@@ -240,7 +237,8 @@ def _canonical_ci(
     (0, 0) pair adds nothing to the pooled rates, but a resample made of such scenarios
     alone would count as a 0 difference and widen the interval toward a false tie.
     """
-    a, b = _promote_tp_by_scenario(runs[first]), _promote_tp_by_scenario(runs[second])
+    a = per_scenario_counts(runs[first], "promote", "TP")
+    b = per_scenario_counts(runs[second], "promote", "TP")
     common = sorted(s for s in a.keys() & b.keys() if a[s][1] > 0 and b[s][1] > 0)
     if not common:
         return None
@@ -271,7 +269,8 @@ def _tiebreak_keys(m: Metrics) -> dict[str, float]:
 
 
 def _close(a: float, b: float) -> bool:
-    return a == b or abs(a - b) <= EPS
+    """Equal within `EPS`; two infinities of one sign (missing values) are equal."""
+    return math.isclose(a, b, rel_tol=0.0, abs_tol=EPS)
 
 
 def _tiebreak(a: Metrics, b: Metrics) -> tuple[int, str]:
@@ -359,12 +358,19 @@ def rank(
     entries = []
     for i, score in enumerate(order):
         if i == 0:
-            entries.append(RankEntry(score.engine_id, 1, False, None, None))
+            entries.append(
+                RankEntry(score.engine_id, position=1, tied_with_previous=False, tiebreak=None, diff_ci=None)
+            )
             continue
         prev = order[i - 1]
         tied = pairs.tied(prev.engine_id, score.engine_id)
-        tiebreak = _tiebreak(prev.metrics, score.metrics)[1] if tied else None
         entries.append(
-            RankEntry(score.engine_id, i + 1, tied, tiebreak, pairs.ci(prev.engine_id, score.engine_id))
+            RankEntry(
+                score.engine_id,
+                position=i + 1,
+                tied_with_previous=tied,
+                tiebreak=_tiebreak(prev.metrics, score.metrics)[1] if tied else None,
+                diff_ci=pairs.ci(prev.engine_id, score.engine_id),
+            )
         )
     return entries
