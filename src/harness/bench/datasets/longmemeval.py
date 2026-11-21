@@ -111,20 +111,22 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
             id=pid, kind="promote", t=qdate, user="u1", session=session, repo=REPO, query=q["question"], about=about
         )
 
+    # Probe sessions continue the event numbering, so no session id tells a block probe from a promote probe.
+    next_session = len(sessions)
     if label == "new":
         old, new = ids[0], ids[-1]
         facts[old].valid_until = first_evidence[new]
         probes = [
             Probe(
-                id="p-block", kind="block", t=qdate, user="u1", session="q-block", repo=REPO,
+                id="p-block", kind="block", t=qdate, user="u1", session=f"sess-{next_session}", repo=REPO,
                 query=q["question"], about=[old, new],
             ),
-            promote("p-promote", "q-promote", [new]),
+            promote("p-promote", f"sess-{next_session + 1}", [new]),
         ]
         family = "ext_update"
     else:
         about = {"old": ids[:1], "both": [ids[0], ids[-1]]}.get(label or "", ids)
-        probes = [promote("p-promote", "q", about)]
+        probes = [promote("p-promote", f"sess-{next_session}", about)]
         family = "ext_recall"
 
     scenario = Scenario(
