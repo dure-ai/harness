@@ -103,8 +103,8 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
             )
 
     ids = list(facts)  # evidence sessions in date order
-    if label is not None and len(ids) < 2:
-        return skip("knowledge-update without two evidence sessions")
+    if label is not None and len(ids) != 2:
+        return skip("knowledge-update without exactly two evidence sessions")
 
     def promote(pid: str, session: str, about: list[str]) -> Probe:
         return Probe(

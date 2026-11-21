@@ -196,3 +196,24 @@ def test_dataset_declares_the_file_and_converts_from_the_cache(tmp_path):
     assert [c.source_id for c in got] == ["m1", "m2"]
     assert [c.source_id for c in ds.convert(tmp_path, types={"single-session-user"}, limit=None)] == ["m2"]
     assert [c.source_id for c in ds.convert(tmp_path, types=None, limit=1)] == ["m1"]
+
+
+def test_knowledge_update_needs_exactly_two_evidence_sessions():
+    three = lme_question(
+        "k3",
+        "knowledge-update",
+        [
+            ("2023/05/01 (Mon) 09:00", [("user", "I use Vim")]),
+            ("2023/05/20 (Sat) 09:00", [("user", "I use Emacs")]),
+            ("2023/06/20 (Tue) 09:00", [("user", "I use VS Code")]),
+        ],
+        [0, 1, 2],
+        QDATE,
+    )
+    one = lme_question(
+        "k1", "knowledge-update", [("2023/05/01 (Mon) 09:00", [("user", "I use Vim")])], [0], QDATE
+    )
+    for q in (three, one):
+        for label in ("new", "old", "both"):
+            c = convert_question(q, {q["question_id"]: label})
+            assert (c.scenario, c.skipped) == (None, "knowledge-update without exactly two evidence sessions")
