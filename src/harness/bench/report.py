@@ -8,6 +8,7 @@ from typing import Any
 
 from harness.bench.gold import CELLS, compare_modes, gold_only_wrong_examples
 from harness.bench.run import BenchRun
+from harness.bench.timing import cost_rows
 from harness.contract import EngineInfo
 from harness.metrics import _m1, _m2
 from harness.replay import ScenarioRun
@@ -165,6 +166,18 @@ def _markdown(
             "",
             *_comparison_table(comparison),
         ]
+    lines += [
+        "## 표 4. 비용",
+        "",
+        "시간은 호출 한 번의 벽시계 ms(문항 전체를 모아 p50/p95), 컨텍스트는 프로브당 평균 글자 수다. "
+        "사용량은 엔진이 `usage()`로 알린 값을 문항 전체에서 합한 것이고, 알리지 않으면 알 수 없음이다.",
+        "",
+        *_table(
+            ["엔진", "record p50", "record p95", "flush p50", "flush p95", "search p50", "search p95",
+             "컨텍스트 글자", "LLM 호출", "입력 토큰", "출력 토큰", "임베딩 호출"],
+            [[ids[r[0]], *r[1:]] for r in cost_rows(normal.timed, normal.runs)],
+        ),
+    ]
     lines += ["## 표 5. knowledge-update 판정 차이", "", KU_NOTE, ""]
     return "\n".join(lines)
 

@@ -119,7 +119,7 @@ def test_run_on_the_fixture_scores_baselines_and_writes_the_report(tmp_path: Pat
     }
     all_recall = [c for k, c in rows.items() if k == ("oracle", "ext_recall")][0]
     assert any(c.startswith("1.000") for c in all_recall)  # oracle M2
-    none_rows = [c for k, c in rows.items() if k[0] == "none"]
+    none_rows = [c for k, c in rows.items() if k[0] == "none" and len(c) <= 6]  # M2 tables, not table 4
     assert none_rows and all(any(c.startswith("0.000") for c in row) for row in none_rows)
     assert "## 표 2. 근거 도달(M2)" in text.splitlines()
     assert ("oracle", "knowledge-update") in rows and ("oracle", "single-session-user") in rows
