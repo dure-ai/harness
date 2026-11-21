@@ -39,6 +39,8 @@ class Issue:
 
 # The families that need a `leak` probe; derived from the model's list so a new family is seen.
 LEAK_FAMILIES = tuple(f for f in FAMILIES if f.startswith("leak_"))
+# Families that need a promote probe but no block probe.
+NO_BLOCK_FAMILIES = ("ext_recall",)
 
 
 def _templates(feedback: Feedback) -> list[FeedbackTemplate]:
@@ -250,7 +252,7 @@ def validate_scenario(s: Scenario) -> list[Issue]:
     if s.family != "normal_repeat":
         kinds = {p.kind for p in s.probes}
         needed = "leak" if s.family in LEAK_FAMILIES else "block"
-        if needed not in kinds:
+        if needed not in kinds and s.family not in NO_BLOCK_FAMILIES:
             error("pairing_missing", f"no {needed} probe (family {s.family!r})")
         if "promote" not in kinds:
             error("pairing_missing", "no promote probe")
