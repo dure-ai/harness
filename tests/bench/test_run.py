@@ -227,3 +227,31 @@ def test_bench_run_does_not_change_harness_run(tmp_path: Path, cached: Path):
     r, _ = bench_run(tmp_path)
     assert r.exit_code == 0, r.output
     assert _harness_run(tmp_path / "two") == first
+
+
+def test_bench_rates_equal_the_ones_harness_metrics_computes():
+    from harness.bench.report import _tables
+    from harness.metrics import compute_metrics
+
+    b = run_bench(converted(), ["all_store"], BenchConfig(), run_id="t", key=blind_key(1))
+    scenarios = {c.scenario.id: c.scenario for c in converted() if c.scenario is not None}
+    ok = b.runs["all_store"]
+    feedback = dataclasses.replace(ok[0], scenario_id="fb", mode="feedback")
+    broken = dataclasses.replace(ok[1], scenario_id="bad", error="RuntimeError: x", status="error")
+    runs = [*ok, feedback, broken]
+    b.runs["all_store"] = runs
+    b.groups.update({"fb": "knowledge-update", "bad": "single-session-user"})
+    row = _tables(b, {"all_store": "all_store"})["all_store"]
+    m = compute_metrics(runs, scenarios)
+    assert sum(r["n_scenarios"] for r in row["by_family"].values()) == len(runs)
+    for fam, fr in m.by_family.items():
+        assert row["by_family"][fam]["m1"] == fr["m1"] and row["by_family"][fam]["m2"] == fr["m2"]
+    by_group = row["by_group"]
+    assert by_group["knowledge-update"]["m2"] == compute_metrics(
+        [r for r in runs if b.groups[r.scenario_id] == "knowledge-update"], scenarios
+    ).m2
+    assert by_group["single-session-user"]["n_errors"] == 1
+    assert sum(r["n_errors"] for r in by_group.values()) == 1
+    total_m2_k = sum(r["m2"].k for r in by_group.values())
+    total_m2_n = sum(r["m2"].n for r in by_group.values())
+    assert (total_m2_k, total_m2_n) == (m.m2.k, m.m2.n)
