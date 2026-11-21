@@ -657,9 +657,21 @@ def bench_export(
     typer.echo(f"wrote {written} scenarios to {out}, skipped {skipped}")
 
 
+_SCENARIO_FACTS: dict[str, object] = {
+    "license": "n/a",
+    "file_sha256": {},
+    "converter": "n/a",
+    "label_sha256": None,
+}
+
+
 @bench_app.command("run")
 def bench_run(
-    dataset: Annotated[str, typer.Option("--dataset", help="Dataset name; see harness bench list.")],
+    dataset: Annotated[str | None, typer.Option("--dataset", help="Dataset name; see harness bench list.")] = None,
+    scenarios_path: Annotated[
+        Path | None,
+        typer.Option("--scenarios", help="Scenario file or directory to run instead of a dataset (e.g. scenarios/dev)."),
+    ] = None,
     engine: Annotated[
         list[str] | None,
         typer.Option(
@@ -689,23 +701,37 @@ def bench_run(
 
     from harness.bench.check import screened
     from harness.bench.config import bench_config_hash, load_bench_config
-    from harness.bench.dataset import bench_cache, is_cached
+    from harness.bench.dataset import Converted, bench_cache, is_cached
     from harness.bench.datasets import DATASETS
     from harness.bench.report import write_bench_report
     from harness.bench.run import dataset_facts, run_bench
 
     _check_engine_specs(engine)
-    ds = DATASETS.get(dataset)
-    if ds is None:
-        raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
-    if not is_cached(ds):
-        raise _fail(f"error: run 'harness bench fetch --dataset {dataset}' first", 2)
+    if (dataset is None) == (scenarios_path is None):
+        raise _fail("error: give exactly one of --dataset and --scenarios", 2)
+    ds = DATASETS.get(dataset) if dataset is not None else None
+    if dataset is not None:
+        if ds is None:
+            raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
+        if not is_cached(ds):
+            raise _fail(f"error: run 'harness bench fetch --dataset {dataset}' first", 2)
     try:
         cfg = load_bench_config(config)
     except Exception as e:
         raise _fail(f"error: cannot load config {config}: {e}", 2) from e
-    wanted = {t.strip() for arg in types or [] for t in arg.split(",") if t.strip()} or None
-    items = list(screened(ds.convert(bench_cache(ds.name), types=wanted, limit=limit), cfg.eval))
+    if ds is not None:
+        wanted = {t.strip() for arg in types or [] for t in arg.split(",") if t.strip()} or None
+        found = ds.convert(bench_cache(ds.name), types=wanted, limit=limit)
+    else:
+        assert scenarios_path is not None
+        from harness.scenario.load import load_set
+
+        try:
+            loaded = load_set([scenarios_path], include_drafts=False).scenarios
+        except Exception as e:
+            raise _fail(f"error: cannot load scenarios {scenarios_path}: {e}", 2) from e
+        found = (Converted(s, s.id, s.family, None) for s in loaded[:limit])
+    items = list(screened(found, cfg.eval))
     scenarios = [c.scenario for c in items if c.scenario is not None]
     if not scenarios:
         raise _fail("error: no scenario was converted; check --types and --limit", 2)
@@ -726,9 +752,10 @@ def bench_run(
     started_at = datetime.now().astimezone()
     run_id = started_at.strftime("%Y%m%d-%H%M%S")
     names = [*BASELINES, *candidates]
+    dataset_name = ds.name if ds is not None else str(scenarios_path)
     t0 = time.monotonic()
-    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=ds.name)
-    gold_run = run_bench(items, names, cfg, run_id=run_id, key=key, gold=True, dataset=ds.name) if gold else None
+    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=dataset_name)
+    gold_run = run_bench(items, names, cfg, run_id=run_id, key=key, gold=True, dataset=dataset_name) if gold else None
     wall = time.monotonic() - t0
     for b in (normal, gold_run):
         if b is not None:
@@ -739,10 +766,10 @@ def bench_run(
         "harness_version": harness_version(),
         "config_hash": bench_config_hash(cfg),
         "machine": machine_info(),
-        **dataset_facts(ds),
+        **(dataset_facts(ds) if ds is not None else _SCENARIO_FACTS | {"dataset": dataset_name}),
         "blind_seed": seed,
     }
-    out_dir = out / ds.name / run_id
+    out_dir = out / (ds.name if ds is not None else "scenarios") / run_id
     write_bench_report(out_dir, meta, normal, gold_run)
     typer.echo(str(out_dir / "report.md"))
     typer.echo(f"wall time: {wall:.1f} s", err=True)

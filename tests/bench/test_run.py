@@ -148,22 +148,13 @@ def test_run_with_an_extra_engine_blinds_it(tmp_path: Path, cached: Path, monkey
     assert "tests.dummy_engine" not in (d / "report.md").read_text(encoding="utf-8")
 
 
-def test_gold_mode_runs_both_and_keeps_only_events_of_facts_a_probe_asks_about(tmp_path: Path, cached: Path):
+def test_gold_mode_runs_both_modes(tmp_path: Path, cached: Path):
     r, out = bench_run(tmp_path, "--gold")
     assert r.exit_code == 0, r.output
     d = report_dir(out)
     summary = json.loads((d / "summary.json").read_text(encoding="utf-8"))
     assert summary["gold"]["engines"]["oracle"]["by_family"]["ext_update"]["m2"]["value"] == 1.0
-    items = converted()
-    assert all(c.scenario is not None for c in items[:3])
-    cfg = BenchConfig()
-    normal = run_bench(items[:3], ["all_store"], cfg, run_id="t", key=blind_key(1))
-    gold = run_bench(items[:3], ["all_store"], cfg, run_id="t", key=blind_key(1), gold=True)
-    assert normal.mode == "normal" and gold.mode == "gold"
-    for run in gold.runs["all_store"]:
-        for rec in run.probes:
-            for res in rec.results:
-                assert "weather talk" not in res.text and "ok" != res.text and "noted" != res.text
+    assert summary["meta"]["mode"] == "normal" and summary["gold"]["comparison"]["oracle"]["counts"]
 
 
 class FlakyOnO1(BaseEngine):

@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from harness.bench.gold import CELLS, compare_modes, gold_only_wrong_examples
 from harness.bench.run import BenchRun
 from harness.contract import EngineInfo
 from harness.metrics import _m1, _m2
@@ -86,12 +87,35 @@ def _group_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
     return _table(["엔진", "유형", "문항 수", "M2", "오류"], rows)
 
 
+def _comparison(normal: BenchRun, gold: BenchRun, ids: Mapping[str, str]) -> dict[str, dict[str, Any]]:
+    """Per engine (blind id): the four mode-comparison counts and up to 5 `gold_only_wrong` probes."""
+    order = _order_key(ids)
+    return {
+        ids[name]: {
+            "counts": compare_modes(normal.runs[name], gold.runs[name]),
+            "gold_only_wrong_examples": [list(k) for k in gold_only_wrong_examples(normal.runs[name], gold.runs[name])],
+        }
+        for name in sorted(normal.runs.keys() & gold.runs.keys(), key=order)
+    }
+
+
+def _comparison_table(comparison: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    rows = [[eid, *(c["counts"][cell] for cell in CELLS)] for eid, c in comparison.items()]
+    out = _table(["엔진", "둘 다 맞음", "검색·잡음", "판단·사용", "골드에서만 틀림"], rows)
+    for eid, c in comparison.items():
+        examples = ", ".join(f"{s}/{p}" for s, p in c["gold_only_wrong_examples"])
+        if examples:
+            out += [f"- {eid} 골드에서만 틀린 예: {examples}"]
+    return [*out, ""] if any(c["gold_only_wrong_examples"] for c in comparison.values()) else out
+
+
 def _markdown(
     meta: Mapping[str, Any],
     normal: BenchRun,
     gold: BenchRun | None,
     tables: Mapping[str, Mapping[str, Any]],
     gold_tables: Mapping[str, Mapping[str, Any]] | None,
+    comparison: Mapping[str, Mapping[str, Any]] | None,
     ids: Mapping[str, str],
     scrub: Callable[[str], str],
 ) -> str:
@@ -131,6 +155,16 @@ def _markdown(
     ]
     if gold_tables is not None:
         lines += ["## 표 1 (골드 모드). 계열별 M2·M1", "", *_family_table(gold_tables)]
+    if comparison is not None:
+        lines += [
+            "## 표 3. 골드 모드 비교",
+            "",
+            "같은 문항을 전체 이벤트(보통)와 프로브가 묻는 사실의 이벤트만(골드)으로 돌려 프로브별로 맞고 틀림을 센다. "
+            "block은 `FP`가 아니면, promote는 `TP`일 때 맞다. 검색·잡음은 보통에서만 틀림, "
+            "판단·사용은 둘 다 틀림, 골드에서만 틀림은 보통에서만 맞음이다.",
+            "",
+            *_comparison_table(comparison),
+        ]
     lines += ["## 표 5. knowledge-update 판정 차이", "", KU_NOTE, ""]
     return "\n".join(lines)
 
@@ -158,6 +192,7 @@ def write_bench_report(out_dir: Path, meta: dict[str, Any], normal: BenchRun, go
     key = _order_key(ids)
     tables = _tables(normal, ids)
     gold_tables = _tables(gold, ids) if gold is not None else None
+    comparison = _comparison(normal, gold, ids) if gold is not None else None
 
     out_dir.mkdir(parents=True, exist_ok=True)
     blind = {v: k for k, v in sorted(ids.items(), key=lambda kv: key(kv[0])) if v != k}
@@ -175,12 +210,12 @@ def write_bench_report(out_dir: Path, meta: dict[str, Any], normal: BenchRun, go
         },
         "skipped": _skipped(normal),
         "engines": jsonable(tables),
-        "gold": None if gold_tables is None else {"engines": jsonable(gold_tables)},
+        "gold": None if gold_tables is None else {"engines": jsonable(gold_tables), "comparison": comparison},
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for run, name in ((normal, "results.jsonl"), (gold, "results-gold.jsonl")):
         if run is not None:
             lines = _result_lines(run.runs, sorted(run.runs, key=key), ids)
             (out_dir / name).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
-    (out_dir / "report.md").write_text(_markdown(meta, normal, gold, tables, gold_tables, ids, scrub) + "\n", encoding="utf-8")
+    (out_dir / "report.md").write_text(_markdown(meta, normal, gold, tables, gold_tables, comparison, ids, scrub) + "\n", encoding="utf-8")
 

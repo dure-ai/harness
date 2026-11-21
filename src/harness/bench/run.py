@@ -8,10 +8,10 @@ from typing import Any, Literal
 
 from harness.bench.config import BenchConfig
 from harness.bench.dataset import Converted, Dataset
+from harness.bench.gold import gold_copy
 from harness.contract import EngineInfo, EngineUnavailable
 from harness.engines import make_engine
 from harness.replay import ScenarioRun, error_kind_of, run_scenario
-from harness.scenario.model import Scenario
 
 
 @dataclass
@@ -33,12 +33,6 @@ class BenchRun:
     groups: dict[str, str]
     skipped: list[tuple[str, str]]
     infos: dict[str, EngineInfo] = field(default_factory=dict)
-
-
-def gold_scenario(s: Scenario) -> Scenario:
-    """`s` without the events that no probe asks about: noise, and facts outside every probe's `about`."""
-    wanted = {f for p in s.probes for f in p.about}
-    return s.model_copy(update={"events": [e for e in s.events if e.fact in wanted]})
 
 
 def run_bench(
@@ -70,7 +64,7 @@ def run_bench(
         if c.scenario is None:
             out.skipped.append((c.source_id, c.skipped or "skipped"))
             continue
-        s = gold_scenario(c.scenario) if gold else c.scenario
+        s = gold_copy(c.scenario) if gold else c.scenario
         out.groups[s.id] = c.group
         for name in engines:
             try:
