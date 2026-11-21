@@ -9,7 +9,7 @@ from harness.baselines.simple import NoneEngine
 from harness.bench.config import BenchConfig
 from harness.bench.report import write_bench_report
 from harness.bench.run import run_bench
-from harness.bench.timing import TimedEngine, cost_rows
+from harness.bench.timing import UNKNOWN, TimedEngine, cost_rows
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
 from harness.engines import make_engine
 from harness.replay import ScenarioRun, blind_key, run_scenario
@@ -134,3 +134,19 @@ def test_usage_is_read_once_right_after_each_scenario_and_no_engine_is_kept():
     (row,) = cost_rows(b.timed, b.runs)
     assert row[-4] == "3"
     assert Counting.calls == 3  # the report reads the snapshot, not the engine
+
+
+class BadUsage(Reporting):
+    @override
+    def usage(self) -> dict[str, float] | None:
+        raise RuntimeError("usage is down")
+
+
+def test_an_engine_whose_usage_raises_ends_no_more_than_its_scenario():
+    b = run_bench(converted(), ["tests.bench.test_timing:BadUsage", "oracle"], BenchConfig(), run_id="t", key=blind_key(1))
+    runs = b.runs["tests.bench.test_timing:BadUsage"]
+    assert len(runs) == 3 and all(r.error is None for r in runs)  # the scenario itself ran fine
+    assert all(r.error is None for r in b.runs["oracle"])
+    assert all(w.reported is None and w.inner is None for w in b.timed["tests.bench.test_timing:BadUsage"])
+    (row, _) = cost_rows(b.timed, b.runs)
+    assert row[-4:] == [UNKNOWN] * 4

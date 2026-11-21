@@ -34,10 +34,18 @@ class TimedEngine(BaseEngine):
         return self.inner
 
     def finish(self) -> None:
-        """Snapshot the engine's `usage()` once and release the engine, keeping only the timings."""
+        """Snapshot the engine's `usage()` once and release the engine, keeping only the timings.
+
+        An engine whose `usage()` raises reports nothing: its failure must not replace the
+        scenario's own outcome or stop the run.
+        """
         if self.inner is not None:
-            self.reported = self.inner.usage()
-            self.inner = None
+            try:
+                self.reported = self.inner.usage()
+            except Exception:
+                self.reported = None
+            finally:
+                self.inner = None
 
     def _timed[T](self, name: str, call: Callable[[], T]) -> T:
         t0 = time.perf_counter()
