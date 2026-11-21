@@ -108,6 +108,32 @@ def set_jaccard_at_least(sa: set[str], sb: set[str], tau: float) -> bool:
     return inter / (la + lb - inter) >= tau
 
 
+def _prefix_key(token: str) -> tuple[int, str]:
+    # Longer tokens first: they tend to be rarer, so short prefixes skip the common words.
+    return -len(token), token
+
+
+def jaccard_prefix(tokens: set[str], tau: float) -> list[str]:
+    """The tokens prefix filtering must index and probe so no pair with Jaccard >= `tau` > 0 is missed.
+
+    In one fixed order (`_prefix_key`), two sets that share at least `a` tokens share one among
+    the first |A| - a + 1 tokens of each. A pair with Jaccard >= `tau` shares at least
+    ceil(tau * |A|) tokens, since |A & B| >= tau * |A | B| >= tau * |A|. The prefix is cut with
+    that bound taken a hair low, which only lengthens it, so float rounding cannot drop a pair.
+
+    Args:
+        tokens: The token set of one text.
+        tau: Similarity threshold, greater than 0.
+
+    Returns:
+        The prefix, in the fixed order; empty for an empty set.
+    """
+    if not tokens:
+        return []
+    shared = max(1, math.ceil(tau * len(tokens) - 1e-9))
+    return sorted(tokens, key=_prefix_key)[: len(tokens) - shared + 1]
+
+
 def counted(text: str) -> tuple[Counter[str], int]:
     """A text's term counts and token count, as `BM25.add` indexes it."""
     tokens = tokenize(text)
