@@ -507,12 +507,10 @@ def generate(
     """
     run_dir.mkdir(parents=True, exist_ok=True)
     allowed = [t for t in traces if usable(t, gen)]
-    pool = allowed if repos is None else [t for t in allowed if matches_repos(t, repos)]
+    chosen = allowed if repos is None else [t for t in allowed if matches_repos(t, repos)]
     unique: dict[str, Trace] = {}
-    for t in pool:
-        unique.setdefault(
-            t.trajectory_id, t
-        )  # the first occurrence of a trajectory wins
+    for t in chosen:
+        unique.setdefault(t.trajectory_id, t)  # the first occurrence of a trajectory wins
     pool = list(unique.values())
     order = sorted(pool, key=lambda t: t.trajectory_id)
     random.Random(seed).shuffle(order)
@@ -536,39 +534,8 @@ def generate(
         )
         for family in families:
             target = targets[family]
-            tally = _Tally(
-                max_attempts=3 * target if max_attempts is None else max_attempts
-            )
-            for trace in order:
-                if tally.written + tally.skipped >= target or tally.attempts_capped:
-                    break
-                if not run.can_extract(trace):
-                    tally.capped = report.trace_cap_hit = True
-                    break
-                tally.traces += 1
-                for cand in run.candidates(trace):
-                    if tally.written + tally.skipped >= target:
-                        break
-                    if (trace.trajectory_id, cand.index) in run.used:
-                        continue
-                    tally.candidates += 1
-                    problem = why_not(family, cand)
-                    if problem is not None:
-                        tally.no_fit += 1
-                        tally.first_no_fit = tally.first_no_fit or problem
-                        continue
-                    made = _one(run, family, trace, cand, tally)
-                    if made is None:
-                        continue
-                    if made[0] == "capped":
-                        break
-                    run.used.add((trace.trajectory_id, cand.index))
-                    if made[0] == "written":
-                        tally.written += 1
-                        report.written.append(made[1])
-                    else:
-                        tally.skipped += 1
-                        report.skipped_existing.append(made[1])
+            tally = _Tally(max_attempts=3 * target if max_attempts is None else max_attempts)
+            _make_family(run, family, target, order, tally, report)
             if tally.written + tally.skipped < target:
                 report.shortfall[family] = (
                     tally.reason(target, max_traces)
@@ -578,6 +545,42 @@ def generate(
         report.rejected = run.rejected
         report.first_llm_error = run.first_llm_error
     return report
+
+
+def _make_family(
+    run: _Run, family: str, target: int, order: Sequence[Trace], tally: _Tally, report: GenerateReport
+) -> None:
+    """Walk the traces in `order` and write drafts of `family` until `target` or a cap is reached."""
+    for trace in order:
+        if tally.written + tally.skipped >= target or tally.attempts_capped:
+            return
+        if not run.can_extract(trace):
+            tally.capped = report.trace_cap_hit = True
+            return
+        tally.traces += 1
+        for cand in run.candidates(trace):
+            if tally.written + tally.skipped >= target:
+                break
+            if (trace.trajectory_id, cand.index) in run.used:
+                continue
+            tally.candidates += 1
+            problem = why_not(family, cand)
+            if problem is not None:
+                tally.no_fit += 1
+                tally.first_no_fit = tally.first_no_fit or problem
+                continue
+            made = _one(run, family, trace, cand, tally)
+            if made is None:
+                continue
+            if made[0] == "capped":
+                break
+            run.used.add((trace.trajectory_id, cand.index))
+            if made[0] == "written":
+                tally.written += 1
+                report.written.append(made[1])
+            else:
+                tally.skipped += 1
+                report.skipped_existing.append(made[1])
 
 
 def _empty_pool_reason(given: int, allowed: int, repos: set[str] | None) -> str:

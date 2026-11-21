@@ -519,25 +519,14 @@ def _section_errors(
     return [*out, *_table(["엔진", "회차", "시나리오", "상태", "오류"], rows)]
 
 
-def _markdown(
-    meta: RunMeta,
-    ordered: list[EngineScore],
-    ranking: list[RankEntry],
-    runs: Mapping[str, list[ScenarioRun]],
-    repeat_runs: Mapping[str, list[list[ScenarioRun]]],
-    selfcheck: list[CheckResult],
-    ids: Mapping[str, str],
-    scrub: Callable[[str], str],
-) -> str:
-    by_name = {s.engine_id: s for s in ordered}
+def _section_head(meta: RunMeta, ids: Mapping[str, str]) -> list[str]:
     roots = (
         f"- 시나리오 경로 수: {len(meta.scenario_roots)}"
         if meta.sealed
         else f"- 시나리오 경로: {', '.join(meta.scenario_roots) or '-'}"
     )
     repeats = ", ".join(f"{ids[name]} {n}" for name, n in _ordered_repeats(meta, ids)) or "-"
-    repeated = any(n > 1 for n in meta.repeats.values())
-    head = [
+    return [
         "# 메모리 평가 리포트",
         "",
         *([DRAFTS_WARNING, ""] if meta.include_drafts else []),
@@ -552,26 +541,26 @@ def _markdown(
         f"- 초안 포함: {'예' if meta.include_drafts else '아니오'}",
         roots,
         f"- 반복 실행: {repeats}",
-        *([f"- 집계: {AGGREGATION_NOTE}"] if repeated else []),
+        *([f"- 집계: {AGGREGATION_NOTE}"] if _repeated(meta) else []),
         "",
     ]
-    check_rows = [
-        [c.name, "통과" if c.ok else "실패", "-" if meta.sealed else scrub(c.detail)] for c in selfcheck
-    ]
-    lines = [
-        *head,
-        *_section_judgment(ordered, ids),
-        *_section_aux(ordered, ids, by_name),
+
+
+def _repeated(meta: RunMeta) -> bool:
+    return any(n > 1 for n in meta.repeats.values())
+
+
+def _section_breakdowns(meta: RunMeta, ordered: list[EngineScore], ids: Mapping[str, str]) -> list[str]:
+    """The per-family, feedback and per-author tables."""
+    headers = ["엔진", "계열", "M1", "M2", "M3"]
+    return [
         "## 계열별",
         "",
-        *([POOLING_CAVEAT, ""] if repeated else []),
-        *_table(["엔진", "계열", "M1", "M2", "M3"], _family_rows(ordered, ids, lambda m: m.by_family)),
+        *([POOLING_CAVEAT, ""] if _repeated(meta) else []),
+        *_table(headers, _family_rows(ordered, ids, lambda m: m.by_family)),
         "## 되먹임",
         "",
-        *_table(
-            ["엔진", "계열", "M1", "M2", "M3"],
-            _family_rows(ordered, ids, lambda m: m.feedback_by_family),
-        ),
+        *_table(headers, _family_rows(ordered, ids, lambda m: m.feedback_by_family)),
         "## 출처별",
         "",
         *_table(
@@ -582,13 +571,35 @@ def _markdown(
                 for author, t in s.metrics.by_author.items()
             ],
         ),
+    ]
+
+
+def _section_selfcheck(meta: RunMeta, selfcheck: list[CheckResult], scrub: Callable[[str], str]) -> list[str]:
+    rows = [[c.name, "통과" if c.ok else "실패", "-" if meta.sealed else scrub(c.detail)] for c in selfcheck]
+    return ["## 자가 검증", "", *_table(["검사", "결과", "상세"], rows)]
+
+
+def _markdown(
+    meta: RunMeta,
+    ordered: list[EngineScore],
+    ranking: list[RankEntry],
+    runs: Mapping[str, list[ScenarioRun]],
+    repeat_runs: Mapping[str, list[list[ScenarioRun]]],
+    selfcheck: list[CheckResult],
+    ids: Mapping[str, str],
+    scrub: Callable[[str], str],
+) -> str:
+    by_name = {s.engine_id: s for s in ordered}
+    lines = [
+        *_section_head(meta, ids),
+        *_section_judgment(ordered, ids),
+        *_section_aux(ordered, ids, by_name),
+        *_section_breakdowns(meta, ordered, ids),
         *_section_ranking(ranking, ids),
         *_section_performance(ordered, ids),
         *_section_limits(meta, ids, scrub),
         *_section_errors(meta, repeat_runs, ids, scrub),
-        "## 자가 검증",
-        "",
-        *_table(["검사", "결과", "상세"], check_rows),
+        *_section_selfcheck(meta, selfcheck, scrub),
     ]
     return "\n".join(lines)
 

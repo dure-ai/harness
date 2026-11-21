@@ -31,7 +31,7 @@ def expected_models(llm: LLM, environ: Mapping[str, str] | None = None) -> tuple
     if got != want:
         raise ValueError(
             "engine models differ from the eval config: "
-            + f"config has {ENV_LLM}={want[0]!r} and {ENV_EMBEDDING}={want[1]!r}, "
-            + f"environment has {ENV_LLM}={got[0]!r} and {ENV_EMBEDDING}={got[1]!r}"
+            f"config has {ENV_LLM}={want[0]!r} and {ENV_EMBEDDING}={want[1]!r}, "
+            f"environment has {ENV_LLM}={got[0]!r} and {ENV_EMBEDDING}={got[1]!r}"
         )
     return want

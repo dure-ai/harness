@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 
 from harness.config import EvalConfig, config_hash, load_config
-from harness.contract import BaseEngine, EngineInfo, EngineUnavailable
+from harness.contract import BaseEngine, EngineInfo
 from harness.engines import BASELINES, OSS_ENGINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, error_kind_of, run_scenario
@@ -181,8 +181,7 @@ def _validate_all(scenarios: list[Scenario], sealed: bool) -> None:
             found.append(
                 (
                     dup,
-                    Issue(
-                        "error",
+                    Issue.error(
                         "duplicate_scenario_id",
                         f"scenario id appears {n} times",
                     ),
@@ -311,14 +310,7 @@ def _run_extra(
                 if name not in infos:  # safety net: `run` fills it in its pre-flight
                     infos[name] = _checked_info(engine)
             except Exception as e:
-                run = ScenarioRun(
-                    s.id,
-                    s.family,
-                    s.mode,
-                    error=f"{type(e).__name__}: {e}",
-                    error_kind=error_kind_of(e),
-                    status="unavailable" if isinstance(e, EngineUnavailable) else "error",
-                )
+                run = ScenarioRun.failed(s.id, s.family, s.mode, e)
             else:
                 run = run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key)
             runs.append(run)
@@ -376,6 +368,31 @@ def _skip_reason(name: str, streak: int, last: str | None) -> str:
     return f"skipped: {name} was {UNAVAILABLE} for {_scenarios(streak)} in a row; last: {last}"
 
 
+def _check_engine_specs(specs: list[str] | None) -> None:
+    """Exit 2 on the first spec that is neither a baseline, an OSS engine nor 'package.module:Class'."""
+    for name in specs or []:
+        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
+            raise _fail(
+                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
+                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
+                2,
+            )
+
+
+def _blind_seed(blind_seed: int | None) -> int:
+    """The run's blind seed: the given one (with a warning when it is guessable), else a random one."""
+    if blind_seed is None:
+        return secrets.randbits(64)
+    if blind_seed < 2**32:
+        typer.echo(
+            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
+            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
+            "unless you are only reproducing a run",
+            err=True,
+        )
+    return blind_seed
+
+
 @app.command()
 def run(
     scenarios: ScenariosOpt,
@@ -405,27 +422,14 @@ def run(
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
     # First, so a typo does not pay for loading the scenarios and the baseline self-check.
-    for name in engine or []:
-        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
-            raise _fail(
-                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
-                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
-                2,
-            )
+    _check_engine_specs(engine)
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     infos: dict[str, EngineInfo] = {}
     if candidates and scenario_list:  # no scenarios: _selfcheck reports it
         _preflight(candidates, scenario_list[0], cfg, infos, sealed)
-    seed = secrets.randbits(64) if blind_seed is None else blind_seed
-    if blind_seed is not None and blind_seed < 2**32:
-        typer.echo(
-            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
-            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
-            "unless you are only reproducing a run",
-            err=True,
-        )
+    seed = _blind_seed(blind_seed)
     key = blind_key(seed)  # one seed: candidate ids and namespaces, so engine_ids.json reproduces both
     checks, base_runs = _selfcheck(loaded, cfg, sealed, key)
     if not all(c.ok for c in checks):
@@ -447,22 +451,22 @@ def run(
         for name in BASELINES
     ]
     report_runs = dict(base_runs)
-    repeat_counts: dict[str, int] = dict.fromkeys(BASELINES, 1)
-
-    candidate_scores: list[EngineScore] = []
-    candidate_runs: dict[str, list[ScenarioRun]] = {}
-    candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}
-    for name in candidates:
-        repeats = repeat if repeat is not None else cfg.llm_repeats
-        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed=sealed)
-        metrics = [compute_metrics(runs, by_id) for runs in per_repeat]
-        flip = flip_rate(per_repeat) if repeats > 1 else None
-        candidate_scores.append(
-            EngineScore.from_repeats(name, metrics, base, cfg, flip)
+    repeats = repeat if repeat is not None else cfg.llm_repeats
+    candidate_repeats = {
+        name: _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed=sealed) for name in candidates
+    }
+    candidate_scores = [
+        EngineScore.from_repeats(
+            name,
+            [compute_metrics(runs, by_id) for runs in per_repeat],
+            base,
+            cfg,
+            flip_rate(per_repeat) if repeats > 1 else None,
         )
-        candidate_runs[name] = per_repeat[0]
-        candidate_repeats[name] = per_repeat
-        repeat_counts[name] = repeats
+        for name, per_repeat in candidate_repeats.items()
+    ]
+    candidate_runs = {name: per_repeat[0] for name, per_repeat in candidate_repeats.items()}
+    repeat_counts = dict.fromkeys(BASELINES, 1) | dict.fromkeys(candidates, repeats)
 
     ranking = rank(candidate_scores, candidate_runs, cfg)
     meta = RunMeta(

@@ -24,6 +24,11 @@ class Choice:
     index: int | None
     basis: frozenset[str]
 
+    @property
+    def abstained(self) -> bool:
+        """The agent followed nothing it could act on: no result, or one with an empty basis."""
+        return self.index is None or not self.basis
+
 
 def _marker_hits(result: Result, scenario: Scenario, fact_ids) -> set[str]:
     # Facts whose markers appear in the text (case-insensitive). Used when an engine returns no

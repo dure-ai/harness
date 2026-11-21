@@ -5,10 +5,11 @@ from dataclasses import dataclass
 
 from harness.config import EvalConfig
 from harness.engines import BASELINES, make_engine
-from harness.metrics import FamilyRow, Metrics, compute_metrics
+from harness.metrics import Metrics, compute_metrics
 from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, run_scenario
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue
+from harness.scoring import probe_correct
 from harness.stats import Rate
 from harness.world import probe_ctx, true_at
 
@@ -32,6 +33,10 @@ class CheckResult:
 
 def _fmt(r: Rate) -> str:
     return "n/a (no probes)" if r.value is None else f"{r.value:.3f} ({r.k}/{r.n})"
+
+
+def _num(v: float | None) -> str:
+    return "n/a" if v is None else f"{v:.3f}"
 
 
 def _is(r: Rate, expected: float) -> bool:
@@ -70,25 +75,27 @@ def _all_store_max_m1(metrics: dict[str, Metrics]) -> CheckResult:
     mine = metrics["all_store"].m1.value
     others = {n: metrics[n].m1.value for n in BASELINES if n != "all_store"}
     ok = mine is not None and mine > 0 and all(v is None or mine >= v for v in others.values())
-    shown = ", ".join(f"{n}={'n/a' if v is None else f'{v:.3f}'}" for n, v in others.items())
-    detail = f"all_store m1={'n/a' if mine is None else f'{mine:.3f}'} (want > 0 and >= others: {shown})"
+    shown = ", ".join(f"{n}={_num(v)}" for n, v in others.items())
+    detail = f"all_store m1={_num(mine)} (want > 0 and >= others: {shown})"
     return CheckResult("all_store_max_m1", ok, detail)
 
 
-def _family_m1(table: Mapping[str, FamilyRow], family: str) -> Rate | None:
-    row = table.get(family)
-    return None if row is None else row["m1"]
+# Families where repeat_n must be fooled (higher M1 than the oracle), with their check names.
+_REPEAT_N_CHECKS = (("repeat_n_poison", "single_source_poison"), ("repeat_n_unconfirmed", "unconfirmed_poison"))
 
 
-def _repeat_n_beats_oracle(
-    name: str, family: str, present: bool, repeat_n: Rate | None, oracle: Rate | None
-) -> CheckResult:
-    if not present:
+def _family_m1(m: Metrics, family: str) -> float | None:
+    row = m.by_family.get(family)
+    return None if row is None else row["m1"].value
+
+
+def _repeat_n_beats_oracle(name: str, family: str, metrics: Mapping[str, Metrics], families: set[str]) -> CheckResult:
+    if family not in families:
         return CheckResult(name, True, f"skipped: no {family} scenarios")
-    r = None if repeat_n is None else repeat_n.value
-    o = 0.0 if oracle is None or oracle.value is None else oracle.value
+    r = _family_m1(metrics["repeat_n"], family)
+    o = _family_m1(metrics["oracle"], family) or 0.0
     ok = r is not None and r > o
-    detail = f"repeat_n {family} m1={'n/a' if r is None else f'{r:.3f}'} vs oracle {o:.3f} (want repeat_n > oracle)"
+    detail = f"repeat_n {family} m1={_num(r)} vs oracle {o:.3f} (want repeat_n > oracle)"
     return CheckResult(name, ok, detail)
 
 
@@ -100,7 +107,8 @@ def _false_served(run: ScenarioRun, s: Scenario) -> list[int]:
         if rec.kind != "block":
             continue
         p = probes[rec.probe_id]
-        false = {f for f in s.facts if not true_at(s.facts[f], p.t, probe_ctx(p))}
+        ctx = probe_ctx(p)
+        false = {fid for fid, fact in s.facts.items() if not true_at(fact, p.t, ctx)}
         counts.append(sum(1 for basis in rec.bases if basis & false))
     return counts
 
@@ -150,27 +158,12 @@ def run_selfcheck(
     by_id = {s.id: s for s in scenarios}
     metrics = {name: compute_metrics(rs, by_id) for name, rs in runs.items()}
     families = {s.family for s in scenarios}
-
-    repeat_n, oracle = metrics["repeat_n"], metrics["oracle"]
     checks = [
         _no_errors(runs),
-        _oracle_perfect(oracle),
+        _oracle_perfect(metrics["oracle"]),
         _none_empty(metrics["none"]),
         _all_store_max_m1(metrics),
-        _repeat_n_beats_oracle(
-            "repeat_n_poison",
-            "single_source_poison",
-            "single_source_poison" in families,
-            _family_m1(repeat_n.by_family, "single_source_poison"),
-            _family_m1(oracle.by_family, "single_source_poison"),
-        ),
-        _repeat_n_beats_oracle(
-            "repeat_n_unconfirmed",
-            "unconfirmed_poison",
-            "unconfirmed_poison" in families,
-            _family_m1(repeat_n.by_family, "unconfirmed_poison"),
-            _family_m1(oracle.by_family, "unconfirmed_poison"),
-        ),
+        *(_repeat_n_beats_oracle(name, family, metrics, families) for name, family in _REPEAT_N_CHECKS),
         _echo_buildup(runs["all_store"], scenarios),
     ]
     return checks, runs
@@ -183,7 +176,7 @@ def check_discrimination(s: Scenario, cfg: EvalConfig) -> list[Issue]:
     runs = {n: run_scenario(make_engine(n, s, cfg), s, run_id=RUN_ID, cfg=cfg) for n in names}
 
     errors = [
-        Issue("error", "engine_error", f"{n} failed on {s.id}: {r.error}")
+        Issue.error("engine_error", f"{n} failed on {s.id}: {r.error}")
         for n, r in runs.items()
         if r.error is not None
     ]
@@ -192,20 +185,22 @@ def check_discrimination(s: Scenario, cfg: EvalConfig) -> list[Issue]:
 
     issues: list[Issue] = []
     for rec in runs["oracle"].probes:
-        if rec.kind == "block" and rec.outcome == "FP":
-            issues.append(Issue("error", "oracle_wrong", f"oracle follows a false fact on block probe {rec.probe_id}"))
-        if rec.kind == "promote" and rec.outcome != "TP":
-            issues.append(Issue("error", "oracle_wrong", f"oracle outcome {rec.outcome} (want TP) on promote probe {rec.probe_id}"))
+        if rec.kind == "block" and not probe_correct(rec.kind, rec.outcome):
+            issues.append(Issue.error("oracle_wrong", f"oracle follows a false fact on block probe {rec.probe_id}"))
+        if rec.kind == "promote" and not probe_correct(rec.kind, rec.outcome):
+            issues.append(Issue.error("oracle_wrong", f"oracle outcome {rec.outcome} (want TP) on promote probe {rec.probe_id}"))
         if rec.leaks:
-            issues.append(Issue("error", "oracle_wrong", f"oracle leaks on probe {rec.probe_id}"))
+            issues.append(Issue.error("oracle_wrong", f"oracle leaks on probe {rec.probe_id}"))
 
     has_block = any(p.kind == "block" for p in s.probes)
     if has_block and not any(r.kind == "block" and r.outcome == "FP" for r in runs["all_store"].probes):
-        issues.append(Issue("warning", "too_easy", "all_store never follows a false fact on any block probe"))
+        issues.append(Issue.warning("too_easy", "all_store never follows a false fact on any block probe"))
 
     if has_leak:
         records = {r.probe_id: r for r in runs["all_store_noacl"].probes}
-        for p in s.probes:
-            if p.kind == "leak" and not (records.get(p.id) and records[p.id].leaks):
-                issues.append(Issue("error", "leak_not_triggered", f"all_store_noacl does not leak on probe {p.id}"))
+        issues += [
+            Issue.error("leak_not_triggered", f"all_store_noacl does not leak on probe {p.id}")
+            for p in s.probes
+            if p.kind == "leak" and not (records.get(p.id) and records[p.id].leaks)
+        ]
     return issues

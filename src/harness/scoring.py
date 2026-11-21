@@ -39,13 +39,22 @@ def judge(probe: Probe, choice: Choice, scenario: Scenario) -> ProbeOutcome:
     """
     if probe.kind == "leak":
         return "LEAK_ONLY"
-    abstained = choice.index is None or not choice.basis  # nothing to act on
-    wrong = not abstained and is_wrong(choice.basis, probe, scenario)
+    wrong = not choice.abstained and is_wrong(choice.basis, probe, scenario)
     if probe.kind == "block":
         return "FP" if wrong else "BLOCKED"
-    if abstained:
+    if choice.abstained:
         return "FN"
     return "PROMOTE_FP" if wrong else "TP"
+
+
+def probe_correct(kind: str, outcome: str) -> bool:
+    """Whether a judged probe went right: a block probe unless FP, a promote probe only on TP.
+
+    Leak probes are judged by their leaks, not their outcome, so this is False for them.
+    """
+    if kind == "block":
+        return outcome != "FP"
+    return kind == "promote" and outcome == "TP"
 
 
 @dataclass(frozen=True)

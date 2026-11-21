@@ -2,7 +2,7 @@
 
 import math
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 
@@ -114,23 +114,26 @@ def _m3(runs: Iterable[ScenarioRun]) -> int:
     return sum(_leaking_results(rec) for run in runs for rec in run.probes)
 
 
-def _family_table(runs: list[ScenarioRun]) -> dict[str, FamilyRow]:
-    grouped: dict[str, list[ScenarioRun]] = defaultdict(list)
+def _grouped(runs: Iterable[ScenarioRun], key: Callable[[ScenarioRun], str]) -> list[tuple[str, list[ScenarioRun]]]:
+    """Runs grouped by `key`, groups sorted by key and runs kept in order."""
+    groups: dict[str, list[ScenarioRun]] = defaultdict(list)
     for run in runs:
-        grouped[run.family].append(run)
+        groups[key(run)].append(run)
+    return sorted(groups.items())
+
+
+def _family_table(runs: list[ScenarioRun]) -> dict[str, FamilyRow]:
     return {
         family: FamilyRow(m1=_m1(group), m2=_m2(group), m3=_m3(group))
-        for family, group in sorted(grouped.items())
+        for family, group in _grouped(runs, lambda r: r.family)
     }
 
 
 def _author_table(
     runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]
 ) -> dict[str, dict[str, Rate]]:
-    grouped: dict[str, list[ScenarioRun]] = defaultdict(list)
-    for run in runs:
-        grouped[scenarios[run.scenario_id].provenance.author].append(run)
-    return {a: {"m1": _m1(g), "m2": _m2(g)} for a, g in sorted(grouped.items())}
+    by_author = _grouped(runs, lambda r: scenarios[r.scenario_id].provenance.author)
+    return {a: {"m1": _m1(g), "m2": _m2(g)} for a, g in by_author}
 
 
 def _judged(run: ScenarioRun, scenario: Scenario) -> Iterable[tuple[Probe, ProbeRecord]]:
@@ -274,29 +277,28 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
 
 def per_scenario_counts(
     runs: list[ScenarioRun], kind: Literal["block", "promote"], hit: Literal["FP", "TP"]
-) -> list[tuple[int, int]]:
-    """(hits, probes of `kind`) per read-only scenario, ordered by scenario id."""
+) -> dict[str, tuple[int, int]]:
+    """Scenario id to (hits, probes of `kind`), for finished read-only scenarios, in id order."""
     chosen = sorted(
         (r for r in runs if r.error is None and r.mode == "read_only"),
         key=lambda r: r.scenario_id,
     )
-    return [_count([r], kind, hit) for r in chosen]
+    return {r.scenario_id: _count([r], kind, hit) for r in chosen}
 
 
 def flip_rate(repeats: list[list[ScenarioRun]]) -> Rate:
     """Share of (scenario, probe) pairs whose results differ between repeats."""
     if not repeats:
         return rate(0, 0)
-    tables = []
-    for repeat in repeats:
-        tables.append(
-            {
-                (run.scenario_id, rec.probe_id): [(res.text, tuple(res.sources)) for res in rec.results]
-                for run in repeat
-                if run.error is None
-                for rec in run.probes
-            }
-        )
+    tables = [
+        {
+            (run.scenario_id, rec.probe_id): [(res.text, tuple(res.sources)) for res in rec.results]
+            for run in repeat
+            if run.error is None
+            for rec in run.probes
+        }
+        for repeat in repeats
+    ]
     aligned = set(tables[0]).intersection(*tables[1:])
     flipped = sum(any(t[key] != tables[0][key] for t in tables[1:]) for key in aligned)
     return rate(flipped, len(aligned))

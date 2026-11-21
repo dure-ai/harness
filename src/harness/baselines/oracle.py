@@ -1,6 +1,8 @@
 """Oracle baseline: reads the hidden labels and returns the currently-true event for each fact."""
 
-from harness.baselines.simple import _NamespacedEngine
+from operator import attrgetter
+
+from harness.baselines.simple import NamespacedEngine
 from harness.contract import EngineInfo, Event, Query, Result, can_see
 from harness.scenario.model import LabeledEvent, Probe, QueryKey, Scenario, probe_key, query_key
 from harness.world import probe_ctx, true_at
@@ -12,7 +14,7 @@ def _content_key(e: Event) -> tuple[object, ...]:
             tuple(sorted(e.meta.items())))
 
 
-class OracleEngine(_NamespacedEngine):
+class OracleEngine(NamespacedEngine):
     """Upper bound for the metrics; it is the only engine allowed to see scenario labels.
 
     For each `about` fact of the probe that is true at the query time, it hands over the most
@@ -61,6 +63,6 @@ class OracleEngine(_NamespacedEngine):
                 if self._facts[e.id] == fact_id and can_see(e, query.user, query.team) and e.t <= query.t
             ]
             if candidates:
-                best = max(enumerate(candidates), key=lambda ie: (ie[1].t, ie[0]))[1]
+                best = max(reversed(candidates), key=attrgetter("t"))  # ties: the last recorded
                 results.append(Result(text=best.text, sources=[best.id]))
         return results[: query.k]
