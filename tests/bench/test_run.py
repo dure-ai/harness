@@ -266,3 +266,32 @@ def test_bench_rates_equal_the_ones_harness_metrics_computes():
     total_m2_k = sum(r["m2"].k for r in by_group.values())
     total_m2_n = sum(r["m2"].n for r in by_group.values())
     assert (total_m2_k, total_m2_n) == (m.m2.k, m.m2.n)
+
+
+def test_run_help_names_the_bench_config():
+    r = runner.invoke(app, ["bench", "run", "--help"], terminal_width=200)
+    assert "config/bench-v0.1.yaml" in r.output and "Evaluation config YAML" not in r.output
+
+
+def test_types_cannot_be_combined_with_scenarios(tmp_path: Path):
+    r = runner.invoke(app, ["bench", "run", "--scenarios", "scenarios/dev", "--types", "x", "--yes", "--out", str(tmp_path)])
+    assert r.exit_code == 2 and "--types" in r.output and "--scenarios" in r.output
+    assert not list(tmp_path.iterdir())
+
+
+def test_the_gold_pass_has_its_own_run_id(tmp_path: Path, cached: Path, monkeypatch: pytest.MonkeyPatch):
+    import harness.bench.run as bench_run_module
+
+    seen: list[tuple[str, bool]] = []
+    real = bench_run_module.run_bench
+
+    def spy(*args: Any, **kwargs: Any):
+        seen.append((kwargs["run_id"], kwargs.get("gold", False)))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(bench_run_module, "run_bench", spy)
+    r, _ = bench_run(tmp_path, "--gold")
+    assert r.exit_code == 0, r.output
+    (normal_id, normal_gold), (gold_id, gold_gold) = seen
+    assert (normal_gold, gold_gold) == (False, True)
+    assert gold_id == normal_id + "-gold"

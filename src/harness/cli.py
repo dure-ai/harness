@@ -690,7 +690,9 @@ def bench_run(
     limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
     gold: Annotated[bool, typer.Option("--gold", help="Also run with only the events of facts a probe asks about.")] = False,
     yes: Annotated[bool, typer.Option("--yes", help="Run without asking.")] = False,
-    config: ConfigOpt = Path("config/bench-v0.1.yaml"),
+    config: Annotated[
+        Path, typer.Option("--config", help="Bench config YAML (default config/bench-v0.1.yaml).")
+    ] = Path("config/bench-v0.1.yaml"),
     out: Annotated[Path, typer.Option("--out", help="Directory for bench reports.")] = Path("runs/bench"),
     blind_seed: Annotated[
         int | None,
@@ -713,6 +715,8 @@ def bench_run(
     _check_engine_specs(engine)
     if (dataset is None) == (scenarios_path is None):
         raise _fail("error: give exactly one of --dataset and --scenarios", 2)
+    if scenarios_path is not None and types:
+        raise _fail("error: --types applies to --dataset only; it cannot be combined with --scenarios", 2)
     ds = DATASETS.get(dataset) if dataset is not None else None
     file_sha256: dict[str, str] = {}
     if dataset is not None:
@@ -764,7 +768,9 @@ def bench_run(
     dataset_name = ds.name if ds is not None else str(scenarios_path)
     t0 = time.monotonic()
     normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=dataset_name)
-    gold_run = run_bench(items, names, cfg, run_id=run_id, key=key, gold=True, dataset=dataset_name) if gold else None
+    gold_run = (
+        run_bench(items, names, cfg, run_id=run_id + "-gold", key=key, gold=True, dataset=dataset_name) if gold else None
+    )
     wall = time.monotonic() - t0
     for b in (normal, gold_run):
         if b is not None:
