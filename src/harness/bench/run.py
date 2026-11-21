@@ -15,6 +15,7 @@ from harness.contract import EngineInfo, EngineUnavailable
 from harness.engines import make_engine
 from harness.replay import ScenarioRun, error_kind_of, run_scenario
 from harness.scenario.model import Scenario
+from harness.stress.variant import base_of
 
 
 @dataclass
@@ -26,6 +27,7 @@ class BenchRun:
         mode: "normal", or "gold" (only events of facts some probe asks about).
         runs: Engine name to its scenario runs, in conversion order.
         groups: Scenario id to the dataset's own type of the item (e.g. LongMemEval `question_type`).
+        bases: Scenario id to the approved scenario a stress variant came from (itself otherwise).
         skipped: (source id, reason) of every item that was not converted or did not pass screening.
         infos: Engine name to its `info()`.
         timed: Engine name to its `TimedEngine` wrappers, one per scenario that built an engine.
@@ -36,6 +38,7 @@ class BenchRun:
     mode: Literal["normal", "gold"]
     runs: dict[str, list[ScenarioRun]]
     groups: dict[str, str] = field(default_factory=dict)
+    bases: dict[str, str] = field(default_factory=dict)
     skipped: list[tuple[str, str]] = field(default_factory=list)
     infos: dict[str, EngineInfo] = field(default_factory=dict)
     timed: dict[str, list[TimedEngine]] = field(default_factory=dict)
@@ -84,6 +87,7 @@ def run_bench(
             continue
         s = gold_copy(c.scenario) if gold else c.scenario
         out.groups[s.id] = c.group
+        out.bases[s.id] = base_of(s)
         for name in engines:
             if name in skip:
                 reason, kind = skip[name]

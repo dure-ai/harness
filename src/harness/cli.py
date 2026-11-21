@@ -9,7 +9,7 @@ from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
@@ -53,6 +53,8 @@ traces_app = typer.Typer(help="Source trajectories for scenario generation.", no
 app.add_typer(traces_app, name="traces")
 bench_app = typer.Typer(help="External benchmarks converted into scenarios.", no_args_is_help=True)
 app.add_typer(bench_app, name="bench")
+stress_app = typer.Typer(help="Stress set: harder, label-preserving variants of approved scenarios.", no_args_is_help=True)
+app.add_typer(stress_app, name="stress")
 
 ScenariosOpt = Annotated[
     list[Path],
@@ -483,6 +485,13 @@ def run(
     _check_engine_specs(engine)
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
+    variants = sum(s.provenance.variant is not None for s in scenario_list)
+    if variants:  # stress variants are not part of the pre-registered measurement
+        raise _fail(
+            f"error: {variants} stress variant(s) (provenance.variant); harness run judges only the measurement "
+            "set, so run them with harness bench run --scenarios <dir> --include-drafts",
+            2,
+        )
     external = sum(s.family in EXT_FAMILIES for s in scenario_list)
     if external:  # the pre-registered verdict is not defined on external benchmark scenarios
         raise _fail(
@@ -738,6 +747,10 @@ def bench_run(
             help="Reproduce a recorded run: the seed from its engine_ids.json. Random by default.",
         ),
     ] = None,
+    include_drafts: Annotated[
+        bool,
+        typer.Option("--include-drafts", help="With --scenarios: also run drafts, such as harness stress build output."),
+    ] = False,
 ) -> None:
     """Run the baselines and extra engines on a converted external dataset and write its report."""
     import time
@@ -752,8 +765,10 @@ def bench_run(
         raise _fail("error: give exactly one of --dataset and --scenarios", 2)
     if scenarios_path is not None and types:
         raise _fail("error: --types applies to --dataset only; it cannot be combined with --scenarios", 2)
+    if dataset is not None and include_drafts:
+        raise _fail("error: --include-drafts applies to --scenarios only", 2)
     cfg = _bench_config(config)
-    found, facts, folder = _bench_source(dataset, scenarios_path, types, limit)
+    found, facts, folder = _bench_source(dataset, scenarios_path, types, limit, include_drafts=include_drafts)
     items = list(screened(found, cfg.eval))
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     scenarios = _confirm_bench(items, candidates, gold=gold, yes=yes)
@@ -787,13 +802,20 @@ def bench_run(
 
 
 def _bench_source(
-    dataset: str | None, scenarios_path: Path | None, types: list[str] | None, limit: int | None
+    dataset: str | None,
+    scenarios_path: Path | None,
+    types: list[str] | None,
+    limit: int | None,
+    *,
+    include_drafts: bool = False,
 ) -> "tuple[Iterable[Converted], DatasetFacts, str]":
     """The items `bench run` converts, the facts its report records, and its report folder name.
 
     A dataset must be known and cached with the right sha256 (exit 2 otherwise); its items are
-    converted lazily. Scenario files are loaded now, approved ones only.
+    converted lazily. Scenario files are loaded now, approved ones only unless `include_drafts`.
+    A stress variant's group is "<family>/<knob>=<value>", any other scenario's its family.
     """
+    from harness.stress.variant import group_of
     from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
     from harness.bench.run import dataset_facts, scenario_facts
@@ -812,10 +834,10 @@ def _bench_source(
         return found, dataset_facts(ds, file_sha256), ds.name
     assert scenarios_path is not None
     try:
-        loaded = load_set([scenarios_path], include_drafts=False).scenarios
+        loaded = load_set([scenarios_path], include_drafts=include_drafts).scenarios
     except Exception as e:
         raise _fail(f"error: cannot load scenarios {scenarios_path}: {e}", 2) from e
-    found = [Converted(s, s.id, s.family, None) for s in loaded[:limit]]
+    found = [Converted(s, s.id, group_of(s), None) for s in loaded[:limit]]
     return found, scenario_facts(str(scenarios_path)), "scenarios"
 
 
@@ -861,6 +883,80 @@ def _bench_passes(
             for name in sorted(b.tripped):
                 typer.echo(f"warning: {name} stayed unavailable in the {b.mode} pass; its remaining scenarios were skipped", err=True)
     return normal, gold_run
+
+
+@stress_app.command("build")
+def stress_build(
+    out: Annotated[Path, typer.Option("--out", help="Directory for the variants; must not be committable (e.g. runs/).")],
+    scenarios_path: Annotated[
+        Path, typer.Option("--scenarios", help="Approved scenarios to vary.")
+    ] = Path("scenarios/dev"),
+    knob: Annotated[
+        list[str] | None,
+        typer.Option("--knob", help="Knob to sweep: noise, position or gap (repeatable). All by default."),
+    ] = None,
+    seed: Annotated[int, typer.Option("--seed", help="Seed of every random choice.")] = 0,
+    noise_file: Annotated[
+        Path | None,
+        typer.Option("--noise-file", help="Noise texts, one per line, instead of the cached Open-SWE-Traces shards."),
+    ] = None,
+    gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
+    config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
+    pool_size: Annotated[int, typer.Option("--pool-size", min=1, help="Noise texts read from the traces.")] = 20000,
+) -> None:
+    """Write label-preserving variants of approved scenarios, one knob at a time, screened like bench items.
+
+    Each knob sweeps all of its values (noise: 0/20/100/300 events; position of the evidence
+    among 100 noise events: early/middle/late; gap before the first probe: 1h/1d/30d). Run the
+    result with harness bench run --scenarios <out> --include-drafts.
+    """
+    from harness.bench.check import screened
+    from harness.bench.convert import scenario_text
+    from harness.stress.build import build_variants
+    from harness.stress.noise import file_pool, trace_pool
+    from harness.stress.variant import KNOBS, Knob
+
+    knobs: list[Knob] = []
+    for name in knob or list(KNOBS):
+        if name not in KNOBS:
+            raise _fail(f"error: unknown knob {name!r}; choose from {', '.join(KNOBS)}", 2)
+        knobs.append(cast(Knob, name))
+    if not _cannot_be_committed(out):  # noise texts come from third-party trajectories
+        raise _fail(f"error: --out {out} must be git-ignored or outside the repository", 2)
+    cfg = _bench_config(config)
+    try:
+        bases = load_set([scenarios_path], include_drafts=False).scenarios
+    except Exception as e:
+        raise _fail(f"error: cannot load scenarios {scenarios_path}: {e}", 2) from e
+    if not bases:
+        raise _fail(f"error: no approved scenario in {scenarios_path}", 2)
+    if any(s.provenance.variant is not None for s in bases):
+        raise _fail("error: the input already holds stress variants; vary approved scenarios only", 2)
+    if noise_file is not None:
+        texts = file_pool(noise_file)
+    else:
+        with _needs_gen():
+            from harness.generate.config import cache_root, load_gen_config
+            from harness.generate.fetch import local_shards
+
+            shards = local_shards(cache_root() / "traces")
+            if not shards:
+                raise _fail("error: no cached trajectories; run harness traces fetch first, or pass --noise-file", 2)
+            texts = trace_pool(shards, load_gen_config(gen_config), pool_size)
+    typer.echo(f"noise texts: {len(texts)}")
+    out.mkdir(parents=True, exist_ok=True)
+    written: Counter[str] = Counter()
+    skipped = 0
+    for item in screened(build_variants(bases, texts, knobs, seed=seed), cfg.eval):
+        if item.scenario is None:
+            skipped += 1
+            typer.echo(f"skipped {item.source_id}: {item.skipped}")
+            continue
+        (out / f"{item.scenario.id}.yaml").write_text(scenario_text(item.scenario), encoding="utf-8")
+        written[item.group.split("/", 1)[1].split("=", 1)[0]] += 1
+    per_knob = ", ".join(f"{k} {written[k]}" for k in knobs)
+    typer.echo(f"wrote {sum(written.values())} variants of {len(bases)} scenarios to {out} ({per_knob}), skipped {skipped}")
+    typer.echo(f"next: harness bench run --scenarios {out} --include-drafts")
 
 
 @traces_app.command("list")
