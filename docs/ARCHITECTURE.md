@@ -38,8 +38,9 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 
 | 층 | 모듈 | 역할 |
 |---|---|---|
-| 진입점 | `cli.py` | 평가 명령(`scenario check`, `selfcheck`, `run`)과 초안 명령(`scenario new`, `review`, `traces`, `generate`). 단계들을 이어 붙이기만 하고 판단 로직은 없음 |
+| 진입점 | `cli.py` | 평가 명령(`scenario check`, `selfcheck`, `run`, `seeds`)과 초안 명령(`scenario new`, `review`, `traces`, `generate`). 단계들을 이어 붙이기만 하고 판단 로직은 없음 |
 | 산출 | `report.py` | 네 개의 리포트 파일, 엔진 이름 가리기(blind id), sealed 모드 |
+| | `seeds.py` | 시드 분산 리포트: 시드별 `Metrics` → 평균·[최소, 최대], 시드마다 결과가 바뀐 문항(`seeds` 명령) |
 | 판정 | `selection.py` | 사전 등록 기준으로 통과/실패(`judge_engine`), 반복 평균(`averaged`), 순위(`rank`) |
 | | `selfcheck.py` | 기준선 순서 검사(`run_selfcheck`), 시나리오 변별력 검사(`check_discrimination`) |
 | 집계 | `metrics.py` | `ScenarioRun` 목록 → `Metrics`(M1·M2·M3와 진단 지표) |
