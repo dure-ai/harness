@@ -145,3 +145,33 @@ def test_dev_scenarios_replay_exactly_as_with_the_reference(name):
         assert [(p.probe_id, p.results, p.choice, p.outcome, p.leaks, p.bases) for p in a.probes] == [
             (p.probe_id, p.results, p.choice, p.outcome, p.leaks, p.bases) for p in b.probes
         ], scenario.id
+
+
+@pytest.mark.parametrize("seed", range(4))
+@pytest.mark.parametrize("tau", [0.0, 0.05, 0.3, 1 / 3, 0.5, 0.7, 0.9, 1.0])
+def test_repeat_n_similar_pairs_equal_the_all_pairs_comparison(seed, tau):
+    """Long texts with shared common words: every similar pair is found, and no other."""
+    rng = random.Random(seed)
+    common = ["the", "a", "to", "of", "and", "in", "it", "is"]
+    rare = [f"word{i}" for i in range(60)] + ["서버를", "배포"]
+    base = [" ".join(rng.choice(common + rare) for _ in range(rng.randint(0, 30))) for _ in range(25)]
+    texts = []
+    for _ in range(120):
+        roll = rng.random()
+        if roll < 0.05:
+            texts.append("")
+        elif roll < 0.5:
+            words = rng.choice(base).split()
+            texts.append(" ".join(w for w in words if rng.random() > 0.15))  # near-duplicates
+        else:
+            texts.append(" ".join(rng.choice(common + rare) for _ in range(rng.randint(1, 40))))
+    engine = RepeatNEngine(2, tau)
+    engine.reset("ns")
+    for i, text in enumerate(texts):
+        engine.record(_event(i, text, rng))
+    sets = [set(text_mod.tokenize(t)) for t in texts]
+    expected = [
+        [i] * (text_mod.set_jaccard(a, a) >= tau) + [j for j, b in enumerate(sets) if j != i and text_mod.set_jaccard(a, b) >= tau]
+        for i, a in enumerate(sets)
+    ]
+    assert engine._similar["ns"] == expected  # same pairs, in the same order (itself first, then by position)

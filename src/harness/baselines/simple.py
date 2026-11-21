@@ -2,10 +2,11 @@
 
 from abc import ABC
 from collections import Counter
+from collections.abc import Iterable
 from typing import override
 
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result, can_see
-from harness.text import BM25, counted, set_jaccard_at_least
+from harness.text import BM25, counted, jaccard_prefix, set_jaccard_at_least
 
 
 class _NamespacedEngine(BaseEngine, ABC):
@@ -136,6 +137,9 @@ class RepeatNEngine(_IndexedEngine):
         # when an event is recorded, so a query only counts them.
         self._sets: dict[str, list[set[str]]] = {}
         self._similar: dict[str, list[list[int]]] = {}
+        # Per namespace: token -> positions whose prefix (`text.jaccard_prefix`) holds it, so a new
+        # event is compared only with events it could be similar to.
+        self._prefixes: dict[str, dict[str, list[int]]] = {}
 
     @override
     def reset(self, namespace: str) -> None:
@@ -143,6 +147,7 @@ class RepeatNEngine(_IndexedEngine):
         super().reset(namespace)
         self._sets[namespace] = []
         self._similar[namespace] = []
+        self._prefixes[namespace] = {}
 
     @override
     def record(self, event: Event) -> None:
@@ -153,10 +158,18 @@ class RepeatNEngine(_IndexedEngine):
         tokens = set(self._counts[namespace][event.id][0])
         position = len(sets)
         mine = [position] if set_jaccard_at_least(tokens, tokens, self.tau) else []
-        for j, other in enumerate(sets):
-            if set_jaccard_at_least(tokens, other, self.tau):
+        if self.tau > 0:
+            prefix = jaccard_prefix(tokens, self.tau)
+            index = self._prefixes[namespace]
+            candidates: Iterable[int] = sorted({j for t in prefix for j in index.get(t, ())})
+        else:  # at tau <= 0 every pair is similar, two empty texts included
+            prefix, index, candidates = [], {}, range(position)
+        for j in candidates:  # in position order, as a full scan visits them
+            if set_jaccard_at_least(tokens, sets[j], self.tau):
                 mine.append(j)
                 similar[j].append(position)
+        for t in prefix:
+            index.setdefault(t, []).append(position)
         sets.append(tokens)
         similar.append(mine)
 
