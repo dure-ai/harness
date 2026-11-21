@@ -13,7 +13,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from harness.contract import Event, Kind, Outcome, Query, Scope, Signal
 
-Family = Literal[
+MainFamily = Literal[
     "normal_repeat",
     "coincidence",
     "single_source_poison",
@@ -26,7 +26,14 @@ Family = Literal[
     "leak_personal",
     "leak_cross_team",
 ]
-FAMILIES: tuple[str, ...] = get_args(Family)
+# Families of external benchmark scenarios (`harness bench`). Kept out of `FAMILIES`, which the
+# main measurement and its generation templates rely on.
+ExtFamily = Literal["ext_recall", "ext_update"]
+# A nested Literal flattens, so `get_args(Family)` lists the values; `MainFamily | ExtFamily` would
+# list the two Literal types instead.
+Family = Literal[MainFamily, ExtFamily]
+FAMILIES: tuple[str, ...] = get_args(MainFamily)
+EXT_FAMILIES: tuple[str, ...] = get_args(ExtFamily)
 FEEDBACK_FAMILIES = ("echo", "failure_feedback")
 
 
