@@ -331,6 +331,25 @@ YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, �
 
 - 출처 채점의 한계: 결과의 `sources`는 질문 시점까지 엔진에 기록된 이벤트만 근거로 인정합니다(아직 기록되지 않은 id는 무시). 하지만 아무것도 저장하지 않고 이미 기록된 id만 돌려주는 엔진은 하네스가 제대로 기억한 엔진과 구별하지 못합니다.
 
+## 외부 벤치마크 트랙 (`bench`)
+
+공개 벤치마크(지금은 LongMemEval-S)를 시나리오로 바꿔 같은 엔진·같은 채점 코드로 돌려 보는 별도 트랙입니다. **사전 등록한 측정이 아닙니다.** 판정 기준(`config/eval-v0.1.yaml`)을 쓰지 않고 자체 설정(`config/bench-v0.1.yaml`)과 자체 리포트를 쓰며, 결과를 `harness run` 결과와 섞어 읽지 않습니다. `harness run`은 외부 계열(`ext_recall`, `ext_update`) 시나리오가 섞여 있으면 종료 코드 2로 멈춥니다. `harness run`, `selfcheck`, `scenario check`의 출력은 이 트랙 때문에 바뀌지 않습니다.
+
+```bash
+uv run harness bench list                          # 등록된 데이터셋, 라이선스, 크기, 캐시 여부
+uv run harness bench fetch --dataset longmemeval-s # 크기를 보여 주고 y/N을 묻는다. --yes로 건너뜀
+uv run harness bench export --dataset longmemeval-s --out /tmp/lme --types knowledge-update --limit 5
+uv run harness bench run --dataset longmemeval-s --types knowledge-update --yes
+uv run harness bench run --scenarios scenarios/dev --yes   # 데이터셋 대신 개발용 시나리오 세트
+```
+
+- **`bench fetch`**: LongMemEval-S 파일은 277 MB입니다. 받는 중에 크기와 sha256을 확인하고, 맞아야만 캐시에 이름이 생깁니다. 위치는 `T5_HARNESS_CACHE`(기본은 하네스 캐시 폴더) 아래 `bench/<데이터셋>/`입니다. `bench export`와 `bench run`은 시작할 때 캐시 파일의 sha256을 다시 계산하고, 다르면 파일 이름을 알리며 종료 코드 2로 멈춥니다. 그 파일을 지우고 다시 `fetch` 하세요. 리포트에는 이때 계산한 값이 남습니다.
+- **`bench export`**: 변환한 시나리오 중 `bench run`과 같은 걸러내기(같은 `--config`)를 통과한 것을 문항당 YAML 한 개로 `--out`에 씁니다. `--types`와 `--limit`은 `bench run`과 같습니다. 커밋하면 안 되는 데이터셋은 git이 무시하는 폴더나 git 작업 트리 밖에만 쓸 수 있습니다. 데이터셋 내용은 레포에 커밋하지 않습니다.
+- **`bench run`**: `--dataset`이나 `--scenarios` 중 정확히 하나를 줍니다. `--types`(데이터셋 유형, 쉼표 또는 반복)는 `--dataset`에서만 쓰고 `--scenarios`와 같이 주면 종료 코드 2입니다. `--limit`은 원본 문항 수 상한, `--engine`은 `harness run`과 같은 형식(기준선은 항상 같이 돎), `--gold`는 프로브가 묻는 사실의 이벤트만 넣은 실행을 한 번 더 해서 검색 실패와 판단 실패를 가르고, `--yes`는 확인 질문을 건너뜁니다. 확인 질문의 LLM 호출 추정치는 `--gold`면 두 번째 실행까지 셉니다. `harness run`처럼 연속 3개 문항에서 `unavailable`인 엔진은 남은 문항을 건너뛰고(골드 실행은 첫 문항으로 한 번 다시 확인), 경고를 남깁니다. 설정은 `--config`(기본 `config/bench-v0.1.yaml`)입니다. 리포트는 `runs/bench/<데이터셋>/<실행 id>/`(`--scenarios`는 `runs/bench/scenarios/<실행 id>/`)에 `report.md`, `summary.json`, `results.jsonl`, `engine_ids.json`으로 남고, 엔진은 `harness run`처럼 블라인드 id로 나옵니다.
+- **M2는 "근거 도달"입니다.** 엔진이 돌려준 결과가 정답 근거(증거 세션의 문장)를 가리키는지로 채점하며, LongMemEval 논문의 정확도(LLM 판정으로 정답 문장을 맞혔는지)가 아닙니다. 이 트랙은 표지(marker)를 쓰지 않으므로 `sources`를 채우지 않는 엔진은 0점이 됩니다. 리포트의 "출처 없는 결과 수" 표로 이를 구분해서 읽으세요.
+- **knowledge-update는 판정이 다릅니다.** LongMemEval의 원래 판정은 옛 값과 새 값을 같이 말해도 새 값이 답이면 정답으로 봅니다. 이 하네스는 옛 사실을 근거로 행동하면 `block` FP로 세므로 섞인 근거는 틀린 것입니다. 이 차이는 의도한 것이니 같은 문항의 점수를 논문이나 다른 구현의 값과 직접 비교하지 않습니다.
+- **`--scenarios`는 개발용 세트(`scenarios/dev` 등)를 돌려 보는 용도입니다.** 봉인한 테스트 세트에는 쓰지 않습니다.
+
 ## 오픈소스 엔진 측정
 
 Hindsight와 Mem0를 `--engine hindsight`, `--engine mem0`으로 평가합니다. 두 엔진은 Docker로 띄우고(`engines/docker/`), 하네스는 HTTP로만 붙습니다. 하네스에 새 의존성은 없습니다. 설계는 [오픈소스 어댑터 설계](docs/specs/2026-10-21-oss-adapters-design.md)를 보세요. 이미지를 받고 Mem0를 빌드하는 일은 네트워크와 시간을 쓰므로 직접 확인한 뒤 실행하세요.

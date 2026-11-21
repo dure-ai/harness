@@ -9,7 +9,7 @@ from harness.metrics import compute_metrics
 from harness.replay import ProbeRecord, ScenarioRun
 from harness.report import (
     RunMeta,
-    _scrubber,
+    scrubber,
     blind_ids,
     harness_version,
     jsonable,
@@ -333,7 +333,7 @@ def test_engine_info_scrubbed(tmp_path):
 
 def test_shared_class_name_not_mapped():
     ids = blind_ids(["a.x:Engine", "b.y:Engine", "none"], 5)
-    scrub = _scrubber(ids)
+    scrub = scrubber(ids)
     assert scrub("a.x:Engine and b.y:Engine") == f"{ids['a.x:Engine']} and {ids['b.y:Engine']}"
     assert ids["a.x:Engine"] != ids["b.y:Engine"]
     assert scrub("bare Engine stays") == "bare Engine stays"
@@ -349,7 +349,7 @@ def test_scrubber_hides_dotted_module_path_and_declared_name():
         b: EngineInfo(name="mem", version="1"),  # under 4 characters: too common to replace
         "all_store": EngineInfo(name="all_store", version="0"),
     }
-    scrub = _scrubber(ids, infos)
+    scrub = scrubber(ids, infos)
     ea, eb = ids[a], ids[b]
     assert scrub(f"{a} failed") == f"{ea} failed"
     assert scrub("TimeoutError at acme.secretsauce.client") == f"TimeoutError at {ea}.client"
@@ -366,11 +366,11 @@ def test_scrubber_skips_ambiguous_and_baseline_like_names():
         a: EngineInfo(name="shared", version="1"),
         b: EngineInfo(name="shared", version="1"),  # two candidates claim it: ambiguous
     }
-    assert _scrubber(ids, infos)("shared thing") == "shared thing"
+    assert scrubber(ids, infos)("shared thing") == "shared thing"
     infos = {a: EngineInfo(name="store", version="1"), b: EngineInfo(name="oracle", version="1")}
-    scrub = _scrubber(ids, infos)
+    scrub = scrubber(ids, infos)
     assert scrub("all_store beats oracle") == "all_store beats oracle"  # would garble baseline names
-    assert _scrubber(ids)("x.one failed") == f"{ids[a]} failed"  # infos are optional
+    assert scrubber(ids)("x.one failed") == f"{ids[a]} failed"  # infos are optional
 
 
 def test_report_hides_module_path_and_declared_name(tmp_path):

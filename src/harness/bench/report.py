@@ -1,0 +1,252 @@
+"""Report of a bench run: report.md, summary.json, results.jsonl and engine_ids.json."""
+
+import json
+from collections import Counter, defaultdict
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Any
+
+from harness.bench.gold import CELLS, compare_modes, gold_only_wrong_examples
+from harness.bench.run import BenchMeta, BenchRun
+from harness.bench.timing import cost_rows
+from harness.contract import EngineInfo
+from harness.metrics import m1_rate, m2_rate
+from harness.replay import ScenarioRun
+from harness.scenario.model import EXT_FAMILIES
+from harness.stats import Rate, rate
+from harness.report import info_json, order_key, rate_text, result_lines, scrubber, markdown_table, blind_ids, jsonable
+
+HEADER = "**외부 벤치마크 트랙. 사전 등록한 판정 기준이 아니며 `harness run` 결과와 섞지 않는다.**"
+M2_TITLE = "근거 도달(M2)"
+KU_NOTE = (
+    "LongMemEval의 원래 판정 프롬프트는 옛 값과 새 값을 같이 말해도 새 값이 답이면 정답으로 본다. "
+    "이 하네스는 옛 사실을 근거로 행동하면 `block` FP로 세므로, 섞인 근거는 틀린 것으로 채점한다. "
+    "이 차이는 의도한 것이다. 같은 문항의 점수를 LongMemEval 논문이나 다른 구현의 정확도와 직접 비교하지 않는다."
+)
+
+
+def _row(runs: list[ScenarioRun]) -> dict[str, Any]:
+    """M1, M2, scenario count and error count of the runs that share a family or a group.
+
+    M1 and M2 are `harness.metrics`' own, over the runs it uses for its headline rates:
+    finished, read-only ones.
+    """
+    scored = [r for r in runs if r.error is None and r.mode == "read_only"]
+    return {
+        "m1": m1_rate(scored),
+        "m2": m2_rate(scored),
+        "n_scenarios": len(runs),
+        "n_errors": sum(r.error is not None for r in runs),
+    }
+
+
+def _sourceless(runs: list[ScenarioRun]) -> Rate:
+    """Share of all results of the finished runs that came back without `sources`, as `Metrics.sourceless`."""
+    results = [res for r in runs if r.error is None for rec in r.probes for res in rec.results]
+    return rate(sum(not res.sources for res in results), len(results))
+
+
+def _split(runs: list[ScenarioRun], key: Callable[[ScenarioRun], str]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[ScenarioRun]] = defaultdict(list)
+    for r in runs:
+        grouped[key(r)].append(r)
+    return {k: _row(v) for k, v in sorted(grouped.items())}
+
+
+def _tables(b: BenchRun, ids: Mapping[str, str]) -> dict[str, dict[str, Any]]:
+    """Per engine (blind id): its rows by family and by dataset group, and its errored scenarios."""
+    order = order_key(ids)
+    out: dict[str, dict[str, Any]] = {}
+    for name in sorted(b.runs, key=order):
+        runs = b.runs[name]
+        out[ids[name]] = {
+            "by_family": _split(runs, lambda r: r.family),
+            "by_group": _split(runs, lambda r: b.groups[r.scenario_id]),
+            "sourceless": _sourceless(runs),
+            "errors": sorted(r.scenario_id for r in runs if r.error is not None),
+        }
+    return out
+
+
+def _skipped(b: BenchRun) -> dict[str, Any]:
+    reasons = Counter(reason for _, reason in b.skipped)
+    return {
+        "count": len(b.skipped),
+        "reasons": dict(sorted(reasons.items())),
+        "ids": sorted(source for source, _ in b.skipped),
+    }
+
+
+def _family_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Rows per engine and family: the external families first, then any other family by name."""
+    rows = [
+        [eid, fam, row["n_scenarios"], rate_text(row["m2"]), rate_text(row["m1"]), row["n_errors"]]
+        for eid, t in tables.items()
+        for fam in sorted(t["by_family"], key=lambda f: (f not in EXT_FAMILIES, f))
+        if (row := t["by_family"].get(fam)) is not None
+    ]
+    return markdown_table(["엔진", "계열", "문항 수", "M2", "M1", "오류"], rows)
+
+
+def _sourceless_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    return markdown_table(["엔진", "출처 없는 결과"], [[eid, rate_text(t["sourceless"])] for eid, t in tables.items()])
+
+
+def _group_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    rows = [
+        [eid, group, row["n_scenarios"], rate_text(row["m2"]), row["n_errors"]]
+        for eid, t in tables.items()
+        for group, row in t["by_group"].items()
+    ]
+    return markdown_table(["엔진", "유형", "문항 수", "M2", "오류"], rows)
+
+
+def _comparison(normal: BenchRun, gold: BenchRun, ids: Mapping[str, str]) -> dict[str, dict[str, Any]]:
+    """Per engine (blind id): the four mode-comparison counts and up to 5 `gold_only_wrong` probes."""
+    order = order_key(ids)
+    return {
+        ids[name]: {
+            "counts": compare_modes(normal.runs[name], gold.runs[name]),
+            "gold_only_wrong_examples": [list(k) for k in gold_only_wrong_examples(normal.runs[name], gold.runs[name])],
+        }
+        for name in sorted(normal.runs.keys() & gold.runs.keys(), key=order)
+    }
+
+
+def _comparison_table(comparison: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    rows = [[eid, *(c["counts"][cell] for cell in CELLS)] for eid, c in comparison.items()]
+    out = markdown_table(["엔진", "둘 다 맞음", "검색·잡음", "판단·사용", "골드에서만 틀림"], rows)
+    for eid, c in comparison.items():
+        examples = ", ".join(f"{s}/{p}" for s, p in c["gold_only_wrong_examples"])
+        if examples:
+            out += [f"- {eid} 골드에서만 틀린 예: {examples}"]
+    return [*out, ""] if any(c["gold_only_wrong_examples"] for c in comparison.values()) else out
+
+
+def _markdown(
+    meta: BenchMeta,
+    normal: BenchRun,
+    gold: BenchRun | None,
+    tables: Mapping[str, Mapping[str, Any]],
+    gold_tables: Mapping[str, Mapping[str, Any]] | None,
+    comparison: Mapping[str, Mapping[str, Any]] | None,
+    ids: Mapping[str, str],
+    scrub: Callable[[str], str],
+) -> str:
+    skipped = _skipped(normal)
+    reasons = ", ".join(f"{reason} {n}" for reason, n in skipped["reasons"].items()) or "-"
+    files = ", ".join(f"{name} {sha}" for name, sha in meta["file_sha256"].items())
+    infos = [
+        [ids[name], scrub(info.name), scrub(info.version)]
+        for name, info in sorted(normal.infos.items(), key=lambda kv: order_key(ids)(kv[0]))
+    ]
+    lines = [
+        HEADER,
+        "",
+        "# 외부 벤치마크 리포트",
+        "",
+        f"- 실행: {meta['run_id']}",
+        f"- 실행 일시: {meta['started_at']}",
+        f"- 하네스 버전: {meta['harness_version']}",
+        f"- 벤치 설정 해시: {meta['config_hash']}",
+        f"- 데이터셋: {meta['dataset']} (라이선스 {meta['license']})",
+        f"- 데이터 파일 sha256: {files}",
+        f"- 변환기: {meta['converter']}",
+        f"- 라벨 파일 sha256: {meta['label_sha256'] or '-'}",
+        f"- 실행 모드: {'보통 + 골드' if gold is not None else '보통'}",
+        f"- 변환된 문항 수: {len(next(iter(normal.runs.values()), []))}",
+        f"- 건너뜀: {skipped['count']} ({reasons})",
+        f"- 건너뛴 id: {', '.join(skipped['ids']) or '-'}",
+        f"- 머신: {meta['machine']}",
+        "",
+        *markdown_table(["엔진", "이름", "버전"], infos),
+        "## 표 1. 계열별 M2·M1",
+        "",
+        *_family_table(tables),
+        "## 표 1-1. 출처 없는 결과 수",
+        "",
+        "엔진이 돌려준 결과 중 `sources`가 빈 것의 비율이다. 이 트랙은 표지(marker)가 없어 출처가 없으면 근거로 인정받지 못하므로 "
+        "M2가 0이 된다. 출처를 채우지 않는 엔진의 낮은 점수는 이 표와 함께 읽는다.",
+        "",
+        *_sourceless_table(tables),
+        f"## 표 2. {M2_TITLE}",
+        "",
+        *_group_table(tables),
+    ]
+    if gold_tables is not None:
+        lines += ["## 표 1 (골드 모드). 계열별 M2·M1", "", *_family_table(gold_tables)]
+    if comparison is not None:
+        lines += [
+            "## 표 3. 골드 모드 비교",
+            "",
+            "같은 문항을 전체 이벤트(보통)와 프로브가 묻는 사실의 이벤트만(골드)으로 돌려 프로브별로 맞고 틀림을 센다. "
+            "block은 `FP`가 아니면, promote는 `TP`일 때 맞다. 검색·잡음은 보통에서만 틀림, "
+            "판단·사용은 둘 다 틀림, 골드에서만 틀림은 보통에서만 맞음이다.",
+            "",
+            *_comparison_table(comparison),
+        ]
+    lines += [
+        "## 표 4. 비용",
+        "",
+        "시간은 호출 한 번의 벽시계 ms(문항 전체를 모아 p50/p95), 컨텍스트는 프로브당 평균 글자 수다. "
+        "사용량은 엔진이 `usage()`로 알린 값을 문항 전체에서 합한 것이고, 알리지 않으면 알 수 없음이다.",
+        "",
+        *markdown_table(
+            ["엔진", "record p50", "record p95", "flush p50", "flush p95", "search p50", "search p95",
+             "컨텍스트 글자", "LLM 호출", "입력 토큰", "출력 토큰", "임베딩 호출"],
+            [[ids[r[0]], *r[1:]] for r in cost_rows(normal.timed, normal.runs)],
+        ),
+    ]
+    if any("knowledge-update" in t["by_group"] for t in tables.values()):
+        lines += ["## 표 5. knowledge-update 판정 차이", "", KU_NOTE, ""]
+    return "\n".join(lines)
+
+
+def write_bench_report(out_dir: Path, meta: BenchMeta, normal: BenchRun, gold: BenchRun | None) -> None:
+    """Write report.md, summary.json, results.jsonl and engine_ids.json to `out_dir`.
+
+    Engine names other than the baselines become blind ids everywhere except engine_ids.json.
+    A gold run adds `gold` to summary.json, a table to the report and results-gold.jsonl.
+
+    Args:
+        out_dir: Directory to create and write into.
+        meta: Run-level facts; its `blind_seed` goes to engine_ids.json only.
+        normal: The run on the full event stream.
+        gold: The run on gold events, if there was one.
+    """
+    seed = meta["blind_seed"]
+    facts = {k: v for k, v in meta.items() if k != "blind_seed"}
+    names = {*normal.runs, *normal.infos, *(gold.runs if gold is not None else [])}
+    ids = blind_ids(sorted(names), seed)
+    infos: dict[str, EngineInfo] = normal.infos
+    scrub = scrubber(ids, infos)
+    key = order_key(ids)
+    tables = _tables(normal, ids)
+    gold_tables = _tables(gold, ids) if gold is not None else None
+    comparison = _comparison(normal, gold, ids) if gold is not None else None
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    blind = {v: k for k, v in sorted(ids.items(), key=lambda kv: key(kv[0])) if v != k}
+    (out_dir / "engine_ids.json").write_text(
+        json.dumps({"seed": seed, "ids": blind}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    summary: dict[str, Any] = {
+        "meta": {
+            **jsonable(facts),
+            "mode": normal.mode,
+            "engine_infos": {
+                ids[name]: info_json(name, info, ids, scrub)
+                for name, info in sorted(infos.items(), key=lambda kv: key(kv[0]))
+            },
+        },
+        "skipped": _skipped(normal),
+        "engines": jsonable(tables),
+        "gold": None if gold_tables is None else {"engines": jsonable(gold_tables), "comparison": comparison},
+    }
+    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for run, name in ((normal, "results.jsonl"), (gold, "results-gold.jsonl")):
+        if run is not None:
+            lines = result_lines(run.runs, sorted(run.runs, key=key), ids)
+            (out_dir / name).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    (out_dir / "report.md").write_text(_markdown(meta, normal, gold, tables, gold_tables, comparison, ids, scrub) + "\n", encoding="utf-8")
+
