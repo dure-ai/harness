@@ -378,6 +378,31 @@ def _skip_reason(name: str, streak: int, last: str | None) -> str:
     return f"skipped: {name} was {UNAVAILABLE} for {_scenarios(streak)} in a row; last: {last}"
 
 
+def _check_engine_specs(specs: list[str] | None) -> None:
+    """Exit 2 on the first spec that is neither a baseline, an OSS engine nor 'package.module:Class'."""
+    for name in specs or []:
+        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
+            raise _fail(
+                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
+                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
+                2,
+            )
+
+
+def _blind_seed(blind_seed: int | None) -> int:
+    """The run's blind seed: the given one (with a warning when it is guessable), else a random one."""
+    if blind_seed is None:
+        return secrets.randbits(64)
+    if blind_seed < 2**32:
+        typer.echo(
+            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
+            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
+            "unless you are only reproducing a run",
+            err=True,
+        )
+    return blind_seed
+
+
 @app.command()
 def run(
     scenarios: ScenariosOpt,
@@ -407,27 +432,14 @@ def run(
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
     # First, so a typo does not pay for loading the scenarios and the baseline self-check.
-    for name in engine or []:
-        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
-            raise _fail(
-                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
-                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
-                2,
-            )
+    _check_engine_specs(engine)
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     infos: dict[str, EngineInfo] = {}
     if candidates and scenario_list:  # no scenarios: _selfcheck reports it
         _preflight(candidates, scenario_list[0], cfg, infos, sealed)
-    seed = secrets.randbits(64) if blind_seed is None else blind_seed
-    if blind_seed is not None and blind_seed < 2**32:
-        typer.echo(
-            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
-            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
-            "unless you are only reproducing a run",
-            err=True,
-        )
+    seed = _blind_seed(blind_seed)
     key = blind_key(seed)  # one seed: candidate ids and namespaces, so engine_ids.json reproduces both
     checks, base_runs = _selfcheck(loaded, cfg, sealed, key)
     if not all(c.ok for c in checks):
@@ -643,6 +655,97 @@ def bench_export(
         (out / f"{c.scenario.id}.yaml").write_text(scenario_text(c.scenario), encoding="utf-8")
         written += 1
     typer.echo(f"wrote {written} scenarios to {out}, skipped {skipped}")
+
+
+@bench_app.command("run")
+def bench_run(
+    dataset: Annotated[str, typer.Option("--dataset", help="Dataset name; see harness bench list.")],
+    engine: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--engine",
+            help="Extra engine: 'hindsight', 'mem0' or 'pkg.module:Class' (repeatable). The baselines always run.",
+        ),
+    ] = None,
+    types: Annotated[
+        list[str] | None,
+        typer.Option("--types", help="Only these dataset types (repeatable, or comma separated)."),
+    ] = None,
+    limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
+    gold: Annotated[bool, typer.Option("--gold", help="Also run with only the events of facts a probe asks about.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Run without asking.")] = False,
+    config: ConfigOpt = Path("config/bench-v0.1.yaml"),
+    out: Annotated[Path, typer.Option("--out", help="Directory for bench reports.")] = Path("runs/bench"),
+    blind_seed: Annotated[
+        int | None,
+        typer.Option(
+            "--blind-seed",
+            help="Reproduce a recorded run: the seed from its engine_ids.json. Random by default.",
+        ),
+    ] = None,
+) -> None:
+    """Run the baselines and extra engines on a converted external dataset and write its report."""
+    import time
+
+    from harness.bench.check import screened
+    from harness.bench.config import bench_config_hash, load_bench_config
+    from harness.bench.dataset import bench_cache, is_cached
+    from harness.bench.datasets import DATASETS
+    from harness.bench.report import write_bench_report
+    from harness.bench.run import dataset_facts, run_bench
+
+    _check_engine_specs(engine)
+    ds = DATASETS.get(dataset)
+    if ds is None:
+        raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
+    if not is_cached(ds):
+        raise _fail(f"error: run 'harness bench fetch --dataset {dataset}' first", 2)
+    try:
+        cfg = load_bench_config(config)
+    except Exception as e:
+        raise _fail(f"error: cannot load config {config}: {e}", 2) from e
+    wanted = {t.strip() for arg in types or [] for t in arg.split(",") if t.strip()} or None
+    items = list(screened(ds.convert(bench_cache(ds.name), types=wanted, limit=limit), cfg.eval))
+    scenarios = [c.scenario for c in items if c.scenario is not None]
+    if not scenarios:
+        raise _fail("error: no scenario was converted; check --types and --limit", 2)
+    n_events = sum(len(s.events) for s in scenarios)
+    n_probes = sum(len(s.probes) for s in scenarios)
+    candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
+    typer.echo(f"scenarios: {len(scenarios)} (skipped {len(items) - len(scenarios)}), events: {n_events}, probes: {n_probes}")
+    for name in candidates:
+        if name in OSS_ENGINES:
+            typer.echo(f"{name}: about {n_events} LLM calls (one per recorded event)")
+    if not yes and not typer.confirm("실행할까요?", default=False):
+        raise _fail("취소했습니다. 아무것도 실행하지 않았습니다.", 1)
+
+    infos: dict[str, EngineInfo] = {}
+    _preflight(candidates, scenarios[0], cfg.eval, infos, False)
+    seed = _blind_seed(blind_seed)
+    key = blind_key(seed)
+    started_at = datetime.now().astimezone()
+    run_id = started_at.strftime("%Y%m%d-%H%M%S")
+    names = [*BASELINES, *candidates]
+    t0 = time.monotonic()
+    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=ds.name)
+    gold_run = run_bench(items, names, cfg, run_id=run_id, key=key, gold=True, dataset=ds.name) if gold else None
+    wall = time.monotonic() - t0
+    for b in (normal, gold_run):
+        if b is not None:
+            b.infos.update(infos)  # the pre-flight checked these are writable
+    meta = {
+        "run_id": run_id,
+        "started_at": started_at,
+        "harness_version": harness_version(),
+        "config_hash": bench_config_hash(cfg),
+        "machine": machine_info(),
+        **dataset_facts(ds),
+        "blind_seed": seed,
+    }
+    out_dir = out / ds.name / run_id
+    write_bench_report(out_dir, meta, normal, gold_run)
+    typer.echo(str(out_dir / "report.md"))
+    typer.echo(f"wall time: {wall:.1f} s", err=True)
 
 
 @traces_app.command("list")
