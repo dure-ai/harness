@@ -30,7 +30,7 @@ uv run basedpyright src         # type check
 uv run pytest -q -W error       # tests, warnings as errors
 ```
 
-CI runs these four on every PR. Run them before you push.
+CI runs these four on every PR. Run them before you push. A new basedpyright warning fails CI; the warnings that existed when this rule was added are listed in `.basedpyright/baseline.json` and fail nothing until their code changes.
 
 If you change scenarios, also run `uv run harness scenario check <path>`. Approve a scenario with `uv run harness review set <id> approved --reviewer <name>`, not by editing `review.status` by hand. Run outputs under `runs/` are not committed.
 

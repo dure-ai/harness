@@ -52,19 +52,22 @@ def engine(fake):
 
 
 def test_reset_deletes_hashed_run(fake, engine):
-    engine.reset("run-r1:leak_personal-x"); r = fake.requests[-1]
+    engine.reset("run-r1:leak_personal-x")
+    r = fake.requests[-1]
     assert (r.method, r.path, r.query) == ("DELETE", "/memories", {"run_id": engine_ns("run-r1:leak_personal-x")})
 
 
 def test_record_body(fake, engine):
-    engine.reset("ns"); engine.record(ev("e3", scope="team", team="team-a", user="u2", text="Use replica"))
+    engine.reset("ns")
+    engine.record(ev("e3", scope="team", team="team-a", user="u2", text="Use replica"))
     assert fake.requests[-1].body == {"messages": [{"role": "user", "content": "[shop-api] u2: Use replica"}],
                                       "run_id": engine_ns("ns"), "user_id": "team:team-a",
                                       "metadata": {"harness_event": "e3"}}
 
 
 def test_search_filter_and_sources(fake, engine):
-    engine.reset("ns"); engine.record(ev("e1", text="replica reads"))
+    engine.reset("ns")
+    engine.record(ev("e1", text="replica reads"))
     res = engine.search(q(text="replica", user="u4", team="team-a", k=2))
     assert fake.requests[-1].body["filters"] == {"run_id": engine_ns("ns"),
                                                  "OR": [{"user_id": "user:u4"}, {"user_id": "team:team-a"}]}
@@ -161,7 +164,8 @@ def test_results_are_cut_to_k_without_reordering(fake, engine):
 
 
 def test_event_sources_forgotten_on_reset(fake, engine):
-    engine.reset("ns"); engine.record(ev("e1", text="replica"))
+    engine.reset("ns")
+    engine.record(ev("e1", text="replica"))
     fake.extra_results = [row("m1", "x", metadata={"harness_event": "e1"})]
     assert any(r.sources == ["e1"] for r in engine.search(q(text="replica")))
     engine.reset("ns2")
@@ -171,7 +175,8 @@ def test_event_sources_forgotten_on_reset(fake, engine):
 
 @pytest.mark.parametrize("reply", [None, [], {"results": None}, {"results": {}}, {"other": []}])
 def test_unexpected_search_reply(fake, engine, reply):
-    fake.search_reply = reply; engine.reset("ns")
+    fake.search_reply = reply
+    engine.reset("ns")
     with pytest.raises(RuntimeError, match="mem0: unexpected search reply"):
         engine.search(q())
 

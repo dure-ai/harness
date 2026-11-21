@@ -1,4 +1,5 @@
 from dataclasses import replace
+from itertools import pairwise
 
 import pytest
 
@@ -225,7 +226,7 @@ def test_rank_three_way_tie_is_sorted_and_labels_consistent():
     assert [e.tied_with_previous for e in ranked] == [False, True, True]
     assert [e.tiebreak for e in ranked] == [None, "m1", "m1"]
     m1 = {s.engine_id: s.metrics.m1.value for s in scores}
-    for prev, cur in zip(ranked, ranked[1:]):
+    for prev, cur in pairwise(ranked):
         assert m1[prev.engine_id] < m1[cur.engine_id]
 
 

@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
-
 from rich.console import Console
 
 from harness.config import EvalConfig, config_hash, load_config

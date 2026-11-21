@@ -2,10 +2,10 @@ import re
 from datetime import timedelta
 from pathlib import Path
 
+from harness.agent import Choice
 from harness.baselines.simple import AllStoreEngine, NoneEngine
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineInfo, Result
-from harness.agent import Choice
 from harness.replay import DEFAULT_BLIND_KEY, engine_event_id, feedback_events, run_scenario
 from harness.scenario.load import load_scenario
 from harness.scenario.model import Feedback, FeedbackTemplate
