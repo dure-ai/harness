@@ -37,8 +37,8 @@ def test_knowledge_update_new_value_becomes_a_block_and_promote_pair():
     assert s.family == "ext_update" and c.group == "knowledge-update"
     assert s.id == "lme-q1" and s.mode == "read_only" and s.language == "en"
     assert [(p.id, p.kind, p.session, p.about) for p in s.probes] == [
-        ("p-block", "block", "q-block", ["f0", "f1"]),
-        ("p-promote", "promote", "q-promote", ["f1"]),
+        ("p-block", "block", "sess-2", ["f0", "f1"]),
+        ("p-promote", "promote", "sess-3", ["f1"]),
     ]
     assert s.facts["f0"].valid_until == first_event_time(s, "f1") and s.facts["f1"].valid_until is None
     assert s.facts["f0"].text == "I use Vim" and s.facts["f1"].text == "I switched to Emacs"
@@ -49,7 +49,7 @@ def test_knowledge_update_old_and_both_labels_are_recall_only():
     for label, about in (("old", ["f0"]), ("both", ["f0", "f1"])):
         s = convert_question(ku("q1"), {"q1": label}).scenario
         assert s is not None and s.family == "ext_recall"
-        assert [(p.id, p.kind, p.session, p.about) for p in s.probes] == [("p-promote", "promote", "q", about)]
+        assert [(p.id, p.kind, p.session, p.about) for p in s.probes] == [("p-promote", "promote", "sess-2", about)]
         assert all(f.valid_until is None and f.valid_from is None for f in s.facts.values())
         assert not errors(s)
 
@@ -217,3 +217,27 @@ def test_knowledge_update_needs_exactly_two_evidence_sessions():
         for label in ("new", "old", "both"):
             c = convert_question(q, {q["question_id"]: label})
             assert (c.scenario, c.skipped) == (None, "knowledge-update without exactly two evidence sessions")
+
+
+def test_no_engine_visible_probe_field_names_the_probe_or_family():
+    from harness.scenario.model import Scenario
+
+    scenarios: list[Scenario] = []
+    for label in ("new", "old", "both"):
+        s = convert_question(ku("q1"), {"q1": label}).scenario
+        assert s is not None
+        scenarios.append(s)
+    s = convert_question(
+        lme_question("m1", "multi-session", [("2023/05/01 (Mon) 09:00", [("user", "x")])], [0], QDATE), {}
+    ).scenario
+    assert s is not None
+    scenarios.append(s)
+    for s in scenarios:
+        for probe in s.probes:
+            q = s.query_for(probe, 5)
+            visible = f"{q.session} {q.repo} {q.user} {q.team} {q.meta}".lower()
+            for word in ("block", "promote", "q-", s.family, "ext_", "knowledge", "multi-session"):
+                assert word not in visible, (s.id, probe.id, word)
+        sessions = [p.session for p in s.probes]
+        assert len(set(sessions)) == len(sessions)
+        assert not {e.session for e in s.events} & set(sessions)  # the probe sessions are new ones
