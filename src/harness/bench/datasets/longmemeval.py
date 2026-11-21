@@ -1,0 +1,166 @@
+"""LongMemEval-S (MIT): long chat histories converted into `ext_update` and `ext_recall` scenarios."""
+
+import json
+from collections.abc import Iterator, Mapping
+from datetime import UTC, datetime, timedelta
+from importlib import resources
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from harness.bench.convert import Clock
+from harness.bench.dataset import Converted, RemoteFile
+from harness.scenario.model import Fact, Probe, Provenance, Scenario, ScenarioEvent, World
+
+REPO = "longmemeval-s"
+KU = "knowledge-update"
+FACT_CHARS = 300
+_URL = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json"
+_SHA256 = "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+
+
+def parse_lme_date(text: str) -> datetime:
+    """Parse `"2023/05/20 (Sat) 02:21"` as a UTC time (the weekday is ignored)."""
+    day, _weekday, clock = text.split()
+    return datetime.strptime(f"{day} {clock}", "%Y/%m/%d %H:%M").replace(tzinfo=UTC)
+
+
+def load_ku_labels() -> dict[str, str]:
+    """The knowledge-update labels shipped with the package: question id to new/old/both/exclude."""
+    text = (resources.files("harness.bench.datasets") / "longmemeval_ku_labels.yaml").read_text(encoding="utf-8")
+    return {str(k): str(v) for k, v in yaml.safe_load(text).items()}
+
+
+class _Session:
+    def __init__(self, sid: str, t: datetime, turns: list[dict[str, Any]]) -> None:
+        self.sid = sid
+        self.t = t
+        self.turns = turns
+
+
+def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
+    """Convert one LongMemEval record; a question that cannot be converted soundly is skipped with a reason."""
+    qid: str = q["question_id"]
+    qtype: str = q["question_type"]
+
+    def skip(reason: str) -> Converted:
+        return Converted(None, qid, qtype, reason)
+
+    if qid.endswith("_abs"):
+        return skip("abstention")
+    label = None
+    if qtype == KU:
+        label = labels.get(qid)
+        if label is None:
+            return skip("no label")
+        if label == "exclude":
+            return skip("excluded by label")
+
+    qdate = parse_lme_date(q["question_date"])
+    answer_ids = set(q["answer_session_ids"])
+    sessions: list[_Session] = []
+    for sid, date, turns in zip(q["haystack_session_ids"], q["haystack_dates"], q["haystack_sessions"], strict=True):
+        t = parse_lme_date(date)
+        if t > qdate:
+            if sid in answer_ids:
+                return skip("evidence after the question")
+            continue
+        sessions.append(_Session(sid, t, turns))
+    sessions.sort(key=lambda s: s.t)  # stable: equal dates keep file order
+
+    events: list[ScenarioEvent] = []
+    facts: dict[str, Fact] = {}
+    first_evidence: dict[str, datetime] = {}
+    clock = Clock()
+    for si, sess in enumerate(sessions):
+        is_answer = sess.sid in answer_ids
+        evidence = [turn["content"] for turn in sess.turns if is_answer and turn.get("has_answer")]
+        if is_answer:
+            if not evidence:
+                return skip("answer session without evidence turns")
+            facts[f"f{si}"] = Fact(text="\n".join(evidence)[:FACT_CHARS])
+        for ti, turn in enumerate(sess.turns):
+            t = clock.at(sess.t + timedelta(minutes=ti))
+            fact = f"f{si}" if is_answer and turn.get("has_answer") else None
+            if fact is not None:
+                first_evidence.setdefault(fact, t)
+            events.append(
+                ScenarioEvent(
+                    id=f"s{si}-t{ti}",
+                    t=t,
+                    user="u1" if turn["role"] == "user" else "assistant",
+                    session=f"sess-{si}",
+                    repo=REPO,
+                    scope="team",
+                    signal="self",
+                    kind="agent_record",
+                    outcome="unknown",
+                    text=turn["content"],
+                    meta={"role": turn["role"]},
+                    fact=fact,
+                )
+            )
+
+    ids = list(facts)  # evidence sessions in date order
+    if label is not None and len(ids) < 2:
+        return skip("knowledge-update without two evidence sessions")
+
+    def promote(pid: str, session: str, about: list[str]) -> Probe:
+        return Probe(
+            id=pid, kind="promote", t=qdate, user="u1", session=session, repo=REPO, query=q["question"], about=about
+        )
+
+    if label == "new":
+        old, new = ids[0], ids[-1]
+        facts[old].valid_until = first_evidence[new]
+        probes = [
+            Probe(
+                id="p-block", kind="block", t=qdate, user="u1", session="q-block", repo=REPO,
+                query=q["question"], about=[old, new],
+            ),
+            promote("p-promote", "q-promote", [new]),
+        ]
+        family = "ext_update"
+    else:
+        about = {"old": ids[:1], "both": [ids[0], ids[-1]]}.get(label or "", ids)
+        probes = [promote("p-promote", "q", about)]
+        family = "ext_recall"
+
+    scenario = Scenario(
+        id=f"lme-{qid}",
+        family=family,  # pyright: ignore[reportArgumentType]
+        mode="read_only",
+        language="en",
+        world=World(timezone="UTC", teams={"t1": ["u1", "assistant"]}),
+        facts=facts,
+        events=events,
+        probes=probes,
+        provenance=Provenance(author="generator", source_traces=[qid]),
+    )
+    return Converted(scenario, qid, qtype, None)
+
+
+class LongMemEvalS:
+    """LongMemEval-S, cleaned version (500 questions, about 115k tokens of history each)."""
+
+    name = "longmemeval-s"
+    license = "MIT"
+    commit_ok = True
+
+    def files(self) -> list[RemoteFile]:
+        """The one JSON file of the dataset."""
+        return [RemoteFile("longmemeval_s_cleaned.json", _URL, 277383467, _SHA256)]
+
+    def convert(self, cache: Path, *, types: set[str] | None, limit: int | None) -> Iterator[Converted]:
+        """Convert the cached file; `types` filters by `question_type`, `limit` counts converted and skipped items."""
+        records: list[dict[str, Any]] = json.loads((cache / self.files()[0].name).read_text(encoding="utf-8"))
+        labels = load_ku_labels()
+        n = 0
+        for q in records:
+            if types is not None and q["question_type"] not in types:
+                continue
+            if limit is not None and n >= limit:
+                return
+            n += 1
+            yield convert_question(q, labels)

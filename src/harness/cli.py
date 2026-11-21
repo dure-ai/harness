@@ -606,6 +606,45 @@ def bench_fetch(
     typer.echo(str(dest))
 
 
+@bench_app.command("export")
+def bench_export(
+    dataset: Annotated[str, typer.Option("--dataset", help="Dataset name; see harness bench list.")],
+    out: Annotated[Path, typer.Option("--out", help="Directory for the scenario files.")],
+    types: Annotated[
+        str | None, typer.Option("--types", help="Only these dataset types, comma separated.")
+    ] = None,
+    limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
+) -> None:
+    """Convert a cached dataset into scenario files, one per converted item."""
+    import subprocess
+
+    from harness.bench.check import screened
+    from harness.bench.convert import scenario_text
+    from harness.bench.dataset import bench_cache, is_cached
+    from harness.bench.datasets import DATASETS
+
+    ds = DATASETS.get(dataset)
+    if ds is None:
+        raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
+    if not ds.commit_ok:
+        ignored = subprocess.run(["git", "check-ignore", "-q", str(out)], capture_output=True).returncode == 0
+        if not ignored:
+            raise _fail(f"error: {dataset} may not be committed; --out {out} must be git-ignored", 2)
+    if not is_cached(ds):
+        raise _fail(f"error: {dataset} is not in the cache; run harness bench fetch --dataset {dataset} first", 2)
+    wanted = {t.strip() for t in types.split(",") if t.strip()} if types else None
+    out.mkdir(parents=True, exist_ok=True)
+    written = skipped = 0
+    for c in screened(ds.convert(bench_cache(ds.name), types=wanted, limit=limit), EvalConfig()):
+        if c.scenario is None:
+            skipped += 1
+            typer.echo(f"skipped {c.source_id}: {c.skipped}")
+            continue
+        (out / f"{c.scenario.id}.yaml").write_text(scenario_text(c.scenario), encoding="utf-8")
+        written += 1
+    typer.echo(f"wrote {written} scenarios to {out}, skipped {skipped}")
+
+
 @traces_app.command("list")
 def traces_list() -> None:
     """Show the shards in the cache, trajectories per repository and how many tasks can be bundled."""
