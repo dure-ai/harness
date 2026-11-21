@@ -92,6 +92,22 @@ def set_jaccard(sa: set[str], sb: set[str]) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
+def set_jaccard_at_least(sa: set[str], sb: set[str], tau: float) -> bool:
+    """Whether `set_jaccard(sa, sb) >= tau`, without the intersection when the sizes rule it out.
+
+    The Jaccard ratio is at most min(|a|, |b|) / max(|a|, |b|), and float division is monotonic,
+    so when that bound is below `tau` the ratio is too. Otherwise the union's size is taken as
+    |a| + |b| - |a & b|, the same integer `set_jaccard` divides by, so the answer is identical.
+    """
+    la, lb = len(sa), len(sb)
+    if la == 0 and lb == 0:
+        return 0.0 >= tau
+    if min(la, lb) / max(la, lb) < tau:
+        return False
+    inter = len(sa & sb)
+    return inter / (la + lb - inter) >= tau
+
+
 def counted(text: str) -> tuple[Counter[str], int]:
     """A text's term counts and token count, as `BM25.add` indexes it."""
     tokens = tokenize(text)

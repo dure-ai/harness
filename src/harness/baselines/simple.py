@@ -5,7 +5,7 @@ from collections import Counter
 from typing import override
 
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result, can_see
-from harness.text import BM25, counted, set_jaccard
+from harness.text import BM25, counted, set_jaccard_at_least
 
 
 class _NamespacedEngine(BaseEngine, ABC):
@@ -152,9 +152,9 @@ class RepeatNEngine(_IndexedEngine):
         sets, similar = self._sets[namespace], self._similar[namespace]
         tokens = set(self._counts[namespace][event.id][0])
         position = len(sets)
-        mine = [position] if set_jaccard(tokens, tokens) >= self.tau else []
+        mine = [position] if set_jaccard_at_least(tokens, tokens, self.tau) else []
         for j, other in enumerate(sets):
-            if set_jaccard(tokens, other) >= self.tau:
+            if set_jaccard_at_least(tokens, other, self.tau):
                 mine.append(j)
                 similar[j].append(position)
         sets.append(tokens)
