@@ -159,6 +159,9 @@ class Review(_Strict):
     check_config_hash: str | None = None
 
 
+Knob = Literal["noise", "position", "gap"]  # difficulty knobs of the stress set (`harness.stress`)
+
+
 class Variant(_Strict):
     """How a stress-set scenario was derived from an approved one (`harness stress build`).
 
@@ -170,13 +173,16 @@ class Variant(_Strict):
         value: The knob's setting, as written in the variant id (e.g. "100", "late", "30d").
         seed: Seed of the random choices (noise texts, users, sessions, times).
         noise_traces: Ids of the trajectories the noise texts came from, in event order.
+        pool_sha256: SHA-256 of the noise pool the texts were drawn from (its texts, trajectories
+            and repositories, in order); the same base, knob, seed and pool give the same variant.
     """
 
     base: str
-    knob: Literal["noise", "position", "gap"]
+    knob: Knob
     value: str
     seed: int
     noise_traces: list[str] = []
+    pool_sha256: str | None = None
 
 
 class SourceRepo(_Strict):

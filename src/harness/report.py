@@ -332,12 +332,16 @@ def _num(x: float | None, digits: int = 3) -> str:
     return NA if x is None else f"{x:.{digits}f}"
 
 
+def ci_text(ci: tuple[float, float] | None) -> str:
+    """An interval as `[low, high]`, or n/a."""
+    return NA if ci is None else f"[{ci[0]:.3f}, {ci[1]:.3f}]"
+
+
 def rate_text(r: Rate | None) -> str:
     """A rate as `value (n=N) [low, high]`, or n/a when there is nothing to rate."""
     if r is None or r.value is None:
         return NA
-    ci = NA if r.ci is None else f"[{r.ci[0]:.3f}, {r.ci[1]:.3f}]"
-    return f"{r.value:.3f} (n={r.n}) {ci}"
+    return f"{r.value:.3f} (n={r.n}) {ci_text(r.ci)}"
 
 
 def _delay(delays: list[Delay], never: str) -> str:
@@ -441,7 +445,7 @@ def _section_ranking(ranking: list[RankEntry], ids: Mapping[str, str]) -> list[s
             ids[e.engine_id],
             "동률" if e.tied_with_previous else "-",
             e.tiebreak or "-",
-            NA if e.diff_ci is None else f"[{e.diff_ci[0]:.3f}, {e.diff_ci[1]:.3f}]",
+            ci_text(e.diff_ci),
         ]
         for e in ranking
     ]

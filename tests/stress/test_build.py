@@ -2,14 +2,15 @@ import json
 from pathlib import Path
 
 import pytest
+from click.testing import Result
 from typer.testing import CliRunner
 
-from harness.bench.cluster import cluster_ci
 from harness.cli import app
 from harness.scenario.load import load_set
-from harness.stress.variant import group_sort_key
+from harness.stress.groups import VALUES
 
 runner = CliRunner()
+COINCIDENCE = Path("scenarios/dev/coincidence")  # one team per scenario: every knob builds
 
 
 @pytest.fixture
@@ -20,79 +21,108 @@ def noise_file(tmp_path: Path) -> Path:
     return path
 
 
-def build(tmp_path: Path, noise_file: Path, *extra: str):
-    out = tmp_path / "stress"
-    r = runner.invoke(
-        app,
-        ["stress", "build", "--scenarios", "scenarios/dev/coincidence", "--out", str(out),
-         "--noise-file", str(noise_file), "--seed", "7", *extra],
-    )  # fmt: skip
-    return r, out
+def build(tmp_path: Path, noise_file: Path, *extra: str, scenarios: Path = COINCIDENCE, out: Path | None = None) -> tuple[Result, Path]:
+    out = out or tmp_path / "stress"
+    args = ["stress", "build", "--scenarios", str(scenarios), "--out", str(out), "--noise-file", str(noise_file), "--seed", "7"]
+    return runner.invoke(app, [*args, *extra]), out
+
+
+def bench(variants: Path, out: Path, *extra: str) -> Result:
+    args = ["bench", "run", "--scenarios", str(variants), "--include-drafts", "--yes", "--out", str(out), "--blind-seed", "123456789012345"]
+    return runner.invoke(app, [*args, *extra])
 
 
 def test_build_writes_screened_draft_variants_for_every_knob_value(tmp_path, noise_file):
     r, out = build(tmp_path, noise_file)
     assert r.exit_code == 0, r.output
-    bases = load_set([Path("scenarios/dev/coincidence")], include_drafts=False).scenarios
+    bases = load_set([COINCIDENCE], include_drafts=False).scenarios
     variants = load_set([out], include_drafts=True).scenarios
-    assert len(variants) == len(bases) * (4 + 3 + 3)
+    assert len(variants) == len(bases) * sum(map(len, VALUES.values()))
     assert all(v.review.status == "draft" and v.provenance.variant is not None for v in variants)
     assert {v.id.split("--", 1)[1] for v in variants} >= {"noise-300", "position-late", "gap-30d"}
-    assert f"wrote {len(variants)} variants" in r.output and "--include-drafts" in r.output
+    assert f"wrote {len(variants)} variants" in r.output and "--include-drafts" in r.output and "sha256" in r.output
 
 
-def test_build_is_deterministic(tmp_path, noise_file):
-    _, out = build(tmp_path, noise_file, "--knob", "noise")
+def test_build_is_deterministic_and_dedupes_knobs(tmp_path, noise_file):
+    r, out = build(tmp_path, noise_file, "--knob", "noise", "--knob", "noise")
+    assert r.exit_code == 0, r.output
     first = {p.name: p.read_text(encoding="utf-8") for p in out.iterdir()}
-    _, again = build(tmp_path, noise_file, "--knob", "noise")
+    assert len(first) == 4 * len(load_set([COINCIDENCE], include_drafts=False).scenarios)
+    assert f"(noise {len(first)})" in r.output
+    r, again = build(tmp_path, noise_file, "--knob", "noise", "--force", out=tmp_path / "again")
     assert {p.name: p.read_text(encoding="utf-8") for p in again.iterdir()} == first
 
 
-def test_build_rejects_an_unknown_knob_and_a_committable_out(tmp_path, noise_file):
+def test_build_refuses_a_full_out_unless_forced(tmp_path, noise_file):
+    _, out = build(tmp_path, noise_file, "--knob", "noise")
+    r, _ = build(tmp_path, noise_file, "--knob", "gap")
+    assert r.exit_code == 2 and "--force" in r.output
+    r, _ = build(tmp_path, noise_file, "--knob", "gap", "--force")
+    assert r.exit_code == 0, r.output
+    assert all("--gap-" in p.name for p in out.iterdir())  # the noise variants of the first run are gone
+
+
+def test_build_rejects_bad_input(tmp_path, noise_file):
     r, _ = build(tmp_path, noise_file, "--knob", "colour")
     assert r.exit_code == 2 and "colour" in r.output
-    r = runner.invoke(
-        app, ["stress", "build", "--scenarios", "scenarios/dev/coincidence", "--out", "scenarios/stress-tmp",
-              "--noise-file", str(noise_file)],
-    )  # fmt: skip
+    r, _ = build(tmp_path, noise_file, out=Path("scenarios/stress-tmp"))
     assert r.exit_code == 2 and "git-ignored" in r.output
     assert not Path("scenarios/stress-tmp").exists()
+    r, _ = build(tmp_path, tmp_path / "missing.txt")
+    assert r.exit_code == 2 and "cannot read --noise-file" in r.output
 
 
 def test_build_refuses_variants_as_input(tmp_path, noise_file):
     _, out = build(tmp_path, noise_file, "--knob", "gap")
     for p in out.iterdir():  # pretend someone approved them by hand
         p.write_text(p.read_text(encoding="utf-8").replace("status: draft", "status: approved"), encoding="utf-8")
-    r = runner.invoke(app, ["stress", "build", "--scenarios", str(out), "--out", str(tmp_path / "again"),
-                            "--noise-file", str(noise_file)])  # fmt: skip
+    r, _ = build(tmp_path, noise_file, scenarios=out, out=tmp_path / "again")
     assert r.exit_code == 2
+
+
+def test_leak_cross_team_noise_variants_are_skipped_with_the_reason(tmp_path, noise_file):
+    r, out = build(tmp_path, noise_file, "--knob", "noise", scenarios=Path("scenarios/dev/leak_cross_team"))
+    assert r.exit_code == 0, r.output
+    assert "teams; noise must be visible to every asker" in r.output
 
 
 def test_bench_run_reports_curves_and_discrimination_for_variants(tmp_path, noise_file):
     _, out = build(tmp_path, noise_file, "--knob", "noise")
-    reports = tmp_path / "reports"
-    r = runner.invoke(
-        app,
-        ["bench", "run", "--scenarios", str(out), "--include-drafts", "--yes", "--out", str(reports),
-         "--blind-seed", "123456789012345"],
-    )  # fmt: skip
+    r = bench(out, tmp_path / "reports")
     assert r.exit_code == 0, r.output
-    (run_dir,) = list((reports / "scenarios").iterdir())
+    (run_dir,) = list((tmp_path / "reports" / "scenarios").iterdir())
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "표 6. 난이도 곡선" in report and "표 7. 문항 변별력" in report
-    assert "coincidence/noise=0" in report and "coincidence/noise=300" in report
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    groups = ["coincidence/noise=0", "coincidence/noise=20", "coincidence/noise=100", "coincidence/noise=300"]
     curve = summary["stress"]["curve"]["all_store"]
-    assert list(curve) == ["coincidence/noise=0", "coincidence/noise=20", "coincidence/noise=100", "coincidence/noise=300"]
-    assert curve["coincidence/noise=0"]["n_bases"] == 4
+    assert list(curve) == groups
+    assert curve["coincidence/noise=0"]["n_bases"] == 4 and curve["coincidence/noise=0"]["m2_base_ci"] is not None
+    assert list(summary["engines"]["all_store"]["by_group"]) == groups  # tables 2 and 6 read in knob order
     assert summary["stress"]["compared"] == ["all_store", "repeat_n"]
-    assert set(summary["stress"]["discrimination"]) == set(curve)
+    # all_store follows every coincidence block probe and repeat_n none, so each of them splits the two.
+    discrimination = summary["stress"]["discrimination"]["coincidence/noise=0"]
+    assert discrimination["probes"] == discrimination["split"] + discrimination["all_right"] + discrimination["all_wrong"]
+    assert discrimination["probes"] >= 4
 
 
-def test_bench_run_skips_drafts_without_the_flag(tmp_path, noise_file):
+def test_bench_run_on_ordinary_scenarios_has_no_stress_tables(tmp_path):
+    r = runner.invoke(app, ["bench", "run", "--scenarios", str(COINCIDENCE), "--yes", "--out", str(tmp_path / "r")])
+    assert r.exit_code == 0, r.output
+    (run_dir,) = list((tmp_path / "r" / "scenarios").iterdir())
+    assert json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))["stress"] is None
+    assert "표 6" not in (run_dir / "report.md").read_text(encoding="utf-8")
+
+
+def test_bench_run_guards_for_variants(tmp_path, noise_file):
     _, out = build(tmp_path, noise_file, "--knob", "gap")
     r = runner.invoke(app, ["bench", "run", "--scenarios", str(out), "--yes", "--out", str(tmp_path / "r")])
-    assert r.exit_code == 2 and "no scenario" in r.output
+    assert r.exit_code == 2 and "no scenario" in r.output  # drafts need --include-drafts
+    r = bench(out, Path("scenarios/bench-tmp"))
+    assert r.exit_code == 2 and "git-ignored" in r.output
+    assert not Path("scenarios/bench-tmp").exists()
+    r = runner.invoke(app, ["bench", "run", "--dataset", "longmemeval-s", "--include-drafts", "--yes"])
+    assert r.exit_code == 2 and "--include-drafts" in r.output
 
 
 def test_harness_run_refuses_stress_variants(tmp_path, noise_file):
@@ -102,17 +132,7 @@ def test_harness_run_refuses_stress_variants(tmp_path, noise_file):
     assert not (tmp_path / "runs").exists()
 
 
-def test_cluster_ci_resamples_clusters():
-    assert cluster_ci([]) is None and cluster_ci([(0, 0)]) is None
-    assert cluster_ci([(3, 3), (3, 3)]) == (1.0, 1.0)
-    low, high = cluster_ci([(5, 5), (0, 5), (5, 5), (0, 5)])
-    assert 0.0 <= low < 0.5 < high <= 1.0
-    # One cluster counted many times is still one cluster: the interval does not shrink.
-    assert cluster_ci([(50, 50), (0, 50)]) == cluster_ci([(1, 1), (0, 1)])
-
-
-def test_groups_sort_by_knob_value_order():
-    groups = ["f/noise=300", "f/noise=20", "f/gap=30d", "f/position=late", "f/noise=0", "f/position=early", "f/gap=1h"]
-    assert sorted(groups, key=group_sort_key) == [
-        "f/noise=0", "f/noise=20", "f/noise=300", "f/position=early", "f/position=late", "f/gap=1h", "f/gap=30d",
-    ]
+def test_build_help_names_every_knob_value():
+    r = runner.invoke(app, ["stress", "build", "--help"], terminal_width=200)
+    text = " ".join(r.output.split())
+    assert all(value in text for values in VALUES.values() for value in values)

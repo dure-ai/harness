@@ -15,7 +15,7 @@ from harness.contract import EngineInfo, EngineUnavailable
 from harness.engines import make_engine
 from harness.replay import ScenarioRun, error_kind_of, run_scenario
 from harness.scenario.model import Scenario
-from harness.stress.variant import base_of
+from harness.stress.groups import base_of
 
 
 @dataclass
