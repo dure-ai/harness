@@ -29,12 +29,13 @@ from harness.scenario.load import (
     load_set,
     read_scenario,
 )
-from harness.scenario.model import Scenario
+from harness.scenario.model import EXT_FAMILIES, Scenario
 from harness.scenario.validate import Issue, validate_scenario
 from harness.selection import EngineScore, rank
 from harness.selfcheck import CheckResult, check_discrimination, run_selfcheck
 
 if TYPE_CHECKING:
+    from harness.bench.config import BenchConfig
     from harness.generate.config import GenConfig
 
 NO_SCENARIOS = "승인된 시나리오가 없습니다. 초안을 포함하려면 --include-drafts"
@@ -403,6 +404,51 @@ def _blind_seed(blind_seed: int | None) -> int:
     return blind_seed
 
 
+def _dataset_types(types: list[str] | None) -> set[str] | None:
+    """`--types` values, repeatable and comma separated, as a set; None when none is given."""
+    return {t.strip() for arg in types or [] for t in arg.split(",") if t.strip()} or None
+
+
+def _cannot_be_committed(path: Path) -> bool:
+    """Whether `path` is git-ignored or outside every git work tree.
+
+    Raises:
+        typer.Exit: git is not installed, so this cannot be told (exit 2).
+    """
+    import subprocess
+
+    path = path.resolve()
+    anchor = next((p for p in (path, *path.parents) if p.is_dir()), Path.cwd())
+    try:
+        found = subprocess.run(["git", "-C", str(anchor), "check-ignore", "-q", str(path)], capture_output=True)
+        if found.returncode in (0, 1):  # 0 ignored, 1 not ignored
+            return found.returncode == 0
+        inside = subprocess.run(
+            ["git", "-C", str(anchor), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True
+        )
+    except FileNotFoundError as e:
+        raise _fail("error: git is needed to check that --out cannot be committed, and it was not found", 2) from e
+    return inside.returncode != 0 or inside.stdout.strip() != "true"
+
+
+BenchConfigOpt = Annotated[
+    Path, typer.Option("--config", help="Bench config YAML (default config/bench-v0.1.yaml).")
+]
+TypesOpt = Annotated[
+    list[str] | None,
+    typer.Option("--types", help="Only these dataset types (repeatable, or comma separated)."),
+]
+
+
+def _bench_config(config: Path) -> "BenchConfig":
+    from harness.bench.config import load_bench_config
+
+    try:
+        return load_bench_config(config)
+    except Exception as e:
+        raise _fail(f"error: cannot load config {config}: {e}", 2) from e
+
+
 @app.command()
 def run(
     scenarios: ScenariosOpt,
@@ -435,6 +481,13 @@ def run(
     _check_engine_specs(engine)
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
+    external = sum(s.family in EXT_FAMILIES for s in scenario_list)
+    if external:  # the pre-registered verdict is not defined on external benchmark scenarios
+        raise _fail(
+            f"error: {external} scenario(s) of an external benchmark family ({', '.join(EXT_FAMILIES)}); "
+            "harness run judges only the main families, so run them with harness bench run --scenarios",
+            2,
+        )
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     infos: dict[str, EngineInfo] = {}
     if candidates and scenario_list:  # no scenarios: _selfcheck reports it
@@ -622,15 +675,12 @@ def bench_fetch(
 def bench_export(
     dataset: Annotated[str, typer.Option("--dataset", help="Dataset name; see harness bench list.")],
     out: Annotated[Path, typer.Option("--out", help="Directory for the scenario files.")],
-    types: Annotated[
-        str | None, typer.Option("--types", help="Only these dataset types, comma separated.")
-    ] = None,
+    types: TypesOpt = None,
     limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
+    config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
 ) -> None:
-    """Convert a cached dataset into scenario files, one per converted item."""
-    import subprocess
-
-    from harness.bench.check import screened
+    """Convert a cached dataset into scenario files, one per item that passes the same screening as bench run."""
+    from harness.bench import check
     from harness.bench.convert import scenario_text
     from harness.bench.dataset import FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
@@ -638,20 +688,18 @@ def bench_export(
     ds = DATASETS.get(dataset)
     if ds is None:
         raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
-    if not ds.commit_ok:
-        ignored = subprocess.run(["git", "check-ignore", "-q", str(out)], capture_output=True).returncode == 0
-        if not ignored:
-            raise _fail(f"error: {dataset} may not be committed; --out {out} must be git-ignored", 2)
+    if not ds.commit_ok and not _cannot_be_committed(out):
+        raise _fail(f"error: {dataset} may not be committed; --out {out} must be git-ignored", 2)
     if not is_cached(ds):
         raise _fail(f"error: {dataset} is not in the cache; run harness bench fetch --dataset {dataset} first", 2)
     try:
         verify_cached(ds)
     except FetchError as e:
         raise _fail(f"error: {e}", 2) from e
-    wanted = {t.strip() for t in types.split(",") if t.strip()} if types else None
+    cfg = _bench_config(config)
     out.mkdir(parents=True, exist_ok=True)
     written = skipped = 0
-    for c in screened(ds.convert(bench_cache(ds.name), types=wanted, limit=limit), EvalConfig()):
+    for c in check.screened(ds.convert(bench_cache(ds.name), types=_dataset_types(types), limit=limit), cfg.eval):
         if c.scenario is None:
             skipped += 1
             typer.echo(f"skipped {c.source_id}: {c.skipped}")
@@ -683,16 +731,11 @@ def bench_run(
             help="Extra engine: 'hindsight', 'mem0' or 'pkg.module:Class' (repeatable). The baselines always run.",
         ),
     ] = None,
-    types: Annotated[
-        list[str] | None,
-        typer.Option("--types", help="Only these dataset types (repeatable, or comma separated)."),
-    ] = None,
+    types: TypesOpt = None,
     limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
     gold: Annotated[bool, typer.Option("--gold", help="Also run with only the events of facts a probe asks about.")] = False,
     yes: Annotated[bool, typer.Option("--yes", help="Run without asking.")] = False,
-    config: Annotated[
-        Path, typer.Option("--config", help="Bench config YAML (default config/bench-v0.1.yaml).")
-    ] = Path("config/bench-v0.1.yaml"),
+    config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
     out: Annotated[Path, typer.Option("--out", help="Directory for bench reports.")] = Path("runs/bench"),
     blind_seed: Annotated[
         int | None,
@@ -706,7 +749,8 @@ def bench_run(
     import time
 
     from harness.bench.check import screened
-    from harness.bench.config import bench_config_hash, load_bench_config
+    from harness.bench.config import bench_config_hash
+    from harness.bench.gold import gold_copy
     from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
     from harness.bench.report import write_bench_report
@@ -728,13 +772,9 @@ def bench_run(
             file_sha256 = verify_cached(ds)
         except FetchError as e:
             raise _fail(f"error: {e}", 2) from e
-    try:
-        cfg = load_bench_config(config)
-    except Exception as e:
-        raise _fail(f"error: cannot load config {config}: {e}", 2) from e
+    cfg = _bench_config(config)
     if ds is not None:
-        wanted = {t.strip() for arg in types or [] for t in arg.split(",") if t.strip()} or None
-        found = ds.convert(bench_cache(ds.name), types=wanted, limit=limit)
+        found = ds.convert(bench_cache(ds.name), types=_dataset_types(types), limit=limit)
     else:
         assert scenarios_path is not None
         from harness.scenario.load import load_set
@@ -752,9 +792,11 @@ def bench_run(
     n_probes = sum(len(s.probes) for s in scenarios)
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     typer.echo(f"scenarios: {len(scenarios)} (skipped {len(items) - len(scenarios)}), events: {n_events}, probes: {n_probes}")
+    n_calls = n_events + (sum(len(gold_copy(s).events) for s in scenarios) if gold else 0)
     for name in candidates:
         if name in OSS_ENGINES:
-            typer.echo(f"{name}: about {n_events} LLM calls (one per recorded event)")
+            per = "one per recorded event, both passes" if gold else "one per recorded event"
+            typer.echo(f"{name}: about {n_calls} LLM calls ({per})")
     if not yes and not typer.confirm("실행할까요?", default=False):
         raise _fail("취소했습니다. 아무것도 실행하지 않았습니다.", 1)
 
@@ -767,10 +809,20 @@ def bench_run(
     names = [*BASELINES, *candidates]
     dataset_name = ds.name if ds is not None else str(scenarios_path)
     t0 = time.monotonic()
-    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=dataset_name)
+    trip = MAX_CONSECUTIVE_ENGINE_ERRORS
+    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=dataset_name, max_unavailable=trip)
     gold_run = (
-        run_bench(items, names, cfg, run_id=run_id + "-gold", key=key, gold=True, dataset=dataset_name) if gold else None
+        run_bench(
+            items, names, cfg, run_id=run_id + "-gold", key=key, gold=True, dataset=dataset_name,
+            max_unavailable=trip, tripped=normal.tripped,
+        )
+        if gold
+        else None
     )
+    for b in (normal, gold_run):
+        if b is not None:
+            for name in sorted(b.tripped):
+                typer.echo(f"warning: {name} stayed unavailable in the {b.mode} pass; its remaining scenarios were skipped", err=True)
     wall = time.monotonic() - t0
     for b in (normal, gold_run):
         if b is not None:
