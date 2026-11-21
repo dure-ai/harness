@@ -8,9 +8,9 @@ from typing import Any
 
 from harness.bench.run import BenchRun
 from harness.contract import EngineInfo
+from harness.metrics import _m1, _m2
 from harness.replay import ScenarioRun
 from harness.report import _info_json, _order_key, _rate, _result_lines, _scrubber, _table, blind_ids, jsonable
-from harness.stats import Rate, rate
 
 HEADER = "**외부 벤치마크 트랙. 사전 등록한 판정 기준이 아니며 `harness run` 결과와 섞지 않는다.**"
 M2_TITLE = "근거 도달(M2)"
@@ -22,24 +22,18 @@ KU_NOTE = (
 )
 
 
-def _count(runs: list[ScenarioRun], kind: str, hit: str) -> Rate:
-    k = n = 0
-    for run in runs:
-        for rec in run.probes:
-            if rec.kind == kind:
-                n += 1
-                k += rec.outcome == hit
-    return rate(k, n)
-
-
 def _row(runs: list[ScenarioRun]) -> dict[str, Any]:
-    """M1, M2, scenario count and error count of the runs that share a family or a group."""
-    ok = [r for r in runs if r.error is None]
+    """M1, M2, scenario count and error count of the runs that share a family or a group.
+
+    M1 and M2 are `harness.metrics`' own, over the runs it uses for its headline rates:
+    finished, read-only ones.
+    """
+    scored = [r for r in runs if r.error is None and r.mode == "read_only"]
     return {
-        "m1": _count(ok, "block", "FP"),
-        "m2": _count(ok, "promote", "TP"),
+        "m1": _m1(scored),
+        "m2": _m2(scored),
         "n_scenarios": len(runs),
-        "n_errors": len(runs) - len(ok),
+        "n_errors": sum(r.error is not None for r in runs),
     }
 
 
