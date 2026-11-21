@@ -97,32 +97,53 @@ class NoisePool:
         return usable
 
 
+# Only what the noise pool reads: `generate.traces.read_parquet` also decodes every tool call and
+# tool envelope, which assistant messages never need.
+_NOISE_COLUMNS = [
+    "trajectory_id",
+    "repo",
+    "license",
+    "language",
+    "messages.list.element.role",
+    "messages.list.element.content",
+]
+_BATCH_ROWS = 8
+
+
 def trace_pool(paths: Iterable[Path], gen: GenConfig, limit: int = DEFAULT_POOL) -> list[NoiseText]:
     """Assistant messages of usable trajectories (python, allowed license), in file order.
 
-    Needs `pyarrow` (extra `gen`). Duplicate texts are kept once.
+    Needs `pyarrow` (extra `gen`). Duplicate texts are kept once. Reads only the columns it
+    needs; the texts are the ones `generate.traces.read_parquet` gives for assistant messages.
 
     Args:
         paths: Open-SWE-Traces parquet shards.
         gen: Generation config holding the license allowlist, see `generate.traces.usable`.
         limit: Stop after this many texts.
     """
-    from harness.generate.traces import read_parquet, usable
+    import pyarrow.parquet as pq
+
+    from harness.generate.traces import Trace, usable
 
     out: list[NoiseText] = []
     seen: set[str] = set()
     for path in paths:
-        for trace in read_parquet(path):
-            if not usable(trace, gen):
-                continue
-            for message in trace.messages:
-                text = clean(message.content) if message.role == "assistant" else None
-                if text is None or text in seen:
+        for batch in pq.ParquetFile(path).iter_batches(batch_size=_BATCH_ROWS, columns=_NOISE_COLUMNS):
+            for row in batch.to_pylist():
+                header = Trace(
+                    trajectory_id=row["trajectory_id"], instance_id="", repo=row["repo"],
+                    license=row.get("license"), language=row.get("language"), model="", messages=[],
+                )
+                if not usable(header, gen):
                     continue
-                seen.add(text)
-                out.append(NoiseText(trace.trajectory_id, text, trace.repo))
-                if len(out) >= limit:
-                    return out
+                for message in row.get("messages") or []:
+                    text = clean(message.get("content") or "") if message.get("role") == "assistant" else None
+                    if text is None or text in seen:
+                        continue
+                    seen.add(text)
+                    out.append(NoiseText(header.trajectory_id, text, header.repo))
+                    if len(out) >= limit:
+                        return out
     return out
 
 
