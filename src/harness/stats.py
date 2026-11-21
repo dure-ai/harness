@@ -1,7 +1,9 @@
 """Statistics primitives: Wilson interval, rates, bootstrap of a pooled-rate difference."""
 
+import functools
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -98,4 +100,48 @@ def bootstrap_diff(
             nb += b[i][1]
         diffs.append((ka / na if na else 0.0) - (kb / nb if nb else 0.0))
     diffs.sort()
-    return diffs[math.floor(0.025 * (iters - 1))], diffs[math.ceil(0.975 * (iters - 1))]
+    return _percentile_95(diffs)
+
+
+def _percentile_95(ordered: list[float]) -> tuple[float, float]:
+    """The 2.5th and 97.5th percentiles of sorted bootstrap values (nearest-rank, as above)."""
+    last = len(ordered) - 1
+    return ordered[math.floor(0.025 * last)], ordered[math.ceil(0.975 * last)]
+
+
+CLUSTER_ITERS = 1000  # fewer than the config's bootstrap_iters: one interval per table cell
+MIN_CLUSTERS = 3  # fewer clusters give an interval of one or a few points, which reads as certainty
+
+
+@functools.lru_cache(maxsize=64)
+def _resample_rows(clusters: int, iters: int, seed: int) -> tuple[tuple[int, ...], ...]:
+    """The cluster indices of every resample, drawn in the order `cluster_ci` used to draw them."""
+    rng = random.Random(seed)
+    return tuple(tuple(rng.randrange(clusters) for _ in range(clusters)) for _ in range(iters))
+
+
+def cluster_ci(
+    clusters: Sequence[tuple[int, int]], seed: int, iters: int = CLUSTER_ITERS
+) -> tuple[float, float] | None:
+    """95% bootstrap interval of a pooled rate, resampling clusters (e.g. base scenarios).
+
+    Every call with the same number of clusters, seed and iterations uses the same resamples,
+    so intervals of several engines or table cells are comparable (and computed once).
+
+    Args:
+        clusters: (hits, trials) of each cluster; clusters without trials are left out.
+        seed: Random seed.
+        iters: Number of resamples.
+
+    Returns:
+        (low, high), or None with fewer than `MIN_CLUSTERS` clusters that have trials.
+    """
+    pairs = [p for p in clusters if p[1] > 0]
+    if len(pairs) < MIN_CLUSTERS:
+        return None
+    hits = [k for k, _ in pairs]
+    trials = [n for _, n in pairs]
+    rates = sorted(
+        sum(hits[i] for i in row) / sum(trials[i] for i in row) for row in _resample_rows(len(pairs), iters, seed)
+    )
+    return _percentile_95(rates)

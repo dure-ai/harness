@@ -4,6 +4,7 @@ import math
 import re
 import unicodedata
 from collections import Counter
+from typing import Literal
 
 _TOKEN_RE = re.compile(r"[a-z0-9_]+|[가-힣]+")
 _HANGUL_RE = re.compile(r"[가-힣]+")
@@ -57,12 +58,37 @@ def normalize_secret(text: str) -> str:
     return "".join(ch for ch in folded if not _is_separator(ch))
 
 
+def secret_needle(marker: str) -> tuple[Literal["plain", "normalized"], str] | None:
+    """How `contains_secret` looks for `marker`: in which form of the text, and the needle.
+
+    A marker that normalizes to nothing never matches (None). One that normalizes to fewer than
+    4 characters is looked for as a plain NFKC + casefold substring ("plain"), others as a
+    `normalize_secret` substring ("normalized").
+    """
+    needle = normalize_secret(marker)
+    if not needle:
+        return None
+    if len(needle) < _MIN_SECRET_CHARS:
+        return "plain", unicodedata.normalize("NFKC", marker).casefold()
+    return "normalized", needle
+
+
+def secret_forms(text: str) -> tuple[str, str]:
+    """The two forms of `text` that `secret_needle` needles are looked for in: (plain, normalized).
+
+    For checking many markers against one text: compute these once, then test
+    `needle in forms[0 if kind == "plain" else 1]`.
+    """
+    return unicodedata.normalize("NFKC", text).casefold(), normalize_secret(text)
+
+
 def contains_secret(text: str, marker: str) -> bool:
     """Whether a secret marker appears in text once both are normalized.
 
     A marker that normalizes to fewer than 4 characters is too short to survive separator
     removal (`a-b` would match any `ab`), so it is matched as a plain NFKC + casefold substring
     with separators kept. A marker that normalizes to nothing (`---`, blank) never matches.
+    See `secret_needle`.
 
     Args:
         text: Text to search.
@@ -71,12 +97,12 @@ def contains_secret(text: str, marker: str) -> bool:
     Returns:
         True when the marker is found.
     """
-    needle = normalize_secret(marker)
-    if not needle:
+    found = secret_needle(marker)
+    if found is None:
         return False
-    if len(needle) < _MIN_SECRET_CHARS:
-        plain = unicodedata.normalize("NFKC", marker).casefold()
-        return plain in unicodedata.normalize("NFKC", text).casefold()
+    kind, needle = found
+    if kind == "plain":
+        return needle in unicodedata.normalize("NFKC", text).casefold()
     return needle in normalize_secret(text)
 
 

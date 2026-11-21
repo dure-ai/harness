@@ -84,3 +84,24 @@ def load_yaml(text: str) -> Any:
         yaml.YAMLError: If the YAML is invalid or a key repeats; the message names the key and line.
     """
     return yaml.load(text, Loader=UniqueKeyLoader)  # noqa: S506  # a SafeLoader or CSafeLoader subclass
+
+
+def dump_yaml(data: Any) -> str:
+    r"""`yaml.safe_dump(data, sort_keys=False, allow_unicode=True)`, by libyaml when it writes the same text.
+
+    libyaml's emitter is several times faster. It writes the same text as the pure-Python one
+    except that it escapes characters outside the Basic Multilingual Plane (emoji become
+    `\U0001F600` in double quotes); a document whose libyaml text holds `\U` is written again by
+    the Python emitter. Tests compare both emitters on every scenario file in the repository.
+
+    Args:
+        data: Plain data (dicts, lists, strings, numbers).
+
+    Returns:
+        The YAML document.
+    """
+    if getattr(yaml, "__with_libyaml__", False):
+        text: str = yaml.dump(data, Dumper=yaml.CSafeDumper, sort_keys=False, allow_unicode=True)
+        if "\\U" not in text:
+            return text
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)

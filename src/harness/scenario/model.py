@@ -159,6 +159,32 @@ class Review(_Strict):
     check_config_hash: str | None = None
 
 
+Knob = Literal["noise", "position", "gap"]  # difficulty knobs of the stress set (`harness.stress`)
+
+
+class Variant(_Strict):
+    """How a stress-set scenario was derived from an approved one (`harness stress build`).
+
+    Hidden: never reaches engines.
+
+    Attributes:
+        base: Id of the approved scenario it was derived from; its labels are unchanged.
+        knob: The difficulty knob that was turned.
+        value: The knob's setting, as written in the variant id (e.g. "100", "late", "30d").
+        seed: Seed of the random choices (noise texts, users, sessions, times).
+        noise_traces: Ids of the trajectories the noise texts came from, in event order.
+        pool_sha256: SHA-256 of the noise pool the texts were drawn from (its texts, trajectories
+            and repositories, in order); the same base, knob, seed and pool give the same variant.
+    """
+
+    base: str
+    knob: Knob
+    value: str
+    seed: int
+    noise_traces: list[str] = []
+    pool_sha256: str | None = None
+
+
 class SourceRepo(_Strict):
     """A repository a scenario's source traces came from, with its license."""
 
@@ -205,6 +231,8 @@ class Provenance(_Strict):
             None in older files.
         generated_hash: `scenario.labels.content_hash` of the file as generated; a regeneration
             does not replace a file whose content moved from it (a hand edit). None in older files.
+        variant: Set on a stress-set variant: the approved scenario it came from and the knob
+            that was turned. None for every scenario that is not a variant.
     """
 
     author: Literal["human", "llm", "generator"]
@@ -220,6 +248,7 @@ class Provenance(_Strict):
     generated_at: AwareDatetime | None = None
     label_fingerprint: str | None = None
     generated_hash: str | None = None
+    variant: Variant | None = None
 
 
 @dataclass(frozen=True)

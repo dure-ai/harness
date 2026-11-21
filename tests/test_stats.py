@@ -96,3 +96,15 @@ def test_bootstrap_diff_is_exactly_the_reference(seed):
     b = [(min(k, d), d) for k, d in b]
     iters = rng.choice([1, 7, 500])
     assert bootstrap_diff(a, b, iters, seed) == _reference_bootstrap_diff(a, b, iters, seed)
+
+
+def test_cluster_ci_resamples_clusters():
+    from harness.stats import cluster_ci
+
+    assert cluster_ci([], seed=1) is None and cluster_ci([(0, 0), (1, 1), (1, 1)], seed=1) is None
+    assert cluster_ci([(3, 3), (3, 3), (2, 2)], seed=1) == (1.0, 1.0)
+    low, high = cluster_ci([(5, 5), (0, 5), (5, 5), (0, 5)], seed=1)
+    assert 0.0 <= low < 0.5 < high <= 1.0
+    # One cluster counted many times is still one cluster: the interval does not shrink.
+    assert cluster_ci([(50, 50), (0, 50), (25, 50)], seed=1) == cluster_ci([(1, 1), (0, 1), (1, 2)], seed=1)
+    assert cluster_ci([(5, 5), (0, 5), (3, 5)], seed=1) == cluster_ci([(5, 5), (0, 5), (3, 5)], seed=1)
