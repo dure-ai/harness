@@ -5,7 +5,7 @@ import os
 import secrets
 import tempfile
 from collections import Counter
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +36,8 @@ from harness.selfcheck import CheckResult, check_discrimination, run_selfcheck
 
 if TYPE_CHECKING:
     from harness.bench.config import BenchConfig
+    from harness.bench.dataset import Converted
+    from harness.bench.run import BenchRun, DatasetFacts
     from harness.generate.config import GenConfig
 
 NO_SCENARIOS = "승인된 시나리오가 없습니다. 초안을 포함하려면 --include-drafts"
@@ -709,14 +711,6 @@ def bench_export(
     typer.echo(f"wrote {written} scenarios to {out}, skipped {skipped}")
 
 
-_SCENARIO_FACTS: dict[str, object] = {
-    "license": "n/a",
-    "file_sha256": {},
-    "converter": "n/a",
-    "label_sha256": None,
-}
-
-
 @bench_app.command("run")
 def bench_run(
     dataset: Annotated[str | None, typer.Option("--dataset", help="Dataset name; see harness bench list.")] = None,
@@ -750,20 +744,62 @@ def bench_run(
 
     from harness.bench.check import screened
     from harness.bench.config import bench_config_hash
-    from harness.bench.gold import gold_copy
-    from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
-    from harness.bench.datasets import DATASETS
     from harness.bench.report import write_bench_report
-    from harness.bench.run import dataset_facts, run_bench
+    from harness.bench.run import BenchMeta
 
     _check_engine_specs(engine)
     if (dataset is None) == (scenarios_path is None):
         raise _fail("error: give exactly one of --dataset and --scenarios", 2)
     if scenarios_path is not None and types:
         raise _fail("error: --types applies to --dataset only; it cannot be combined with --scenarios", 2)
-    ds = DATASETS.get(dataset) if dataset is not None else None
-    file_sha256: dict[str, str] = {}
+    cfg = _bench_config(config)
+    found, facts, folder = _bench_source(dataset, scenarios_path, types, limit)
+    items = list(screened(found, cfg.eval))
+    candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
+    scenarios = _confirm_bench(items, candidates, gold=gold, yes=yes)
+
+    infos: dict[str, EngineInfo] = {}
+    _preflight(candidates, scenarios[0], cfg.eval, infos, False)
+    seed = _blind_seed(blind_seed)
+    started_at = datetime.now().astimezone()
+    run_id = started_at.strftime("%Y%m%d-%H%M%S")
+    t0 = time.monotonic()
+    normal, gold_run = _bench_passes(
+        items, [*BASELINES, *candidates], cfg, run_id=run_id, key=blind_key(seed), dataset=facts["dataset"], gold=gold
+    )
+    wall = time.monotonic() - t0
+    for b in (normal, gold_run):
+        if b is not None:
+            b.infos.update(infos)  # the pre-flight checked these are writable
+    meta = BenchMeta(
+        **facts,
+        run_id=run_id,
+        started_at=started_at,
+        harness_version=harness_version(),
+        config_hash=bench_config_hash(cfg),
+        machine=machine_info(),
+        blind_seed=seed,
+    )
+    out_dir = out / folder / run_id
+    write_bench_report(out_dir, meta, normal, gold_run)
+    typer.echo(str(out_dir / "report.md"))
+    typer.echo(f"wall time: {wall:.1f} s", err=True)
+
+
+def _bench_source(
+    dataset: str | None, scenarios_path: Path | None, types: list[str] | None, limit: int | None
+) -> "tuple[Iterable[Converted], DatasetFacts, str]":
+    """The items `bench run` converts, the facts its report records, and its report folder name.
+
+    A dataset must be known and cached with the right sha256 (exit 2 otherwise); its items are
+    converted lazily. Scenario files are loaded now, approved ones only.
+    """
+    from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
+    from harness.bench.datasets import DATASETS
+    from harness.bench.run import dataset_facts, scenario_facts
+
     if dataset is not None:
+        ds = DATASETS.get(dataset)
         if ds is None:
             raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
         if not is_cached(ds):
@@ -772,74 +808,59 @@ def bench_run(
             file_sha256 = verify_cached(ds)
         except FetchError as e:
             raise _fail(f"error: {e}", 2) from e
-    cfg = _bench_config(config)
-    if ds is not None:
         found = ds.convert(bench_cache(ds.name), types=_dataset_types(types), limit=limit)
-    else:
-        assert scenarios_path is not None
-        from harness.scenario.load import load_set
+        return found, dataset_facts(ds, file_sha256), ds.name
+    assert scenarios_path is not None
+    try:
+        loaded = load_set([scenarios_path], include_drafts=False).scenarios
+    except Exception as e:
+        raise _fail(f"error: cannot load scenarios {scenarios_path}: {e}", 2) from e
+    found = [Converted(s, s.id, s.family, None) for s in loaded[:limit]]
+    return found, scenario_facts(str(scenarios_path)), "scenarios"
 
-        try:
-            loaded = load_set([scenarios_path], include_drafts=False).scenarios
-        except Exception as e:
-            raise _fail(f"error: cannot load scenarios {scenarios_path}: {e}", 2) from e
-        found = (Converted(s, s.id, s.family, None) for s in loaded[:limit])
-    items = list(screened(found, cfg.eval))
+
+def _confirm_bench(items: "list[Converted]", candidates: list[str], *, gold: bool, yes: bool) -> list[Scenario]:
+    """Show what `bench run` will replay and its LLM-call estimate, ask unless `yes`, and return the scenarios.
+
+    Exits 2 when no scenario survived conversion and screening, 1 when the user declines.
+    """
+    from harness.bench.gold import gold_copy
+
     scenarios = [c.scenario for c in items if c.scenario is not None]
     if not scenarios:
         raise _fail("error: no scenario was converted; check --types and --limit", 2)
     n_events = sum(len(s.events) for s in scenarios)
     n_probes = sum(len(s.probes) for s in scenarios)
-    candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     typer.echo(f"scenarios: {len(scenarios)} (skipped {len(items) - len(scenarios)}), events: {n_events}, probes: {n_probes}")
     n_calls = n_events + (sum(len(gold_copy(s).events) for s in scenarios) if gold else 0)
+    per = "one per recorded event, both passes" if gold else "one per recorded event"
     for name in candidates:
         if name in OSS_ENGINES:
-            per = "one per recorded event, both passes" if gold else "one per recorded event"
             typer.echo(f"{name}: about {n_calls} LLM calls ({per})")
     if not yes and not typer.confirm("실행할까요?", default=False):
         raise _fail("취소했습니다. 아무것도 실행하지 않았습니다.", 1)
+    return scenarios
 
-    infos: dict[str, EngineInfo] = {}
-    _preflight(candidates, scenarios[0], cfg.eval, infos, False)
-    seed = _blind_seed(blind_seed)
-    key = blind_key(seed)
-    started_at = datetime.now().astimezone()
-    run_id = started_at.strftime("%Y%m%d-%H%M%S")
-    names = [*BASELINES, *candidates]
-    dataset_name = ds.name if ds is not None else str(scenarios_path)
-    t0 = time.monotonic()
+
+def _bench_passes(
+    items: "list[Converted]", names: list[str], cfg: "BenchConfig", *, run_id: str, key: bytes, dataset: str, gold: bool
+) -> "tuple[BenchRun, BenchRun | None]":
+    """The normal pass and, with `gold`, the gold pass, warning about engines that were tripped."""
+    from harness.bench.run import run_bench
+
     trip = MAX_CONSECUTIVE_ENGINE_ERRORS
-    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=dataset_name, max_unavailable=trip)
-    gold_run = (
-        run_bench(
-            items, names, cfg, run_id=run_id + "-gold", key=key, gold=True, dataset=dataset_name,
+    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=dataset, max_unavailable=trip)
+    gold_run = None
+    if gold:
+        gold_run = run_bench(
+            items, names, cfg, run_id=run_id + "-gold", key=key, gold=True, dataset=dataset,
             max_unavailable=trip, tripped=normal.tripped,
         )
-        if gold
-        else None
-    )
     for b in (normal, gold_run):
         if b is not None:
             for name in sorted(b.tripped):
                 typer.echo(f"warning: {name} stayed unavailable in the {b.mode} pass; its remaining scenarios were skipped", err=True)
-    wall = time.monotonic() - t0
-    for b in (normal, gold_run):
-        if b is not None:
-            b.infos.update(infos)  # the pre-flight checked these are writable
-    meta = {
-        "run_id": run_id,
-        "started_at": started_at,
-        "harness_version": harness_version(),
-        "config_hash": bench_config_hash(cfg),
-        "machine": machine_info(),
-        **(dataset_facts(ds, file_sha256) if ds is not None else _SCENARIO_FACTS | {"dataset": dataset_name}),
-        "blind_seed": seed,
-    }
-    out_dir = out / (ds.name if ds is not None else "scenarios") / run_id
-    write_bench_report(out_dir, meta, normal, gold_run)
-    typer.echo(str(out_dir / "report.md"))
-    typer.echo(f"wall time: {wall:.1f} s", err=True)
+    return normal, gold_run
 
 
 @traces_app.command("list")

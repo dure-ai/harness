@@ -1,11 +1,11 @@
 """Running converted scenarios against engines."""
 
-import dataclasses
 import hashlib
-from collections.abc import Iterable, Set
+from collections.abc import Iterable, Mapping, Set
 from dataclasses import dataclass, field
 from importlib import resources
-from typing import Any, Literal
+from datetime import datetime
+from typing import Literal, TypedDict
 
 from harness.bench.config import BenchConfig
 from harness.bench.dataset import Converted, Dataset
@@ -35,8 +35,8 @@ class BenchRun:
     dataset: str
     mode: Literal["normal", "gold"]
     runs: dict[str, list[ScenarioRun]]
-    groups: dict[str, str]
-    skipped: list[tuple[str, str]]
+    groups: dict[str, str] = field(default_factory=dict)
+    skipped: list[tuple[str, str]] = field(default_factory=list)
     infos: dict[str, EngineInfo] = field(default_factory=dict)
     timed: dict[str, list[TimedEngine]] = field(default_factory=dict)
     tripped: set[str] = field(default_factory=set)
@@ -74,9 +74,9 @@ def run_bench(
         max_unavailable: Unavailable scenarios in a row that trip an engine; None never trips.
         tripped: Engines tripped in an earlier pass over the same items.
     """
-    out = BenchRun(dataset, "gold" if gold else "normal", {name: [] for name in engines}, {}, [], {}, {})
+    out = BenchRun(dataset=dataset, mode="gold" if gold else "normal", runs={name: [] for name in engines})
     streak = dict.fromkeys(engines, 0)
-    skip: dict[str, ScenarioRun] = {}  # engine to the run that tripped it
+    skip: dict[str, tuple[str, str | None]] = {}  # tripped engine to the reason and error kind its skips carry
     checking = {name for name in engines if name in tripped}
     for c in converted:
         if c.scenario is None:
@@ -86,10 +86,8 @@ def run_bench(
         out.groups[s.id] = c.group
         for name in engines:
             if name in skip:
-                last = skip[name]
-                out.runs[name].append(
-                    ScenarioRun(s.id, s.family, s.mode, error=last.error, status="skipped", error_kind=last.error_kind)
-                )
+                reason, kind = skip[name]
+                out.runs[name].append(ScenarioRun(s.id, s.family, s.mode, error=reason, status="skipped", error_kind=kind))
                 continue
             run = _run_one(name, s, cfg, run_id, key, out)
             out.runs[name].append(run)
@@ -97,19 +95,22 @@ def run_bench(
             if name in checking:
                 checking.discard(name)
                 if down:
-                    skip[name] = dataclasses.replace(run, error=f"skipped: {name} still unavailable; last: {run.error}")
+                    skip[name] = (f"skipped: {name} still unavailable; last: {run.error}", run.error_kind)
                     out.tripped.add(name)
                 continue
             streak[name] = streak[name] + 1 if down else 0
             if max_unavailable is not None and streak[name] >= max_unavailable:
                 reason = f"skipped: {name} was unavailable for {streak[name]} scenarios in a row; last: {run.error}"
-                skip[name] = dataclasses.replace(run, error=reason)
+                skip[name] = (reason, run.error_kind)
                 out.tripped.add(name)
     return out
 
 
 def _run_one(name: str, s: Scenario, cfg: BenchConfig, run_id: str, key: bytes, out: BenchRun) -> ScenarioRun:
-    """Build `name` for `s` and replay it, recording its info and timings in `out`."""
+    """Build `name` for `s` and replay it; its first `info()` and its timings go to `out`.
+
+    The engine is released (`TimedEngine.finish`) before returning, so none outlives its scenario.
+    """
     try:
         engine = make_engine(name, s, cfg.eval)
         if name not in out.infos:
@@ -129,28 +130,48 @@ def _run_one(name: str, s: Scenario, cfg: BenchConfig, run_id: str, key: bytes, 
         return run_scenario(wrapper, s, run_id=run_id, cfg=cfg.eval, blind_key=key)
     finally:
         wrapper.finish()
-        del engine, wrapper  # keep no engine alive between scenarios
 
 
-_LABEL_FILES = {"longmemeval-s": "longmemeval_ku_labels.yaml"}
-CONVERTER_VERSION = 1
+class DatasetFacts(TypedDict):
+    """What a report records about the data it ran on."""
+
+    dataset: str
+    license: str
+    file_sha256: dict[str, str]
+    converter: str
+    label_sha256: str | None
 
 
-def dataset_facts(ds: Dataset, file_sha256: dict[str, str]) -> dict[str, Any]:
-    """What a report records about the data: file checksums, converter and label file checksum.
+class BenchMeta(DatasetFacts):
+    """Run-level facts of a bench report; `blind_seed` goes to engine_ids.json only."""
+
+    run_id: str
+    started_at: datetime
+    harness_version: str
+    config_hash: str
+    machine: str
+    blind_seed: int
+
+
+def dataset_facts(ds: Dataset, file_sha256: Mapping[str, str]) -> DatasetFacts:
+    """The facts of a dataset run: file checksums, converter version and label file checksum.
 
     Args:
         ds: The dataset.
         file_sha256: File name to the sha256 computed from the cached file, see `verify_cached`.
     """
-    label = _LABEL_FILES.get(ds.name)
-    label_sha = (
-        hashlib.sha256((resources.files("harness.bench.datasets") / label).read_bytes()).hexdigest() if label else None
+    label_sha = None
+    if ds.label_file is not None:
+        label_sha = hashlib.sha256((resources.files("harness.bench.datasets") / ds.label_file).read_bytes()).hexdigest()
+    return DatasetFacts(
+        dataset=ds.name,
+        license=ds.license,
+        file_sha256=dict(file_sha256),
+        converter=f"{ds.name}/{ds.converter_version}",
+        label_sha256=label_sha,
     )
-    return {
-        "dataset": ds.name,
-        "license": ds.license,
-        "file_sha256": dict(file_sha256),
-        "converter": f"{ds.name}/{CONVERTER_VERSION}",
-        "label_sha256": label_sha,
-    }
+
+
+def scenario_facts(source: str) -> DatasetFacts:
+    """The facts of a run on scenario files (`--scenarios`), which have no dataset behind them."""
+    return DatasetFacts(dataset=source, license="n/a", file_sha256={}, converter="n/a", label_sha256=None)

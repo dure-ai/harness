@@ -37,11 +37,22 @@ class Converted:
 
 
 class Dataset(Protocol):
-    """An external benchmark that can be downloaded and converted into scenarios."""
+    """An external benchmark that can be downloaded and converted into scenarios.
+
+    Attributes:
+        name: Dataset name, as the CLI takes it.
+        license: License of the source data.
+        commit_ok: Whether converted scenarios may be committed to the repository.
+        converter_version: Version of the conversion; raise it when converted scenarios change.
+        label_file: Package resource in `harness.bench.datasets` with hand-made labels the
+            conversion reads, whose sha256 reports record; None when there is none.
+    """
 
     name: str
     license: str
     commit_ok: bool
+    converter_version: int
+    label_file: str | None
 
     def files(self) -> list[RemoteFile]:
         """The files that make up the dataset."""

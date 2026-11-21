@@ -163,7 +163,7 @@ def _metrics_json(m: Metrics, sealed: bool) -> dict[str, Any]:
 MIN_ALIAS = 4  # shorter module paths and declared names are too likely to be common words
 
 
-def _scrubber(
+def scrubber(
     ids: Mapping[str, str], infos: Mapping[str, EngineInfo] | None = None
 ) -> Callable[[str], str]:
     """Return a function that replaces candidate identifiers with their blind ids.
@@ -222,14 +222,15 @@ def _scrub_value(value: Any, scrub: Callable[[str], str]) -> Any:
     return value
 
 
-def _info_json(
+def info_json(
     name: str, info: EngineInfo, ids: Mapping[str, str], scrub: Callable[[str], str]
 ) -> dict[str, Any]:
     """EngineInfo as JSON with every string value scrubbed; `name` is the blind id."""
     return {**_scrub_value(jsonable(info), scrub), "name": ids[name]}
 
 
-def _order_key(ids: Mapping[str, str]) -> Callable[[str], tuple[int, int]]:
+def order_key(ids: Mapping[str, str]) -> Callable[[str], tuple[int, int]]:
+    """Sort key over engine names: the baselines in their fixed order, then candidates by blind id."""
     def key(name: str) -> tuple[int, int]:
         if name in BASELINES:
             return 0, BASELINES.index(name)
@@ -249,7 +250,7 @@ def _relative(
 
 
 def _ordered_repeats(meta: RunMeta, ids: Mapping[str, str]) -> list[tuple[str, int]]:
-    return sorted(meta.repeats.items(), key=lambda kv: _order_key(ids)(kv[0]))
+    return sorted(meta.repeats.items(), key=lambda kv: order_key(ids)(kv[0]))
 
 
 def _summary(
@@ -263,8 +264,8 @@ def _summary(
     by_name = {s.engine_id: s for s in ordered}
     meta_json = jsonable(meta)
     meta_json["engine_infos"] = {
-        ids[name]: _info_json(name, info, ids, scrub)
-        for name, info in sorted(meta.engine_infos.items(), key=lambda kv: _order_key(ids)(kv[0]))
+        ids[name]: info_json(name, info, ids, scrub)
+        for name, info in sorted(meta.engine_infos.items(), key=lambda kv: order_key(ids)(kv[0]))
     }
     meta_json["repeats"] = {ids[name]: n for name, n in _ordered_repeats(meta, ids)}
     if meta.sealed:  # paths can name the sealed set
@@ -289,9 +290,10 @@ def _summary(
     }
 
 
-def _result_lines(
+def result_lines(
     runs: Mapping[str, list[ScenarioRun]], names: Iterable[str], ids: Mapping[str, str]
 ) -> list[str]:
+    """One JSON line per probe of the finished runs of `names`, engines under their blind ids."""
     lines = []
     for name in names:
         for run in sorted(runs.get(name, []), key=lambda r: r.scenario_id):
@@ -319,7 +321,8 @@ def _cell(value: Any) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
 
 
-def _table(headers: list[str], rows: list[list[Any]]) -> list[str]:
+def markdown_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
+    """A Markdown table, one line per row plus a trailing blank line; `|` and newlines in cells are escaped."""
     out = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
     out += ["| " + " | ".join(_cell(c) for c in row) + " |" for row in rows]
     return [*out, ""]
@@ -329,7 +332,8 @@ def _num(x: float | None, digits: int = 3) -> str:
     return NA if x is None else f"{x:.{digits}f}"
 
 
-def _rate(r: Rate | None) -> str:
+def rate_text(r: Rate | None) -> str:
+    """A rate as `value (n=N) [low, high]`, or n/a when there is nothing to rate."""
     if r is None or r.value is None:
         return NA
     ci = NA if r.ci is None else f"[{r.ci[0]:.3f}, {r.ci[1]:.3f}]"
@@ -366,7 +370,7 @@ def _family_rows(
     for s in ordered:
         for family, t in table(s.metrics).items():
             m3 = t.get("m3")
-            rows.append([ids[s.engine_id], family, _rate(t["m1"]), _rate(t["m2"]), NA if m3 is None else m3])
+            rows.append([ids[s.engine_id], family, rate_text(t["m1"]), rate_text(t["m2"]), NA if m3 is None else m3])
     return rows
 
 
@@ -374,24 +378,24 @@ def _section_judgment(ordered: list[EngineScore], ids: Mapping[str, str]) -> lis
     rows = [
         [
             ids[s.engine_id],
-            _rate(s.metrics.m1),
-            _rate(s.metrics.m2),
+            rate_text(s.metrics.m1),
+            rate_text(s.metrics.m2),
             s.metrics.m3,
             "통과" if s.verdict.passed else "탈락",
             "; ".join(s.verdict.reasons) or "-",
         ]
         for s in ordered
     ]
-    out = ["## 판정", "", *_table(["엔진", "M1", "M2", "M3", "결과", "근거"], rows)]
+    out = ["## 판정", "", *markdown_table(["엔진", "M1", "M2", "M3", "결과", "근거"], rows)]
     repeated = [s for s in ordered if len(s.repeats) > 1]
     if repeated:
         out += ["### 실행별 값", "", "판정의 M1·M2는 실행별 값의 평균이고, 신뢰구간은 첫 실행 기준이다.", ""]
         runs = [
-            [ids[s.engine_id], i, _rate(r.m1), _rate(r.m2), r.m3]
+            [ids[s.engine_id], i, rate_text(r.m1), rate_text(r.m2), r.m3]
             for s in repeated
             for i, r in enumerate(s.repeats, 1)
         ]
-        out += _table(["엔진", "실행", "M1", "M2", "M3"], runs)
+        out += markdown_table(["엔진", "실행", "M1", "M2", "M3"], runs)
     return out
 
 
@@ -406,25 +410,25 @@ def _section_aux(
         rows.append(
             [
                 ids[s.engine_id],
-                _rate(m.shallow_fix),
+                rate_text(m.shallow_fix),
                 _delay(m.retraction, UNRETRACTED),
-                _rate(m.reach),
+                rate_text(m.reach),
                 _delay(m.reflection, UNREFLECTED),
-                _rate(m.contamination),
-                _rate(m.sourceless),
-                _rate(m.promote_fn),
-                _rate(m.promote_fp),
+                rate_text(m.contamination),
+                rate_text(m.sourceless),
+                rate_text(m.promote_fn),
+                rate_text(m.promote_fp),
                 _num(rel.get("improvement_ratio")),
                 _num(rel.get("repeat_mistake_reduction")),
                 worst,
                 "-" if s.engine_id == "repeat_n" else _worse_than(m, repeat_n),
-                _rate(s.flip),
+                rate_text(s.flip),
             ]
         )
     headers = ["엔진", "얕은 지식 고착률", "철회 지연", "유효 지식 도달률", "반영 지연", "오염 노출률",
                "출처 없는 결과", "promote FN", "promote FP", "개선 달성률", "반복 실수 감소율", "최악 계열",
                "repeat_n보다 나쁜 계열", "재실행 뒤집힘률"]
-    return ["## 보조·관찰", "", *_table(headers, rows)]
+    return ["## 보조·관찰", "", *markdown_table(headers, rows)]
 
 
 def _section_ranking(ranking: list[RankEntry], ids: Mapping[str, str]) -> list[str]:
@@ -443,7 +447,7 @@ def _section_ranking(ranking: list[RankEntry], ids: Mapping[str, str]) -> list[s
     ]
     out.append("차이는 바로 앞 순위와의 promote TP 비율 차이(부트스트랩 95% 구간)다.")
     out.append("")
-    return [*out, *_table(["순위", "엔진", "앞 순위와", "동률 판정 기준", "차이 95% 구간"], rows)]
+    return [*out, *markdown_table(["순위", "엔진", "앞 순위와", "동률 판정 기준", "차이 95% 구간"], rows)]
 
 
 def _section_performance(ordered: list[EngineScore], ids: Mapping[str, str]) -> list[str]:
@@ -461,12 +465,12 @@ def _section_performance(ordered: list[EngineScore], ids: Mapping[str, str]) -> 
     ]
     headers = ["엔진", "record p50 (ms)", "record p95 (ms)", "search p50 (ms)", "search p95 (ms)",
                "질문당 컨텍스트 (문자)"]
-    return ["## 성능", "", *_table(headers, rows)]
+    return ["## 성능", "", *markdown_table(headers, rows)]
 
 
 def _section_limits(meta: RunMeta, ids: Mapping[str, str], scrub: Callable[[str], str]) -> list[str]:
     rows = []
-    for name, info in sorted(meta.engine_infos.items(), key=lambda kv: _order_key(ids)(kv[0])):
+    for name, info in sorted(meta.engine_infos.items(), key=lambda kv: order_key(ids)(kv[0])):
         notes = []
         if not info.virtual_clock:
             notes.append("가상 시계 미지원: 진실 변경·철회 지연 결과에 주석 필요")
@@ -474,12 +478,12 @@ def _section_limits(meta: RunMeta, ids: Mapping[str, str], scrub: Callable[[str]
             notes.append("출처 미반환: 출처 관련 결과에 주석 필요")
         if not info.scopes:
             notes.append("범위 미지원")
-        shown = _info_json(name, info, ids, scrub)
+        shown = info_json(name, info, ids, scrub)
         config = json.dumps(shown["config"], ensure_ascii=False, sort_keys=True)
         rows.append([ids[name], shown["version"], info.virtual_clock, info.sources, info.scopes,
                      config, "; ".join(notes) or "-"])
     headers = ["엔진", "버전", "virtual_clock", "sources", "scopes", "설정", "비고"]
-    return ["## 엔진 한계", "", *_table(headers, rows)]
+    return ["## 엔진 한계", "", *markdown_table(headers, rows)]
 
 
 _STATUS_LABEL = {"error": "오류", "unavailable": "사용 불가", "skipped": "건너뜀"}
@@ -494,7 +498,7 @@ def _section_errors(
     """Every scenario run of every repeat that did not finish; the verdict counts all repeats, so must this."""
     failed = [
         (name, repeat, run)
-        for name in sorted(repeat_runs, key=_order_key(ids))
+        for name in sorted(repeat_runs, key=order_key(ids))
         for repeat, runs in enumerate(repeat_runs[name], 1)
         for run in sorted(runs, key=lambda r: r.scenario_id)
         if run.error is not None
@@ -516,7 +520,7 @@ def _section_errors(
         [ids[name], repeat, run.scenario_id, _STATUS_LABEL.get(run.status or "error", "오류"), scrub(run.error or "")]
         for name, repeat, run in failed
     ]
-    return [*out, *_table(["엔진", "회차", "시나리오", "상태", "오류"], rows)]
+    return [*out, *markdown_table(["엔진", "회차", "시나리오", "상태", "오류"], rows)]
 
 
 def _markdown(
@@ -565,19 +569,19 @@ def _markdown(
         "## 계열별",
         "",
         *([POOLING_CAVEAT, ""] if repeated else []),
-        *_table(["엔진", "계열", "M1", "M2", "M3"], _family_rows(ordered, ids, lambda m: m.by_family)),
+        *markdown_table(["엔진", "계열", "M1", "M2", "M3"], _family_rows(ordered, ids, lambda m: m.by_family)),
         "## 되먹임",
         "",
-        *_table(
+        *markdown_table(
             ["엔진", "계열", "M1", "M2", "M3"],
             _family_rows(ordered, ids, lambda m: m.feedback_by_family),
         ),
         "## 출처별",
         "",
-        *_table(
+        *markdown_table(
             ["엔진", "출처", "M1", "M2"],
             [
-                [ids[s.engine_id], author, _rate(t["m1"]), _rate(t["m2"])]
+                [ids[s.engine_id], author, rate_text(t["m1"]), rate_text(t["m2"])]
                 for s in ordered
                 for author, t in s.metrics.by_author.items()
             ],
@@ -588,7 +592,7 @@ def _markdown(
         *_section_errors(meta, repeat_runs, ids, scrub),
         "## 자가 검증",
         "",
-        *_table(["검사", "결과", "상세"], check_rows),
+        *markdown_table(["검사", "결과", "상세"], check_rows),
     ]
     return "\n".join(lines)
 
@@ -636,8 +640,8 @@ def write_report(
     if repeat_runs is None:
         repeat_runs = {name: [r] for name, r in runs.items()}
     ids = blind_ids(sorted(names), blind_seed)
-    scrub = _scrubber(ids, meta.engine_infos)
-    key = _order_key(ids)
+    scrub = scrubber(ids, meta.engine_infos)
+    key = order_key(ids)
     ordered = sorted(scores, key=lambda s: key(s.engine_id))
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -655,7 +659,7 @@ def write_report(
     if meta.sealed:
         results.unlink(missing_ok=True)
     else:
-        lines = _result_lines(runs, sorted(runs, key=key), ids)
+        lines = result_lines(runs, sorted(runs, key=key), ids)
         results.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
     (out_dir / "report.md").write_text(
         _markdown(meta, ordered, ranking, runs, repeat_runs, selfcheck, ids, scrub) + "\n", encoding="utf-8"

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import override
 
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
-from harness.metrics import _percentile
+from harness.metrics import percentile
 from harness.replay import ScenarioRun
 
 UNKNOWN = "알 수 없음"
@@ -84,7 +84,7 @@ class TimedEngine(BaseEngine):
 
 
 def _ms(values: list[float], p: int) -> str:
-    v = _percentile(values, p)
+    v = percentile(values, p)
     return "n/a" if v is None else f"{v:.2f}"
 
 
