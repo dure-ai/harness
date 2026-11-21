@@ -7,36 +7,68 @@ import yaml
 from yaml.constructor import ConstructorError
 
 
-class UniqueKeyLoader(yaml.SafeLoader):
-    """SafeLoader that rejects a repeated key in any mapping (plain `safe_load` keeps the last)."""
+def _construct_unique_mapping(
+    loader: yaml.constructor.SafeConstructor, node: yaml.MappingNode, deep: bool = False
+) -> dict[Hashable, Any]:
+    """Build a mapping, raising if a key appears twice.
+
+    Args:
+        loader: The loader building the document.
+        node: The YAML mapping node.
+        deep: Whether to construct nested objects immediately.
+
+    Returns:
+        The mapping.
+
+    Raises:
+        yaml.constructor.ConstructorError: If a key repeats; the message names the key and line.
+    """
+    seen: set[object] = set()
+    for key_node, _ in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            continue
+        try:
+            key = loader.construct_object(key_node, deep=True)
+            if key in seen:
+                line = key_node.start_mark.line + 1
+                raise ConstructorError(None, None, f"duplicate key {key!r} (line {line})")
+            seen.add(key)
+        except TypeError:  # unhashable key: the base class reports it
+            break
+    return yaml.constructor.SafeConstructor.construct_mapping(loader, node, deep)
+
+
+class PurePythonUniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader that rejects a repeated key in any mapping (plain `safe_load` keeps the last).
+
+    The pure-Python parser: `load_yaml` uses it only when PyYAML was built without libyaml.
+    """
 
     @override
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Hashable, Any]:
-        """Build a mapping, raising if a key appears twice.
+        """See `_construct_unique_mapping`."""
+        return _construct_unique_mapping(self, node, deep)
 
-        Args:
-            node: The YAML mapping node.
-            deep: Whether to construct nested objects immediately.
 
-        Returns:
-            The mapping.
+if getattr(yaml, "__with_libyaml__", False):
 
-        Raises:
-            yaml.constructor.ConstructorError: If a key repeats; the message names the key and line.
+    class UniqueKeyLoader(yaml.CSafeLoader):  # pyright: ignore[reportRedeclaration]
+        """`PurePythonUniqueKeyLoader` on libyaml's parser, several times faster.
+
+        Only scanning and parsing move to C: the constructor and resolver are the same Python
+        classes, so documents load to the same values (tests compare every YAML file in the
+        repository).
         """
-        seen: set[object] = set()
-        for key_node, _ in node.value:
-            if key_node.tag == "tag:yaml.org,2002:merge":
-                continue
-            try:
-                key = self.construct_object(key_node, deep=True)
-                if key in seen:
-                    line = key_node.start_mark.line + 1
-                    raise ConstructorError(None, None, f"duplicate key {key!r} (line {line})")
-                seen.add(key)
-            except TypeError:  # unhashable key: the base class reports it
-                break
-        return super().construct_mapping(node, deep)
+
+        @override
+        def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Hashable, Any]:
+            """See `_construct_unique_mapping`."""
+            return _construct_unique_mapping(self, node, deep)
+
+else:  # pragma: no cover - PyYAML wheels ship libyaml
+
+    class UniqueKeyLoader(PurePythonUniqueKeyLoader):
+        """`PurePythonUniqueKeyLoader`: this PyYAML has no libyaml."""
 
 
 def load_yaml(text: str) -> Any:
@@ -51,4 +83,4 @@ def load_yaml(text: str) -> Any:
     Raises:
         yaml.YAMLError: If the YAML is invalid or a key repeats; the message names the key and line.
     """
-    return yaml.load(text, Loader=UniqueKeyLoader)  # noqa: S506  # SafeLoader subclass
+    return yaml.load(text, Loader=UniqueKeyLoader)  # noqa: S506  # a SafeLoader or CSafeLoader subclass

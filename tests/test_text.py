@@ -110,3 +110,18 @@ def test_contains_secret_short_marker_needs_a_plain_match_and_never_matches_ever
     assert not contains_secret("anything at all", "")
     assert not contains_secret("a b c", "a-b")  # short: separators are not dropped
     assert contains_secret("the A-B pair", "a-b")
+
+
+def test_set_jaccard_at_least_agrees_with_set_jaccard():
+    import random
+
+    from harness.text import set_jaccard, set_jaccard_at_least
+
+    rng = random.Random(7)
+    vocab = [f"w{i}" for i in range(12)]
+    taus = [0.0, 0.1, 1 / 3, 0.5, 2 / 3, 0.7, 0.9, 1.0]
+    for _ in range(3000):
+        a = set(rng.sample(vocab, rng.randint(0, 8)))
+        b = set(rng.sample(vocab, rng.randint(0, 8)))
+        for tau in taus:
+            assert set_jaccard_at_least(a, b, tau) == (set_jaccard(a, b) >= tau), (a, b, tau)

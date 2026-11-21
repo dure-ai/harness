@@ -63,12 +63,6 @@ class Delay:
     seconds: float | None
 
 
-def _pooled(pairs: list[tuple[int, int]], indices: list[int]) -> float:
-    k = sum(pairs[i][0] for i in indices)
-    n = sum(pairs[i][1] for i in indices)
-    return k / n if n else 0.0
-
-
 def bootstrap_diff(
     a: list[tuple[int, int]], b: list[tuple[int, int]], iters: int, seed: int
 ) -> tuple[float, float]:
@@ -91,9 +85,17 @@ def bootstrap_diff(
     if not a or len(a) != len(b):
         raise ValueError("a and b must be non-empty and the same length")
     rng = random.Random(seed)
-    diffs = []
+    size = len(a)
+    diffs: list[float] = []
     for _ in range(iters):
-        indices = [rng.randrange(len(a)) for _ in range(len(a))]
-        diffs.append(_pooled(a, indices) - _pooled(b, indices))
+        # One pass per resample: the same draws, and integer sums, as summing each list apart.
+        ka = na = kb = nb = 0
+        for _ in range(size):
+            i = rng.randrange(size)
+            ka += a[i][0]
+            na += a[i][1]
+            kb += b[i][0]
+            nb += b[i][1]
+        diffs.append((ka / na if na else 0.0) - (kb / nb if nb else 0.0))
     diffs.sort()
     return diffs[math.floor(0.025 * (iters - 1))], diffs[math.ceil(0.975 * (iters - 1))]
