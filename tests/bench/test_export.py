@@ -1,3 +1,4 @@
+import hashlib
 import dataclasses
 from pathlib import Path
 
@@ -32,8 +33,9 @@ def cached(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     )
     real = LongMemEvalS.files
     size = path.stat().st_size
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
     monkeypatch.setattr(
-        LongMemEvalS, "files", lambda self: [dataclasses.replace(f, size=size) for f in real(self)]
+        LongMemEvalS, "files", lambda self: [dataclasses.replace(f, size=size, sha256=sha) for f in real(self)]
     )
     return path
 

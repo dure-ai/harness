@@ -1,3 +1,4 @@
+import hashlib
 import dataclasses
 import json
 import re
@@ -64,7 +65,8 @@ def cached(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     write_lme(path, fixture_questions())
     real = LongMemEvalS.files
     size = path.stat().st_size
-    monkeypatch.setattr(LongMemEvalS, "files", lambda self: [dataclasses.replace(f, size=size) for f in real(self)])
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(LongMemEvalS, "files", lambda self: [dataclasses.replace(f, size=size, sha256=sha) for f in real(self)])
     monkeypatch.setattr(longmemeval, "load_ku_labels", lambda: LABELS)
     return path
 
@@ -93,6 +95,24 @@ def test_run_without_the_data_says_how_to_fetch(tmp_path: Path, monkeypatch: pyt
     assert r.exit_code == 2
     assert "run 'harness bench fetch --dataset longmemeval-s' first" in r.output
     assert not out.exists()
+
+
+def test_run_and_export_refuse_a_cached_file_with_the_wrong_content(tmp_path: Path, cached: Path):
+    data = cached.read_bytes()
+    cached.write_bytes(bytes(b ^ 1 if i == 5 else b for i, b in enumerate(data)))  # same size, other content
+    r, out = bench_run(tmp_path)
+    assert r.exit_code == 2
+    assert "longmemeval_s_cleaned.json" in r.output and "sha256" in r.output and "fetch" in r.output
+    assert not out.exists()
+    r = runner.invoke(app, ["bench", "export", "--dataset", "longmemeval-s", "--out", str(tmp_path / "x")])
+    assert r.exit_code == 2 and "longmemeval_s_cleaned.json" in r.output and "sha256" in r.output
+
+
+def test_the_report_records_the_sha256_computed_from_the_cached_file(tmp_path: Path, cached: Path):
+    r, out = bench_run(tmp_path)
+    assert r.exit_code == 0, r.output
+    text = (report_dir(out) / "report.md").read_text(encoding="utf-8")
+    assert hashlib.sha256(cached.read_bytes()).hexdigest() in text
 
 
 def test_run_rejects_an_unknown_dataset_and_an_unknown_engine(tmp_path: Path, cached: Path):

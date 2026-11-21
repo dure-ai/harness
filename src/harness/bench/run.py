@@ -99,8 +99,13 @@ _LABEL_FILES = {"longmemeval-s": "longmemeval_ku_labels.yaml"}
 CONVERTER_VERSION = 1
 
 
-def dataset_facts(ds: Dataset) -> dict[str, Any]:
-    """What a report records about the data: file checksums, converter and label file checksum."""
+def dataset_facts(ds: Dataset, file_sha256: dict[str, str]) -> dict[str, Any]:
+    """What a report records about the data: file checksums, converter and label file checksum.
+
+    Args:
+        ds: The dataset.
+        file_sha256: File name to the sha256 computed from the cached file, see `verify_cached`.
+    """
     label = _LABEL_FILES.get(ds.name)
     label_sha = (
         hashlib.sha256((resources.files("harness.bench.datasets") / label).read_bytes()).hexdigest() if label else None
@@ -108,7 +113,7 @@ def dataset_facts(ds: Dataset) -> dict[str, Any]:
     return {
         "dataset": ds.name,
         "license": ds.license,
-        "file_sha256": {f.name: f.sha256 for f in ds.files()},
+        "file_sha256": dict(file_sha256),
         "converter": f"{ds.name}/{CONVERTER_VERSION}",
         "label_sha256": label_sha,
     }

@@ -71,6 +71,31 @@ def is_cached(dataset: Dataset) -> bool:
     return True
 
 
+def verify_cached(dataset: Dataset) -> dict[str, str]:
+    """Compute the sha256 of every cached file and check it against the expected one.
+
+    Returns:
+        File name to the sha256 computed from the cached bytes.
+
+    Raises:
+        FetchError: A file's content does not match, naming the file.
+    """
+    root = bench_cache(dataset.name)
+    actual: dict[str, str] = {}
+    for f in dataset.files():
+        digest = hashlib.sha256()
+        with (root / f.name).open("rb") as fh:
+            while chunk := fh.read(_CHUNK):
+                digest.update(chunk)
+        actual[f.name] = digest.hexdigest()
+        if actual[f.name] != f.sha256:
+            raise FetchError(
+                f"{f.name}: cached sha256 {actual[f.name]} does not match the expected {f.sha256}; "
+                f"delete {root / f.name} and run harness bench fetch --dataset {dataset.name} again"
+            )
+    return actual
+
+
 def fetch_file(
     file: RemoteFile,
     dest_dir: Path,

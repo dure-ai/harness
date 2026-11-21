@@ -632,7 +632,7 @@ def bench_export(
 
     from harness.bench.check import screened
     from harness.bench.convert import scenario_text
-    from harness.bench.dataset import bench_cache, is_cached
+    from harness.bench.dataset import FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
 
     ds = DATASETS.get(dataset)
@@ -644,6 +644,10 @@ def bench_export(
             raise _fail(f"error: {dataset} may not be committed; --out {out} must be git-ignored", 2)
     if not is_cached(ds):
         raise _fail(f"error: {dataset} is not in the cache; run harness bench fetch --dataset {dataset} first", 2)
+    try:
+        verify_cached(ds)
+    except FetchError as e:
+        raise _fail(f"error: {e}", 2) from e
     wanted = {t.strip() for t in types.split(",") if t.strip()} if types else None
     out.mkdir(parents=True, exist_ok=True)
     written = skipped = 0
@@ -701,7 +705,7 @@ def bench_run(
 
     from harness.bench.check import screened
     from harness.bench.config import bench_config_hash, load_bench_config
-    from harness.bench.dataset import Converted, bench_cache, is_cached
+    from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
     from harness.bench.report import write_bench_report
     from harness.bench.run import dataset_facts, run_bench
@@ -710,11 +714,16 @@ def bench_run(
     if (dataset is None) == (scenarios_path is None):
         raise _fail("error: give exactly one of --dataset and --scenarios", 2)
     ds = DATASETS.get(dataset) if dataset is not None else None
+    file_sha256: dict[str, str] = {}
     if dataset is not None:
         if ds is None:
             raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
         if not is_cached(ds):
             raise _fail(f"error: run 'harness bench fetch --dataset {dataset}' first", 2)
+        try:
+            file_sha256 = verify_cached(ds)
+        except FetchError as e:
+            raise _fail(f"error: {e}", 2) from e
     try:
         cfg = load_bench_config(config)
     except Exception as e:
@@ -766,7 +775,7 @@ def bench_run(
         "harness_version": harness_version(),
         "config_hash": bench_config_hash(cfg),
         "machine": machine_info(),
-        **(dataset_facts(ds) if ds is not None else _SCENARIO_FACTS | {"dataset": dataset_name}),
+        **(dataset_facts(ds, file_sha256) if ds is not None else _SCENARIO_FACTS | {"dataset": dataset_name}),
         "blind_seed": seed,
     }
     out_dir = out / (ds.name if ds is not None else "scenarios") / run_id
