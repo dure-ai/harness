@@ -1,6 +1,5 @@
 import json
 import re
-
 from pathlib import Path
 
 import pytest
@@ -202,9 +201,8 @@ def test_tool_call_arguments_render_as_name_key_value():
 def test_quote_with_real_newline_and_apostrophe_from_tool_output_passes_check_quotes():
     import json
 
-    from harness.generate.candidates import check_quotes
+    from harness.generate.candidates import FactCandidate, check_quotes
     from harness.generate.traces import _to_trace
-    from harness.generate.candidates import FactCandidate
 
     out = "error: can't open file\nNo such file: setup.py"
     trace = _to_trace(_row([_tool(json.dumps({"output": out, "returncode": 1}))]))

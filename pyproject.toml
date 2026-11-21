@@ -52,10 +52,22 @@ packages = ["src/harness"]
 pythonpath = ["."]
 testpaths = ["tests"]
 
+[tool.ruff]
+# The width the code is written to; import sorting wraps at it.
+line-length = 120
+
 [tool.ruff.lint]
-select = ["D"]
-# __init__ and dunder methods are documented in the class docstring (Google style).
-ignore = ["D105", "D107"]
+# D: docstrings. F: pyflakes. E4/E7/E9: the pycodestyle errors that are not layout. I: import order.
+# B: bugbear. UP: pyupgrade. SIM: simplifications.
+select = ["D", "F", "E4", "E7", "E9", "I", "B", "UP", "SIM"]
+ignore = [
+    "D105", "D107",  # __init__ and dunder methods are documented in the class docstring (Google style).
+    "B027",  # BaseEngine.tick and flush are optional hooks with a no-op default, not abstract methods.
+    "SIM108",  # an if/else block often reads better than a long or nested conditional expression.
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["harness", "tests"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -64,5 +76,7 @@ convention = "google"
 "tests/**" = ["D"]
 
 [tool.basedpyright]
-# CI fails on errors only; the existing warnings are kept visible but do not fail the run.
-failOnWarnings = false
+# Warnings fail the run, except the ones recorded in .basedpyright/baseline.json when this was
+# turned on. Fixing one removes it from the baseline; a new one fails CI. To accept a warning on
+# purpose, fix it or add a targeted `# pyright: ignore[rule]`, not a new baseline entry.
+failOnWarnings = true

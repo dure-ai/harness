@@ -2,10 +2,10 @@ from datetime import timedelta
 
 from harness.agent import Choice
 from harness.contract import Result
+from harness.metrics import compute_metrics, flip_rate, per_scenario_counts
 from harness.replay import ProbeRecord, ScenarioRun
 from harness.scenario.model import Provenance
 from harness.scoring import Leak
-from harness.metrics import compute_metrics, flip_rate, per_scenario_counts
 from harness.stats import Delay
 from tests.factories import T, ev, fact, probe, scenario
 
@@ -329,7 +329,6 @@ def test_performance_numbers():
 
 
 def test_per_scenario_counts():
-    s1, s2, s3 = sc("s2"), sc("s1"), sc("s3", family="echo", mode="feedback")
     runs = [
         run("s2", [rec("a", "block", "FP"), rec("b", "block", "BLOCKED")]),
         run("s1", [rec("a", "promote", "TP")]),

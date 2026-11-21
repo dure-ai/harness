@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from harness.world import probe_ctx, true_at
 from tests.factories import KST, T, fact, probe
@@ -37,9 +37,9 @@ def test_all_conditions_required():
 
 def test_offset_independent():
     f = fact(valid_until=datetime(2026, 10, 9, 0, 0, tzinfo=KST))
-    t_utc = datetime(2026, 10, 8, 15, 30, tzinfo=timezone.utc)  # = 10-09 00:30 KST
+    t_utc = datetime(2026, 10, 8, 15, 30, tzinfo=UTC)  # = 10-09 00:30 KST
     assert not true_at(f, t_utc, {})
-    assert true_at(f, datetime(2026, 10, 8, 14, 59, tzinfo=timezone.utc), {})
+    assert true_at(f, datetime(2026, 10, 8, 14, 59, tzinfo=UTC), {})
 
 
 def test_probe_ctx_merges_repo_and_meta():

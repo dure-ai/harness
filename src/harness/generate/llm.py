@@ -15,7 +15,6 @@ from pydantic import BaseModel, ValidationError
 
 from harness.generate.config import GenConfig
 
-
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 _AUTH_ERRORS = frozenset({"AuthenticationError", "PermissionDeniedError"})
 _FATAL_ERRORS = {
