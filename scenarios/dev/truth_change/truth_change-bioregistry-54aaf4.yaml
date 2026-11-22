@@ -94,16 +94,32 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: success
-  text: Reviewed the notes from the contact refactor sessions. After today's merge,
-    Registry and Attributable are defined in src/bioregistry/schema/models.py, and
-    the schema generator writes src/bioregistry/schema/bioregistry.schema.json; edit
-    and regenerate those files from now on.
+  outcome: failure
+  text: 'Review on the earlier notes: please don''t follow these steps; see my follow-up
+    note.'
   meta: {}
   refs:
   - e1
   - e2
   - e3
+  fact: null
+  secret_markers: []
+- id: e6
+  t: '2026-10-08T18:00:00+09:00'
+  user: u1
+  session: s5
+  repo: biopragmatics/bioregistry
+  scope: team
+  team: null
+  signal: human
+  kind: agent_record
+  outcome: unknown
+  text: Reviewed the notes from the contact refactor sessions. After today's merge,
+    Registry and Attributable are defined in src/bioregistry/schema/models.py, and
+    the schema generator writes src/bioregistry/schema/bioregistry.schema.json; edit
+    and regenerate those files from now on.
+  meta: {}
+  refs: []
   fact: f_new
   secret_markers: []
 - id: e5
@@ -154,9 +170,10 @@ probes:
   feedback: null
 review:
   status: approved
-  reviewer: sunmin
-  notes: ''
-  approved_hash: v1:f554ca7604330835eac906d1124879bee298ad9c1c1061c26218355919795299
+  reviewer: HJinS
+  notes: '11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
+  approved_hash: v1:9a7ae910b27b411de575bd0482a663ef66bb7395111a20a4dabc40078f05e92b
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:
@@ -196,7 +213,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-29T02:07:37.498971Z'
-  label_fingerprint: l1:2ebd1e4711c8e348606798e0a46fb4c4ceefcaf48c7ca7db97ff2d0d0518c3d6
+  label_fingerprint: l1:2bb1e88ee669faaaeabe488f9e0f5e4c666c1861881a9daae0874a3f714af74a
   generated_hash: v1:91bdeaa3031ba2277e46e9df2cf632864c93ec88093937a132c5984ed2cafc00

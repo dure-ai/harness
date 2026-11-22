@@ -1,7 +1,7 @@
 """YAML reading shared by the scenario and config loaders."""
 
 from collections.abc import Hashable
-from typing import Any, override
+from typing import Any, cast, override
 
 import yaml
 from yaml.constructor import ConstructorError
@@ -9,7 +9,7 @@ from yaml.constructor import ConstructorError
 
 def _construct_unique_mapping(
     loader: yaml.constructor.SafeConstructor, node: yaml.MappingNode, deep: bool = False
-) -> dict[Hashable, Any]:
+) -> dict[Hashable, object]:
     """Build a mapping, raising if a key appears twice.
 
     Args:
@@ -24,7 +24,8 @@ def _construct_unique_mapping(
         yaml.constructor.ConstructorError: If a key repeats; the message names the key and line.
     """
     seen: set[object] = set()
-    for key_node, _ in node.value:
+    pairs = cast("list[tuple[yaml.Node, yaml.Node]]", node.value)
+    for key_node, _ in pairs:
         if key_node.tag == "tag:yaml.org,2002:merge":
             continue
         try:
@@ -56,8 +57,11 @@ if getattr(yaml, "__with_libyaml__", False):
         """`PurePythonUniqueKeyLoader` on libyaml's parser, several times faster.
 
         Only scanning and parsing move to C: the constructor and resolver are the same Python
-        classes, so documents load to the same values (tests compare every YAML file in the
-        repository).
+        classes. The two parsers load every YAML file in this repository to the same values
+        (tests compare them all), but they are not equivalent on every input: libyaml accepts a
+        tab inside a plain scalar (`a: b<TAB>c`) that the pure parser rejects, rejects an escaped
+        surrogate pair that the pure parser decodes, and its error messages omit the snippet of
+        the offending line.
         """
 
         @override

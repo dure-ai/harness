@@ -45,9 +45,18 @@ class _IndexedEngine(_NamespacedEngine, ABC):
 
     @override
     def record(self, event: Event) -> None:
-        """Store the event and its term counts in the current namespace."""
+        """Store the event and its term counts in the current namespace.
+
+        Raises:
+            ValueError: If the namespace already holds an event with this id. Term counts are
+                kept by id, so the second event would be ranked with the first one's counts.
+                Scenario validation rejects repeated ids before a run; this guards direct calls.
+        """
+        counts = self._counts[self._namespace()]
+        if event.id in counts:
+            raise ValueError(f"event id {event.id!r} is already recorded in this namespace")
         super().record(event)
-        self._counts[self._namespace()][event.id] = counted(event.text)
+        counts[event.id] = counted(event.text)
 
     def _namespace(self) -> str:
         if self._current is None:
