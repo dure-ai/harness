@@ -60,10 +60,13 @@ class HindsightEngine(BaseEngine):
             flush_timeout: Seconds `flush()` waits for background work before giving up.
 
         Raises:
-            ValueError: If the address is not an allowed local one or the models differ.
+            ValueError: If the address is not an allowed local one, the models differ, or
+                `poll_interval` or `first_poll` is not positive.
             EngineHTTPError: If the server cannot be reached; the first build against an address is
                 not retried, later ones are.
         """
+        if poll_interval <= 0 or first_poll <= 0:  # a zero wait never doubles: flush would spin
+            raise ValueError(f"hindsight: poll waits must be positive, got {first_poll} and {poll_interval}")
         env = os.environ if environ is None else environ
         url = check_local_url(base_url or env.get(ENV_URL) or DEFAULT_URL)
         self._llm_model: str

@@ -281,3 +281,13 @@ def test_a_dropped_late_turn_does_not_push_the_next_session_past_the_question():
     assert s is not None
     assert [e.id for e in s.events] == ["s0-t0", "s0-t1", "s1-t0"]
     assert s.events[-1].fact == "f1"
+
+
+def test_converted_files_are_written_like_generated_drafts():
+    from harness.bench.convert import scenario_text
+    from harness.generate.pipeline import draft_text
+
+    s = convert_question(ku("q1"), {"q1": "new"}).scenario
+    assert s is not None
+    assert scenario_text(s) == draft_text(s)
+    assert "too_easy_repairs" not in scenario_text(s)  # a default older files do not write

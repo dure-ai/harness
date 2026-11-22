@@ -166,16 +166,9 @@ def draft_text(s: Scenario) -> str:
         s: The scenario.
 
     Returns:
-        The YAML document. `provenance.too_easy_repairs` is left out when 0 and
-        `provenance.variant` when None, so a scenario written before those fields existed is saved
-        byte for byte as it was and keeps its hashes.
+        The YAML document of `Scenario.file_data`.
     """
-    data = s.model_dump(mode="json")
-    if not data["provenance"]["too_easy_repairs"]:
-        del data["provenance"]["too_easy_repairs"]
-    if data["provenance"]["variant"] is None:
-        del data["provenance"]["variant"]
-    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+    return yaml.safe_dump(s.file_data(), sort_keys=False, allow_unicode=True)
 
 
 def saved_hash(s: Scenario, purpose: HashPurpose) -> str:

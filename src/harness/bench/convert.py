@@ -15,7 +15,7 @@ def scenario_text(s: Scenario) -> str:
     Returns:
         The YAML document.
     """
-    return dump_yaml(s.model_dump(mode="json"))
+    return dump_yaml(s.file_data())
 
 
 class Clock:
