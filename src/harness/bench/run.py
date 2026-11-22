@@ -69,7 +69,7 @@ def run_bench(
         cfg: Bench config.
         run_id: Id of the run, part of every engine namespace.
         key: Namespace key, see `replay.blind_key`.
-        gold: Drop the events no probe asks about (spec section 6).
+        gold: Drop the events no probe asks about (see `harness.bench.gold`).
         dataset: Dataset name, recorded in the result.
         max_unavailable: Unavailable scenarios in a row that trip an engine; None never trips.
         tripped: Engines tripped in an earlier pass over the same items.
@@ -140,6 +140,7 @@ class DatasetFacts(TypedDict):
     file_sha256: dict[str, str]
     converter: str
     label_sha256: str | None
+    include_drafts: bool
 
 
 class BenchMeta(DatasetFacts):
@@ -169,9 +170,18 @@ def dataset_facts(ds: Dataset, file_sha256: Mapping[str, str]) -> DatasetFacts:
         file_sha256=dict(file_sha256),
         converter=f"{ds.name}/{ds.converter_version}",
         label_sha256=label_sha,
+        include_drafts=False,
     )
 
 
-def scenario_facts(source: str) -> DatasetFacts:
-    """The facts of a run on scenario files (`--scenarios`), which have no dataset behind them."""
-    return DatasetFacts(dataset=source, license="n/a", file_sha256={}, converter="n/a", label_sha256=None)
+def scenario_facts(source: str, include_drafts: bool = False) -> DatasetFacts:
+    """The facts of a run on scenario files (`--scenarios`), which have no dataset behind them.
+
+    Args:
+        source: The --scenarios argument.
+        include_drafts: Draft scenarios were loaded too (the report is marked as not for publication).
+    """
+    return DatasetFacts(
+        dataset=source, license="n/a", file_sha256={}, converter="n/a", label_sha256=None,
+        include_drafts=include_drafts,
+    )

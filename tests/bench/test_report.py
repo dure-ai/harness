@@ -11,7 +11,7 @@ from tests.bench.test_run import converted
 
 META: dict[str, Any] = {
     "run_id": "t", "started_at": "x", "harness_version": "0", "config_hash": "h", "machine": "m",
-    "dataset": "d", "license": "MIT", "file_sha256": {}, "converter": "c", "label_sha256": None, "blind_seed": 1,
+    "dataset": "d", "license": "MIT", "file_sha256": {}, "converter": "c", "label_sha256": None, "include_drafts": False, "blind_seed": 1,
 }
 
 
