@@ -522,7 +522,9 @@ def seeds(
     ] = Path("runs"),
     include_drafts: DraftsOpt = False,
     sealed: SealedOpt = False,
-    n: Annotated[int, typer.Option("--n", min=2, help="Number of random blind seeds.")] = 5,
+    n: Annotated[
+        int | None, typer.Option("--n", min=2, help="Number of random blind seeds (default 5).")
+    ] = None,
     blind_seed: Annotated[
         list[int] | None,
         typer.Option(
@@ -540,12 +542,19 @@ def seeds(
     `<out>/<run id>-seeds/` and does not judge or rank.
     """
     _check_engine_names(engine)
-    if blind_seed is not None:
+    if blind_seed:
         if len(set(blind_seed)) < 2:
             raise _fail("error: give at least two different --blind-seed values", 2)
-        for s in blind_seed:
+        if n is not None:
+            typer.echo(f"warning: --n is ignored because --blind-seed values are given (n={n})", err=True)
+        for s, count in Counter(blind_seed).items():
+            if count > 1:
+                typer.echo(f"warning: --blind-seed {s} is given more than once; it runs once", err=True)
+        seed_list = list(dict.fromkeys(blind_seed))
+        for s in seed_list:
             _warn_small_seed(s)
-    seed_list = list(dict.fromkeys(blind_seed)) if blind_seed else [secrets.randbits(64) for _ in range(n)]
+    else:
+        seed_list = [secrets.randbits(64) for _ in range(5 if n is None else n)]
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
     by_id = {s.id: s for s in scenario_list}

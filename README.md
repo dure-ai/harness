@@ -26,6 +26,8 @@ uv run harness selfcheck --scenarios scenarios/examples --include-drafts
 uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 ```
 
+두 실행(엔진이나 core를 바꾼 전후)을 비교할 때는 네 번째 명령 `harness seeds`로 블라인드 시드 여러 개의 분포를 봅니다([아래](#한-시드의-수치-읽기-seeds)).
+
 평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). 오픈소스 엔진 `hindsight`, `mem0`은 이름으로 고릅니다([아래](#오픈소스-엔진-측정)). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다(pydantic JSON 모드로 바꿀 수 있는 값이면 됩니다. `Path` 등은 문자열로 기록). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
 ## 동작 확인과 결과 읽기
@@ -129,7 +131,7 @@ LLM을 쓰는 엔진은 같은 입력에도 답이 달라질 수 있습니다. �
 
 ### 한 시드의 수치 읽기 (`seeds`)
 
-블라인드 시드는 엔진이 보는 이벤트 id도 정합니다. 그래서 점수가 같은 결과를 id 순으로 두는 엔진(core의 지식 검색이 그렇습니다)은 시드가 바뀌면 동점 중 다른 결과를 맨 위에 둘 수 있고, 동점에 걸린 문항은 결과가 뒤집힙니다. 예: core 고정 커밋 `a02369d`(단어 겹침 개수로 점수를 매기는 저장소)에서 dev 세트의 core `PromoteAllEngine` M1은 시드에 따라 12/17 또는 13/17입니다. BM25 저장소(core `daaba07`)에서는 같은 시드 12개에서 뒤집히는 문항이 없지만, 동점을 id 순으로 두는 규칙은 같습니다. 기준선 네 개는 시드와 무관합니다. 측정과 원인은 [docs/research/2026-11-18-blind-seed-ties.md](docs/research/2026-11-18-blind-seed-ties.md)에 있습니다.
+블라인드 시드는 엔진이 보는 이벤트 id도 정합니다. 그래서 점수가 같은 결과를 id 순으로 두는 엔진(core의 지식 검색이 그렇습니다)은 시드가 바뀌면 동점 중 다른 결과를 맨 위에 둘 수 있고, 동점에 걸린 문항은 결과가 뒤집힙니다. 예: #29 이전의 core 고정 커밋 `a02369d`(단어 겹침 개수로 점수를 매기는 저장소)에서는 당시 dev 세트(시나리오 40개)의 core `PromoteAllEngine` M1이 시드에 따라 12/17 또는 13/17이었습니다. 지금 고정한 BM25 저장소(core `daaba07`)에서는 같은 시드 12개에서 뒤집히는 문항이 없지만, 동점을 id 순으로 두는 규칙은 같으므로 동점이 다시 생기면 같은 일이 일어납니다. 기준선 네 개는 시드와 무관합니다. 측정과 원인은 [docs/research/2026-11-18-blind-seed-ties.md](docs/research/2026-11-18-blind-seed-ties.md)에 있습니다.
 
 따라서 `run` 한 번의 수치는 동점 순서를 한 번 뽑은 결과입니다. 두 실행(엔진이나 core를 바꾼 전후)을 비교할 때는 `seeds`로 시드 여러 개의 분포를 봅니다.
 
@@ -140,7 +142,12 @@ uv run harness seeds --scenarios scenarios/dev --engine cortex_mem.engines.basel
 uv run harness seeds --scenarios scenarios/dev --engine ... --blind-seed <시드1> --blind-seed <시드2> ...
 ```
 
-`runs/<실행 id>-seeds/`에 `report.md`, `summary.json`, `engine_ids.json`(시드 목록과 블라인드 id 대응표)이 생깁니다. 리포트의 값은 `평균 [최소, 최대] (k/n)`이고 모든 시드에서 같으면 `값 (k/n)`만 적습니다. 전체·계열별·되먹임 계열별 표와, 시드마다 결과가 바뀐 문항 목록(`--sealed`면 개수만)이 있습니다. 판정과 순위는 내지 않습니다.
+`runs/<실행 id>-seeds/`에 `report.md`, `summary.json`, `engine_ids.json`이 생깁니다. 리포트의 값은 `평균 [최소, 최대] (k/n)`이고 모든 시드에서 같으면 `값 (k/n)`만 적습니다. 전체·계열별·되먹임 계열별 표, 후보 엔진의 버전과 설정(`run`처럼 블라인드 id로 가린 것), 시드마다 결과가 바뀐 문항 목록(`--sealed`면 개수만)이 있습니다. 판정과 순위는 내지 않습니다.
+
+- `engine_ids.json`은 `run`과 같은 모양이지만 시드가 여러 개라 키가 `seed`가 아니라 `seeds`(목록)입니다.
+- 블라인드 id(E1, E2, ...)는 `run`처럼 첫 시드로 정합니다. 그래서 시드 목록의 순서나 후보 구성이 바뀌면 같은 엔진의 E 번호가 바뀔 수 있습니다. 전후 리포트는 E 번호가 아니라 각 실행의 `engine_ids.json`으로 엔진을 맞춥니다.
+- `summary.json`의 `k`·`n`·`values` 목록은 시드 순서입니다. 어떤 시드에서 한 계열의 시나리오가 모두 오류로 빠지면 그 자리는 `null`이라, 목록 길이가 늘 시드 수와 같습니다.
+- `--blind-seed`를 주면 `--n`은 쓰이지 않고(경고), 같은 시드를 두 번 주면 한 번만 돕니다(경고).
 
 읽는 규칙:
 

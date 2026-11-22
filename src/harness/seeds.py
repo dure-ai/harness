@@ -15,10 +15,11 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from harness.engines import BASELINES
 from harness.metrics import FamilyRow, Metrics
 from harness.replay import ScenarioRun
-from harness.engines import BASELINES
-from harness.report import DRAFTS_WARNING, NA, RunMeta, blind_ids, jsonable
+from harness.report import DRAFTS_WARNING, NA, RunMeta, blind_ids, jsonable, scrubbed_infos
+from harness.stats import Rate
 
 
 def _span(values: Sequence[float | None]) -> dict[str, float | None]:
@@ -29,22 +30,35 @@ def _span(values: Sequence[float | None]) -> dict[str, float | None]:
     return {"mean": statistics.fmean(present), "min": min(present), "max": max(present)}
 
 
-def _rate_spread(rates: Sequence[Any]) -> dict[str, Any]:
-    """Spread of one `Rate` over the seeds: mean/min/max of the value, and k and n per seed."""
-    return {**_span([r.value for r in rates]), "k": [r.k for r in rates], "n": [r.n for r in rates]}
+def _rate_spread(rates: Sequence[Rate | None]) -> dict[str, Any]:
+    """Spread of one `Rate` over the seeds: mean/min/max of the value, and k and n per seed.
+
+    A seed without the rate (None) keeps its place in the k and n lists as None.
+    """
+    return {
+        **_span([r.value if r else None for r in rates]),
+        "k": [r.k if r else None for r in rates],
+        "n": [r.n if r else None for r in rates],
+    }
 
 
 def _family_spread(tables: Sequence[Mapping[str, FamilyRow]]) -> dict[str, dict[str, Any]]:
-    """Per family, the spread of M1, M2 and M3; a family missing in a seed (errors) is skipped there."""
+    """Per family, the spread of M1, M2 and M3, in seed order.
+
+    A family missing in a seed (its scenarios errored) is None at that seed's place, so every
+    list stays aligned with the seed list.
+    """
     families = sorted({f for t in tables for f in t})
-    return {
-        f: {
-            "m1": _rate_spread([t[f]["m1"] for t in tables if f in t]),
-            "m2": _rate_spread([t[f]["m2"] for t in tables if f in t]),
-            "m3": {**_span([t[f]["m3"] for t in tables if f in t]), "values": [t[f]["m3"] for t in tables if f in t]},
+    spread: dict[str, dict[str, Any]] = {}
+    for f in families:
+        rows = [t.get(f) for t in tables]
+        m3 = [row["m3"] if row else None for row in rows]
+        spread[f] = {
+            "m1": _rate_spread([row["m1"] if row else None for row in rows]),
+            "m2": _rate_spread([row["m2"] if row else None for row in rows]),
+            "m3": {**_span(m3), "values": m3},
         }
-        for f in families
-    }
+    return spread
 
 
 def metric_spread(per_seed: Sequence[Metrics]) -> dict[str, Any]:
@@ -55,8 +69,8 @@ def metric_spread(per_seed: Sequence[Metrics]) -> dict[str, Any]:
 
     Returns:
         "m1"/"m2": mean, min, max of the rate and its k and n per seed; "m3": mean, min, max and
-        the value per seed; "by_family"/"feedback_by_family": the same per family; and
-        "n_error_runs" per seed.
+        the value per seed; "by_family"/"feedback_by_family": the same per family, with None
+        for a seed where the family is missing; and "n_error_runs" per seed.
     """
     return {
         "m1": _rate_spread([m.m1 for m in per_seed]),
@@ -98,7 +112,8 @@ def _cell(spread: Mapping[str, Any]) -> str:
     """`mean [min, max] (k/n)`; just `value (k/n)` when every seed agrees."""
     if spread["mean"] is None:
         return NA
-    ks, ns = spread["k"], spread["n"]
+    ks = [k for k in spread["k"] if k is not None]
+    ns = [n for n in spread["n"] if n is not None]
     k = f"{min(ks)}" if min(ks) == max(ks) else f"{min(ks)}–{max(ks)}"
     n = f"{min(ns)}" if min(ns) == max(ns) else f"{min(ns)}–{max(ns)}"
     if spread["min"] == spread["max"]:
@@ -134,6 +149,7 @@ def _markdown(
     spreads: Mapping[str, Mapping[str, Any]],
     unstable: Mapping[str, list[dict[str, Any]]],
     ids: Mapping[str, str],
+    infos: Mapping[str, Mapping[str, Any]],
 ) -> str:
     lines = [f"# 시드 분산 리포트 {meta.run_id}", ""]
     if meta.include_drafts:
@@ -160,6 +176,13 @@ def _markdown(
             f"| {ids[name]} | {_cell(s['m1'])} | {_cell(s['m2'])} | {_count_cell(s['m3'])} | "
             f"{len(unstable[name])} | {max(s['n_error_runs'])} |"
         )
+    if infos:
+        lines += ["", "## 엔진", "", "| 엔진 | 버전 | 설정 |", "|---|---|---|"]
+        for name in names:
+            if name in infos:
+                info = infos[name]
+                config = json.dumps(info["config"], ensure_ascii=False, sort_keys=True)
+                lines.append(f"| {ids[name]} | {info['version']} | {config} |")
     lines += _family_section("계열별", "by_family", names, spreads, ids)
     lines += _family_section("되먹임 계열별", "feedback_by_family", names, spreads, ids)
     if not meta.sealed and any(unstable.values()):
@@ -180,13 +203,15 @@ def write_seed_report(
 ) -> None:
     """Write report.md, summary.json and engine_ids.json for a seed-spread run.
 
-    Candidates get blind ids from the first seed, as `harness run` would give them for it.
-    Error texts and engine infos are not written (they can name a candidate); with
-    `meta.sealed` the report also leaves out scenario and probe ids.
+    Candidates get blind ids from the first seed, as `harness run` would give them for it, so
+    reordering the seeds or changing the candidates can relabel E1, E2, ... . Engine infos are
+    written scrubbed the way `harness run` writes them (`report.scrubbed_infos`), so a before/after pair can show which
+    version produced each; error texts are not written. With `meta.sealed` the report also
+    leaves out scenario and probe ids.
 
     Args:
         out_dir: Directory to create and write into.
-        meta: Run-level facts; its `engine_infos` and `repeats` are not written.
+        meta: Run-level facts; its `repeats` is not written (always 1 per seed).
         seeds: The blind seeds, in run order.
         metrics: Engine name to its metrics, one per seed.
         runs: Engine name to its scenario runs, one list per seed.
@@ -198,6 +223,7 @@ def write_seed_report(
         names_unsorted,
         key=lambda n: (0, BASELINES.index(n)) if n in BASELINES else (1, int(ids[n][1:])),
     )
+    infos = scrubbed_infos(ids, meta.engine_infos)
     spreads = {name: metric_spread(metrics[name]) for name in names}
     unstable = {name: unstable_probes(runs[name]) for name in names}
 
@@ -206,9 +232,8 @@ def write_seed_report(
     (out_dir / "engine_ids.json").write_text(
         json.dumps({"seeds": list(seeds), "ids": blind}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    meta_json = {
-        k: v for k, v in jsonable(meta).items() if k not in ("engine_infos", "repeats")
-    }
+    meta_json = {k: v for k, v in jsonable(meta).items() if k not in ("engine_infos", "repeats")}
+    meta_json["engine_infos"] = {ids[name]: info for name, info in infos.items()}
     meta_json["n_seeds"] = len(seeds)
     if meta.sealed:
         meta_json["n_scenario_roots"] = len(meta_json.pop("scenario_roots"))
@@ -223,4 +248,4 @@ def write_seed_report(
         },
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (out_dir / "report.md").write_text(_markdown(meta, seeds, names, spreads, unstable, ids) + "\n", encoding="utf-8")
+    (out_dir / "report.md").write_text(_markdown(meta, seeds, names, spreads, unstable, ids, infos) + "\n", encoding="utf-8")

@@ -3,11 +3,13 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+import harness.cli
 from harness.cli import app
 from harness.config import load_config
 from harness.metrics import compute_metrics
 from harness.replay import blind_key, run_scenario
 from harness.seeds import metric_spread, unstable_probes
+from harness.selfcheck import CheckResult
 from tests.dummy_engine import LatestWins, LowestIdFirst
 from tests.test_cli import good_dir
 from tests.test_selfcheck import poison, truth_change
@@ -57,6 +59,19 @@ def test_metric_spread_mean_min_max_and_counts():
     assert spread["by_family"]["single_source_poison"]["m1"]["k"] == [1, 1, 0]
     assert spread["feedback_by_family"] == {}
     assert spread["n_error_runs"] == [0, 0, 0]
+
+
+def test_metric_spread_keeps_seed_order_when_a_family_is_missing():
+    scenarios, per_seed = _runs(LowestIdFirst)
+    by_id = {s.id: s for s in scenarios}
+    per_seed[0] = per_seed[0][1:]  # "tc" (truth_change) did not run under the first seed
+    spread = metric_spread([compute_metrics(runs, by_id) for runs in per_seed])
+    tc = spread["by_family"]["truth_change"]
+    assert tc["m1"]["k"] == [None, 1, 0]
+    assert tc["m1"]["n"] == [None, 1, 1]
+    assert tc["m1"]["mean"] == 0.5
+    assert tc["m3"]["values"] == [None, 0, 0]
+    assert spread["by_family"]["single_source_poison"]["m1"]["k"] == [1, 1, 0]
 
 
 def _seeds_cli(tmp_path, *extra):
@@ -117,3 +132,72 @@ def test_seeds_cli_needs_two_seeds(tmp_path):
 def test_seeds_cli_rejects_unknown_engine(tmp_path):
     result = _seeds_cli(tmp_path, "--engine", "all_store_noacl")
     assert result.exit_code == 2
+
+
+def test_seeds_cli_warns_that_n_is_ignored_with_blind_seeds(tmp_path):
+    result = _seeds_cli(tmp_path, "--n", "4", *_seed_args())
+    assert result.exit_code == 0, result.output
+    assert "--n is ignored" in result.output
+    ids = json.loads((Path(result.output.strip().splitlines()[-1]).parent / "engine_ids.json").read_text())
+    assert ids["seeds"] == SEEDS
+
+
+def test_seeds_cli_warns_about_duplicate_seeds(tmp_path):
+    a, b = SEEDS[:2]
+    result = _seeds_cli(tmp_path, "--blind-seed", str(a), "--blind-seed", str(a), "--blind-seed", str(b))
+    assert result.exit_code == 0, result.output
+    assert f"--blind-seed {a} is given more than once" in result.output
+    ids = json.loads((Path(result.output.strip().splitlines()[-1]).parent / "engine_ids.json").read_text())
+    assert ids["seeds"] == [a, b]
+
+
+def test_seeds_cli_matches_run_with_the_same_blind_seed(tmp_path):
+    result = _seeds_cli(tmp_path, "--engine", ENGINE, *_seed_args())
+    assert result.exit_code == 0, result.output
+    spread = json.loads((Path(result.output.strip().splitlines()[-1]).parent / "summary.json").read_text())
+    d = tmp_path / "scenarios"  # written by _seeds_cli
+    for i, seed in enumerate(SEEDS):
+        out = tmp_path / f"run-{i}"
+        done = runner.invoke(
+            app, ["run", "--scenarios", str(d), "--out", str(out), "--engine", ENGINE, "--blind-seed", str(seed)]
+        )
+        assert done.exit_code == 0, done.output
+        (summary,) = out.glob("*/summary.json")
+        metrics = json.loads(summary.read_text())["engines"]["E1"]["metrics"]
+        for m in ("m1", "m2"):
+            assert (spread["engines"]["E1"][m]["k"][i], spread["engines"]["E1"][m]["n"][i]) == (
+                metrics[m]["k"],
+                metrics[m]["n"],
+            )
+        assert spread["engines"]["E1"]["m3"]["values"][i] == metrics["m3"]
+
+
+def test_seeds_cli_stops_when_a_later_seed_fails_the_self_check(tmp_path, monkeypatch):
+    real = harness.cli.run_selfcheck
+    calls = []
+
+    def second_fails(*args, **kwargs):
+        calls.append(1)
+        checks, runs = real(*args, **kwargs)
+        if len(calls) == 2:
+            checks = [CheckResult(name="oracle_perfect", ok=False, detail="forced")]
+        return checks, runs
+
+    monkeypatch.setattr(harness.cli, "run_selfcheck", second_fails)
+    result = _seeds_cli(tmp_path, *_seed_args())
+    assert result.exit_code == 1
+    assert "self-check failed with seed #2" in result.output
+    assert not list((tmp_path / "out").glob("*-seeds"))
+
+
+def test_seeds_report_names_engine_versions_without_the_candidate(tmp_path):
+    result = _seeds_cli(tmp_path, "--engine", ENGINE, *_seed_args())
+    assert result.exit_code == 0, result.output
+    report = Path(result.output.strip().splitlines()[-1])
+    summary = json.loads((report.parent / "summary.json").read_text())
+    assert summary["meta"]["engine_infos"]["E1"]["name"] == "E1"
+    assert summary["meta"]["engine_infos"]["E1"]["version"] == "0.1"
+    md = report.read_text(encoding="utf-8")
+    assert "## 엔진" in md and "| E1 | 0.1 |" in md
+    for text in (md, json.dumps(summary)):
+        assert "LowestIdFirst" not in text and "dummy_engine" not in text and "latest" not in text

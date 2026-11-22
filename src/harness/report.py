@@ -229,6 +229,19 @@ def _info_json(
     return {**_scrub_value(jsonable(info), scrub), "name": ids[name]}
 
 
+def scrubbed_infos(ids: Mapping[str, str], infos: Mapping[str, EngineInfo]) -> dict[str, dict[str, Any]]:
+    """Each engine's `info()` as JSON the way the report writes it, keyed by engine name.
+
+    Candidate identifiers in every string are replaced with blind ids (see `_scrubber`), and
+    `name` is the blind id. Ordered with baselines first, then E1, E2, ... .
+    """
+    scrub = _scrubber(ids, infos)
+    return {
+        name: _info_json(name, info, ids, scrub)
+        for name, info in sorted(infos.items(), key=lambda kv: _order_key(ids)(kv[0]))
+    }
+
+
 def _order_key(ids: Mapping[str, str]) -> Callable[[str], tuple[int, int]]:
     def key(name: str) -> tuple[int, int]:
         if name in BASELINES:
@@ -262,10 +275,7 @@ def _summary(
 ) -> dict[str, Any]:
     by_name = {s.engine_id: s for s in ordered}
     meta_json = jsonable(meta)
-    meta_json["engine_infos"] = {
-        ids[name]: _info_json(name, info, ids, scrub)
-        for name, info in sorted(meta.engine_infos.items(), key=lambda kv: _order_key(ids)(kv[0]))
-    }
+    meta_json["engine_infos"] = {ids[name]: info for name, info in scrubbed_infos(ids, meta.engine_infos).items()}
     meta_json["repeats"] = {ids[name]: n for name, n in _ordered_repeats(meta, ids)}
     if meta.sealed:  # paths can name the sealed set
         meta_json["n_scenario_roots"] = len(meta_json.pop("scenario_roots"))
