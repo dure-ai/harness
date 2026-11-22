@@ -16,7 +16,7 @@ def scenario_text(s: Scenario) -> str:
     Returns:
         The YAML document.
     """
-    return yaml.safe_dump(s.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+    return yaml.safe_dump(s.file_data(), sort_keys=False, allow_unicode=True)
 
 
 class Clock:

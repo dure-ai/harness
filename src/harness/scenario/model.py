@@ -7,7 +7,7 @@ Hidden labels are the ground truth used only for scoring and are never sent to e
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -257,6 +257,17 @@ class Scenario(_Strict):
     probes: list[Probe]
     review: Review = Review()
     provenance: Provenance
+
+    def file_data(self) -> dict[str, Any]:
+        """The JSON-ready content of this scenario's YAML file.
+
+        `provenance.too_easy_repairs` is left out when 0, so a scenario written before that field
+        existed is saved byte for byte as it was and keeps its hashes.
+        """
+        data = self.model_dump(mode="json")
+        if not data["provenance"]["too_easy_repairs"]:
+            del data["provenance"]["too_easy_repairs"]
+        return data
 
     def team_of(self, user: str) -> str:
         """Return the team `user` belongs to.
