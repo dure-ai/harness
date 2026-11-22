@@ -14,7 +14,7 @@ from harness.metrics import m1_rate, m2_rate
 from harness.replay import ScenarioRun
 from harness.scenario.model import EXT_FAMILIES
 from harness.stats import Rate, rate
-from harness.report import info_json, order_key, rate_text, result_lines, scrubber, markdown_table, blind_ids, jsonable
+from harness.report import DRAFTS_WARNING, info_json, order_key, rate_text, result_lines, scrubber, markdown_table, blind_ids, jsonable
 
 HEADER = "**외부 벤치마크 트랙. 사전 등록한 판정 기준이 아니며 `harness run` 결과와 섞지 않는다.**"
 M2_TITLE = "근거 도달(M2)"
@@ -145,6 +145,7 @@ def _markdown(
         "",
         "# 외부 벤치마크 리포트",
         "",
+        *([DRAFTS_WARNING, ""] if meta["include_drafts"] else []),
         f"- 실행: {meta['run_id']}",
         f"- 실행 일시: {meta['started_at']}",
         f"- 하네스 버전: {meta['harness_version']}",

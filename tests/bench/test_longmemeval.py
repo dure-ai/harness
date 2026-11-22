@@ -97,7 +97,7 @@ def test_questions_with_bad_evidence_are_skipped_with_a_reason():
     late = lme_question(
         "l1", "multi-session", [("2023/08/01 (Tue) 09:00", [("user", "x")])], [0], QDATE
     )
-    assert convert_question(late, {}).skipped == "evidence after the question"
+    assert convert_question(late, {}).skipped == "evidence session after the question"
     no_mark = lme_question(
         "n1", "multi-session", [("2023/05/01 (Mon) 09:00", [("user", "x")])], [0], QDATE, has_answer={0: []}
     )
@@ -180,7 +180,7 @@ def test_dataset_declares_the_file_and_converts_from_the_cache(tmp_path):
     ds = LongMemEvalS()
     (f,) = ds.files()
     assert (f.name, f.size) == ("longmemeval_s_cleaned.json", 277383467)
-    assert ds.name == "longmemeval-s" and ds.license == "MIT" and ds.commit_ok
+    assert ds.name == "longmemeval-s" and ds.license == "MIT" and not ds.commit_ok
     write_lme(
         tmp_path / f.name,
         [
@@ -256,7 +256,13 @@ def test_an_evidence_turn_timed_after_the_question_skips_it():
     sessions = [("2023/07/01 (Sat) 09:59", [("user", "hi"), ("assistant", "a"), ("user", "I own a red bike")])]
     q = lme_question("late_ev", "single-session-user", sessions, [0], QDATE, has_answer={0: [2]})
     c = convert_question(q, {})
-    assert c.scenario is None and c.skipped == "evidence after the question"
+    assert c.scenario is None and c.skipped == "evidence turn pushed past the question by turn spacing"
+
+
+def test_the_dataset_url_is_pinned_to_a_revision():
+    (f,) = LongMemEvalS().files()
+    assert "/resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/" in f.url
+    assert "/resolve/main/" not in f.url
 
 
 def test_label_values_are_checked():

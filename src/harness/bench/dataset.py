@@ -114,7 +114,11 @@ def fetch_file(
     timeout: float = 60.0,
     opener: Callable[..., Any] = urllib.request.urlopen,
 ) -> Path:
-    """Download `file` into `dest_dir`, verifying size and sha256 before it appears under its name."""
+    """Download `file` into `dest_dir`, verifying size and sha256 before it appears under its name.
+
+    It reads at most one byte more than `file.size`, so a server that sends a longer body is
+    rejected without downloading the rest.
+    """
     final = dest_dir / file.name
     if final.is_file() and final.stat().st_size == file.size:
         return final
@@ -124,7 +128,9 @@ def fetch_file(
         digest = hashlib.sha256()
         total = 0
         with opener(file.url, timeout=timeout) as response, part.open("wb") as out:
-            while chunk := response.read(_CHUNK):
+            # Read at most one byte past the expected size: enough to tell a longer body apart
+            # without downloading all of it.
+            while total <= file.size and (chunk := response.read(min(_CHUNK, file.size + 1 - total))):
                 digest.update(chunk)
                 total += len(chunk)
                 out.write(chunk)

@@ -35,6 +35,30 @@ def test_fetch_rejects_a_short_body(tmp_path: Path, served: Any) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_fetch_stops_reading_one_byte_past_the_expected_size(tmp_path: Path) -> None:
+    class Endless:
+        """A response that never ends; fetch_file must stop on its own."""
+
+        read_total = 0
+
+        def read(self, n: int = -1) -> bytes:
+            assert n > 0
+            Endless.read_total += n
+            return b"x" * n
+
+        def __enter__(self) -> "Endless":
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            pass
+
+    f = RemoteFile("d.json", "http://example.invalid/d.json", 10, "0" * 64)
+    with pytest.raises(FetchError, match="size"):
+        fetch_file(f, tmp_path, opener=lambda url, timeout: Endless())
+    assert Endless.read_total == 11
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_bench_cache_follows_the_harness_cache_variable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("T5_HARNESS_CACHE", str(tmp_path))
     assert bench_cache("longmemeval-s") == tmp_path / "bench" / "longmemeval-s"
@@ -94,10 +118,12 @@ def test_dataset_facts_come_from_the_dataset_itself() -> None:
 
     assert dataset_facts(FakeDataset([]), {"a.json": "ab"}) == {
         "dataset": "fake", "license": "MIT", "file_sha256": {"a.json": "ab"}, "converter": "fake/3", "label_sha256": None,
+        "include_drafts": False,
     }
     lme = dataset_facts(LongMemEvalS(), {})
     label = (resources.files("harness.bench.datasets") / "longmemeval_ku_labels.yaml").read_bytes()
     assert lme["converter"] == "longmemeval-s/1" and lme["label_sha256"] == hashlib.sha256(label).hexdigest()
     assert scenario_facts("scenarios/dev") == {
         "dataset": "scenarios/dev", "license": "n/a", "file_sha256": {}, "converter": "n/a", "label_sha256": None,
+        "include_drafts": False,
     }

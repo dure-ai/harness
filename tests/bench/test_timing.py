@@ -97,7 +97,7 @@ def test_report_has_table_4(tmp_path):
     b = run_bench(converted(), ["oracle"], BenchConfig(), run_id="t", key=blind_key(1))
     meta = {
         "run_id": "t", "started_at": "x", "harness_version": "0", "config_hash": "h", "machine": "m",
-        "dataset": "d", "license": "MIT", "file_sha256": {}, "converter": "c", "label_sha256": None, "blind_seed": 1,
+        "dataset": "d", "license": "MIT", "file_sha256": {}, "converter": "c", "label_sha256": None, "include_drafts": False, "blind_seed": 1,
     }
     write_bench_report(tmp_path, meta, b, None)
     text = (tmp_path / "report.md").read_text(encoding="utf-8")
