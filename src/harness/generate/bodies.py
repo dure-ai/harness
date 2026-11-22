@@ -51,6 +51,7 @@ def write_bodies(
     traces: Sequence[Trace],
     gen: GenConfig,
     cfg: EvalConfig | None = None,
+    revision: str | None = None,
 ) -> Scenario:
     """Have the model write every text field of a skeleton.
 
@@ -66,6 +67,8 @@ def write_bodies(
         traces: Traces of the candidate's bundle, the candidate's own first; may be empty.
         gen: Generation config (prompt version and banned cue words).
         cfg: Eval config whose `repeat_n` the poison repeats must satisfy; defaults to `EvalConfig()`.
+        revision: Why an earlier draft of this scenario was rejected and how to fix it; appended
+            to the user prompt. None for a first draft.
 
     Returns:
         The scenario with text filled in and provenance written: author `llm`, provider, the model
@@ -94,9 +97,13 @@ def write_bodies(
                 "with only a short different lead-in"
             )
 
-    slots = client.complete_json(
-        "bodies", system, _prompt(sk, cand, traces), BodySlots, check
-    )
+    user = _prompt(sk, cand, traces)
+    if revision:
+        user += (
+            "\n\nA previous draft of this scenario was rejected by the automatic checks. "
+            f"Fix it as described:\n{revision}"
+        )
+    slots = client.complete_json("bodies", system, user, BodySlots, check)
     s = apply_slots(sk, slots)
     trace_id = traces[0].trajectory_id if traces else None
     evidence = []
