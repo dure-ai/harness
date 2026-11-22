@@ -2,11 +2,10 @@
 
 from abc import ABC
 from collections import Counter
-from collections.abc import Iterable
 from typing import override
 
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result, can_see
-from harness.text import BM25, counted, jaccard_prefix, set_jaccard_at_least
+from harness.text import BM25, JaccardIndex, counted, set_jaccard_at_least
 
 
 class _NamespacedEngine(BaseEngine, ABC):
@@ -132,45 +131,31 @@ class RepeatNEngine(_IndexedEngine):
         super().__init__()
         self.n = n
         self.tau = tau
-        # Per namespace, by position in the store: each event's token set, and the positions of
-        # the events similar to it (itself included when it is similar to itself). Found once,
-        # when an event is recorded, so a query only counts them.
-        self._sets: dict[str, list[set[str]]] = {}
+        # Per namespace, by position in the store: the positions of the events similar to each
+        # event (itself included when it is similar to itself). Found once, when an event is
+        # recorded, so a query only counts them; the index finds them without a full scan.
         self._similar: dict[str, list[list[int]]] = {}
-        # Per namespace: token -> positions whose prefix (`text.jaccard_prefix`) holds it, so a new
-        # event is compared only with events it could be similar to.
-        self._prefixes: dict[str, dict[str, list[int]]] = {}
+        self._joins: dict[str, JaccardIndex] = {}
 
     @override
     def reset(self, namespace: str) -> None:
         """Create or clear `namespace` and make it current."""
         super().reset(namespace)
-        self._sets[namespace] = []
         self._similar[namespace] = []
-        self._prefixes[namespace] = {}
+        self._joins[namespace] = JaccardIndex(self.tau)
 
     @override
     def record(self, event: Event) -> None:
         """Store the event and note which stored events are similar to it."""
         super().record(event)
         namespace = self._namespace()
-        sets, similar = self._sets[namespace], self._similar[namespace]
+        similar = self._similar[namespace]
         tokens = set(self._counts[namespace][event.id][0])
-        position = len(sets)
+        position = len(similar)
         mine = [position] if set_jaccard_at_least(tokens, tokens, self.tau) else []
-        if self.tau > 0:
-            prefix = jaccard_prefix(tokens, self.tau)
-            index = self._prefixes[namespace]
-            candidates: Iterable[int] = sorted({j for t in prefix for j in index.get(t, ())})
-        else:  # at tau <= 0 every pair is similar, two empty texts included
-            prefix, index, candidates = [], {}, range(position)
-        for j in candidates:  # in position order, as a full scan visits them
-            if set_jaccard_at_least(tokens, sets[j], self.tau):
-                mine.append(j)
-                similar[j].append(position)
-        for t in prefix:
-            index.setdefault(t, []).append(position)
-        sets.append(tokens)
+        for j in self._joins[namespace].add(tokens):  # in position order, as a full scan visits them
+            mine.append(j)
+            similar[j].append(position)
         similar.append(mine)
 
     def info(self) -> EngineInfo:
