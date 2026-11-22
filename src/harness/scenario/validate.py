@@ -221,6 +221,24 @@ def validate_scenario(s: Scenario) -> list[Issue]:
             elif order[ref] >= (e.t, i):  # must be replayed before this event
                 error("ref_not_earlier", f"event {e.id}: refs {ref!r}, which is not earlier")
 
+    by_id = {e.id: e for e in s.events}
+    for e in s.events:
+        if e.outcome != "success" or e.fact is None or not e.refs:
+            continue
+        if any(r not in by_id for r in e.refs):
+            continue  # `unknown_ref` already reports it
+        judged = {by_id[r].fact for r in e.refs}
+        if e.fact not in judged:
+            issues.append(
+                Issue(
+                    "warning",
+                    "confirm_asserts_other_fact",
+                    f"event {e.id}: a successful judgement of {e.refs} asserts fact "
+                    f"{e.fact!r}, not the fact of the events it judges "
+                    "(contract §3-2: refs are what is judged)",
+                )
+            )
+
     bad_users, messages = _unknown_users(s)
     for message in messages:
         error("unknown_user", message)
