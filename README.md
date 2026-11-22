@@ -28,6 +28,19 @@ uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 
 평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). 오픈소스 엔진 `hindsight`, `mem0`은 이름으로 고릅니다([아래](#오픈소스-엔진-측정)). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다(pydantic JSON 모드로 바꿀 수 있는 값이면 됩니다. `Path` 등은 문자열로 기록). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
+### Core 엔진을 로컬 Qwen으로 시험하기
+
+로컬 llama.cpp의 임베딩 서버에 `Qwen3-Embedding-4B-Q4_K_M.gguf`를 올립니다. 아래 블록을 평가 YAML 사본에 추가하고 `harness run --config <사본 경로> --engine <Core 엔진>`으로 실행합니다.
+
+```yaml
+core_embedding:
+  base_url: http://127.0.0.1:18081/v1
+  model: Qwen3-Embedding-4B-Q4_K_M.gguf
+  group_threshold: 0.80
+```
+
+이 설정은 Core 엔진마다 시나리오 단위로 새 인덱스를 만듭니다. 설정을 생략하면 텍스트 검색만 사용합니다. 모델명과 기준값은 리포트에 기록되며, 서버에 연결할 수 없거나 응답이 잘못되면 해당 시나리오를 오류로 기록합니다. 기본 기준선과 채점 기준에는 이 설정을 적용하지 않습니다.
+
 ## 동작 확인과 결과 읽기
 
 하네스가 제대로 도는지는 위 세 명령을 차례로 돌려 확인합니다. 각 단계에서 무엇이 보이면 정상인지 적습니다.

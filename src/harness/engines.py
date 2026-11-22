@@ -51,7 +51,7 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
         except ModuleNotFoundError as e:
             raise ModuleNotFoundError(_NEEDS_CORE, name=e.name) from e
         if isinstance(engine, CoreEngine):
-            return CoreBridge(engine)
+            return CoreBridge(engine, cfg.core_embedding)
         raise TypeError(f"{name} did not produce a BaseEngine (got {type(engine).__name__})")
     match name:
         case "none":

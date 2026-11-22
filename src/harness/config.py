@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -92,6 +93,31 @@ class LLM(_Strict):
     embedding_model: str | None = None
 
 
+class CoreEmbedding(_Strict):
+    """Optional local Qwen index used by Core engines."""
+
+    base_url: str = "http://127.0.0.1:18081/v1"
+    model: str = Field(default="Qwen3-Embedding-4B-Q4_K_M.gguf", min_length=1)
+    group_threshold: float = Field(default=0.8, ge=0, le=1)
+
+    @field_validator("base_url")
+    @classmethod
+    def _local_embedding_address(cls, value: str) -> str:
+        """Require the llama.cpp API on a loopback host without embedded credentials."""
+        url = urlsplit(value)
+        if (
+            url.scheme != "http"
+            or url.hostname not in ("127.0.0.1", "::1")
+            or url.port in (None, 0, 37701, 37777)
+            or url.username is not None
+            or url.path.rstrip("/") != "/v1"
+            or url.query
+            or url.fragment
+        ):
+            raise ValueError("core_embedding.base_url must be a loopback HTTP URL with a port and the /v1 path")
+        return value.rstrip("/")
+
+
 class EvalConfig(_Strict):
     """Everything that affects scores; committed and hashed before results are seen.
 
@@ -104,6 +130,7 @@ class EvalConfig(_Strict):
         feedback: Feedback-mode delays.
         llm_repeats: Default number of runs per candidate engine.
         llm: Shared LLM settings.
+        core_embedding: Local Qwen index settings. None disables the index.
     """
 
     version: str = "0.4"
@@ -114,6 +141,7 @@ class EvalConfig(_Strict):
     feedback: FeedbackDelays = FeedbackDelays()
     llm_repeats: int = Field(default=3, ge=1)
     llm: LLM = LLM()
+    core_embedding: CoreEmbedding | None = None
 
 
 def load_config(path: Path) -> EvalConfig:
@@ -142,5 +170,6 @@ def config_hash(cfg: EvalConfig) -> str:
     Returns:
         A hex digest that changes whenever any value changes.
     """
-    payload = json.dumps(cfg.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    exclude = {"core_embedding"} if cfg.core_embedding is None else None
+    payload = json.dumps(cfg.model_dump(mode="json", exclude=exclude), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

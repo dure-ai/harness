@@ -57,6 +57,24 @@ def test_config_rejects_duplicate_keys(tmp_path):
         load_config(p)
 
 
+def test_core_embedding_is_opt_in_and_hashed():
+    default = EvalConfig()
+    enabled = EvalConfig.model_validate({"core_embedding": {}})
+    custom = EvalConfig.model_validate({"core_embedding": {"group_threshold": 0.9}})
+    assert default.core_embedding is None
+    assert enabled.core_embedding.group_threshold == 0.8
+    assert len({config_hash(default), config_hash(enabled), config_hash(custom)}) == 3
+
+
+@pytest.mark.parametrize("url", [
+    "http://example.com:18081/v1", "http://127.0.0.1:37701/v1",
+    "http://user@127.0.0.1:18081/v1", "http://127.0.0.1:18081/v1?token=secret",
+])
+def test_core_embedding_requires_a_local_api_without_credentials(url):
+    with pytest.raises(ValidationError, match="loopback"):
+        EvalConfig.model_validate({"core_embedding": {"base_url": url}})
+
+
 def test_config_parses_iso_durations(tmp_path):
     p = tmp_path / "d.yaml"
     p.write_text("feedback:\n  action: PT10M\n  on_false: P2D\n  on_true: PT0S\n")
