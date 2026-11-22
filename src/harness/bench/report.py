@@ -17,6 +17,7 @@ from harness.stress.groups import group_sort_key
 from harness.config import Stats
 from harness.stats import CLUSTER_ITERS, MIN_CLUSTERS, Rate, cluster_ci, rate
 from harness.report import (
+    DRAFTS_WARNING,
     blind_ids,
     ci_text,
     info_json,
@@ -274,6 +275,7 @@ def _markdown(
         "",
         "# 외부 벤치마크 리포트",
         "",
+        *([DRAFTS_WARNING, ""] if meta["include_drafts"] else []),
         f"- 실행: {meta['run_id']}",
         f"- 실행 일시: {meta['started_at']}",
         f"- 하네스 버전: {meta['harness_version']}",

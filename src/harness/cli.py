@@ -497,7 +497,8 @@ def run(
     if external:  # the pre-registered verdict is not defined on external benchmark scenarios
         raise _fail(
             f"error: {external} scenario(s) of an external benchmark family ({', '.join(EXT_FAMILIES)}); "
-            "harness run judges only the main families, so run them with harness bench run --scenarios",
+            "harness run judges only the main families, so run them with harness bench run --scenarios "
+            "(add --include-drafts for files from bench export, which are drafts)",
             2,
         )
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
@@ -737,6 +738,14 @@ def bench_run(
     ] = None,
     types: TypesOpt = None,
     limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
+    include_drafts: Annotated[
+        bool,
+        typer.Option(
+            "--include-drafts",
+            help="With --scenarios, also run draft scenarios, such as the files bench export or "
+            "harness stress build writes. The report is marked as not for publication.",
+        ),
+    ] = False,
     gold: Annotated[bool, typer.Option("--gold", help="Also run with only the events of facts a probe asks about.")] = False,
     yes: Annotated[bool, typer.Option("--yes", help="Run without asking.")] = False,
     config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
@@ -748,10 +757,6 @@ def bench_run(
             help="Reproduce a recorded run: the seed from its engine_ids.json. Random by default.",
         ),
     ] = None,
-    include_drafts: Annotated[
-        bool,
-        typer.Option("--include-drafts", help="With --scenarios: also run drafts, such as harness stress build output."),
-    ] = False,
 ) -> None:
     """Run the baselines and extra engines on a converted external dataset and write its report."""
     import time
@@ -767,7 +772,7 @@ def bench_run(
     if scenarios_path is not None and types:
         raise _fail("error: --types applies to --dataset only; it cannot be combined with --scenarios", 2)
     if dataset is not None and include_drafts:
-        raise _fail("error: --include-drafts applies to --scenarios only", 2)
+        raise _fail("error: --include-drafts applies to --scenarios only; dataset items are converted on the fly", 2)
     cfg = _bench_config(config)
     found, facts, folder = _bench_source(dataset, scenarios_path, types, limit, include_drafts=include_drafts)
     items = list(screened(found, cfg.eval))
@@ -816,8 +821,10 @@ def _bench_source(
     """The items `bench run` converts, the facts its report records, and its report folder name.
 
     A dataset must be known and cached with the right sha256 (exit 2 otherwise); its items are
-    converted lazily. Scenario files are loaded now, approved ones only unless `include_drafts`.
-    A stress variant's group is "<family>/<knob>=<value>", any other scenario's its family.
+    converted lazily. Scenario files are loaded now: approved ones only unless `include_drafts`.
+    When only drafts are found (such as `bench export` or `harness stress build` output), it
+    exits 2 and says so. A stress variant's group is "<family>/<knob>=<value>", any other
+    scenario's its family.
     """
     from harness.stress.groups import group_of
     from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
@@ -838,8 +845,14 @@ def _bench_source(
         return found, dataset_facts(ds, file_sha256), ds.name
     assert scenarios_path is not None
     loaded = _load_scenarios(scenarios_path, include_drafts=include_drafts)
+    if not loaded and not include_drafts and _load_scenarios(scenarios_path, include_drafts=True):
+        raise _fail(
+            f"error: the scenarios in {scenarios_path} are drafts (bench export and harness stress build "
+            "write drafts); pass --include-drafts to run them",
+            2,
+        )
     found = [Converted(s, s.id, group_of(s), None) for s in loaded[:limit]]
-    return found, scenario_facts(str(scenarios_path)), "scenarios"
+    return found, scenario_facts(str(scenarios_path), include_drafts), "scenarios"
 
 
 def _confirm_bench(items: "list[Converted]", candidates: list[str], *, gold: bool, yes: bool) -> list[Scenario]:

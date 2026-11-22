@@ -1,4 +1,11 @@
-"""Gold mode: the same scenario with only the events a probe asks about (spec section 6)."""
+"""Gold mode: the same scenario with only the events a probe asks about.
+
+It keeps the events of every fact some probe's `about` names (a block probe's old or false fact
+too, since that is what the engine must judge) and drops noise events (`fact: null`) and events of
+facts no probe asks about. Probes, times and scoring stay the same. Comparing an engine's normal
+and gold runs splits its failures into retrieval or noise failures (wrong normally, right in gold)
+and judgment or use failures (wrong in both).
+"""
 
 from harness.replay import ScenarioRun
 from harness.scenario.model import Scenario

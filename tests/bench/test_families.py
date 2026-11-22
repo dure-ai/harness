@@ -71,13 +71,15 @@ def test_ext_update_needs_block_and_promote():
     assert "pairing_missing" not in codes(validate_scenario(block_and_promote("ext_update")))
 
 
-def test_a_dev_selfcheck_has_no_ext_rows():
-    loaded = load_set([ROOT / "scenarios" / "dev"], False)
-    checks, runs = run_selfcheck(
-        loaded.scenarios, load_config(ROOT / "config" / "eval-v0.1.yaml"), blind_key(1)
-    )
-    by_id = {s.id: s for s in loaded.scenarios}
-    assert all(c.ok for c in checks)
-    for name, engine_runs in runs.items():
-        m = compute_metrics(engine_runs, by_id)
-        assert not [f for f in (*m.by_family, *m.feedback_by_family) if f.startswith("ext_")], name
+def test_ext_scenarios_add_their_own_rows_without_changing_the_main_ones():
+    cfg = load_config(ROOT / "config" / "eval-v0.1.yaml")
+    dev = load_set([ROOT / "scenarios" / "dev"], False).scenarios
+    ext = block_and_promote("ext_update").model_copy(update={"id": "ext-1"})
+    by_id = {s.id: s for s in [*dev, ext]}
+    _, alone = run_selfcheck(dev, cfg, blind_key(1))
+    _, mixed = run_selfcheck([*dev, ext], cfg, blind_key(1))
+    for name in alone:
+        before, after = compute_metrics(alone[name], by_id), compute_metrics(mixed[name], by_id)
+        assert "ext_update" in after.by_family and "ext_update" not in before.by_family, name
+        assert {f: r for f, r in after.by_family.items() if f != "ext_update"} == before.by_family, name
+        assert after.feedback_by_family == before.feedback_by_family, name

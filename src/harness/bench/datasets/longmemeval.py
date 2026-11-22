@@ -17,7 +17,9 @@ from harness.scenario.model import ExtFamily, Fact, Probe, Provenance, Scenario,
 REPO = "longmemeval-s"
 KU = "knowledge-update"
 FACT_CHARS = 300
-_URL = "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json"
+# Pinned to a dataset revision, so a later upstream change does not make the checksum fail.
+_REVISION = "98d7416c24c778c2fee6e6f3006e7a073259d48f"
+_URL = f"https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/{_REVISION}/longmemeval_s_cleaned.json"
 _SHA256 = "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
 
 
@@ -83,7 +85,7 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
         t = parse_lme_date(date)
         if t > qdate:
             if sid in answer_ids:
-                return skip("evidence after the question")
+                return skip("evidence session after the question")
             continue
         sessions.append(_Session(sid, t, turns))
     sessions.sort(key=lambda s: s.t)  # stable: equal dates keep file order
@@ -105,7 +107,7 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
             # past it; such turns would come after the probe. Dropped turns do not move the clock.
             if clock.peek(sess.t + timedelta(minutes=ti)) >= qdate:
                 if fact is not None:
-                    return skip("evidence after the question")
+                    return skip("evidence turn pushed past the question by turn spacing")
                 continue
             t = clock.at(sess.t + timedelta(minutes=ti))
             if fact is not None:
@@ -177,7 +179,7 @@ class LongMemEvalS:
 
     name = "longmemeval-s"
     license = "MIT"
-    commit_ok = True
+    commit_ok = False  # converted scenarios hold the dataset's text; keep exports git-ignored
     converter_version = 1
     label_file: str | None = LABEL_FILE
 

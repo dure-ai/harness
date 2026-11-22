@@ -15,6 +15,7 @@ from harness.bench.datasets import longmemeval
 from harness.bench.datasets.longmemeval import LongMemEvalS, convert_question
 from harness.bench.run import run_bench
 from harness.cli import app
+from harness.report import DRAFTS_WARNING
 from harness.contract import BaseEngine, EngineInfo, EngineUnavailable, Event, Query, Result
 from harness.replay import blind_key
 from tests.bench.lme_fixture import lme_question, write_lme
@@ -233,7 +234,7 @@ def _harness_run(out: Path) -> tuple[Any, list[Any]]:
     return summary, results
 
 
-def test_bench_run_does_not_change_harness_run(tmp_path: Path, cached: Path):
+def test_bench_run_has_no_side_effect_on_a_later_harness_run(tmp_path: Path, cached: Path):
     first = _harness_run(tmp_path / "one")
     r, _ = bench_run(tmp_path)
     assert r.exit_code == 0, r.output
@@ -367,3 +368,28 @@ def test_the_cost_estimate_counts_the_gold_pass(tmp_path: Path, cached: Path):
     assert f"mem0: about {normal} LLM calls" in r.output
     r = runner.invoke(app, [*base, "--gold"], input="n\n")
     assert f"mem0: about {normal + gold} LLM calls" in r.output
+
+
+def test_bench_run_says_exported_files_are_drafts_and_runs_them_with_include_drafts(tmp_path: Path, cached: Path):
+    sc = tmp_path / "sc"
+    r = runner.invoke(app, ["bench", "export", "--dataset", "longmemeval-s", "--out", str(sc)])
+    assert r.exit_code == 0, r.output
+    out = tmp_path / "out"
+    base = ["bench", "run", "--scenarios", str(sc), "--yes", "--blind-seed", "1", "--out", str(out)]
+    r = runner.invoke(app, base)
+    assert r.exit_code == 2
+    assert "drafts" in r.output and "--include-drafts" in r.output
+    assert not out.exists()
+    r = runner.invoke(app, [*base, "--include-drafts"])
+    assert r.exit_code == 0, r.output
+    (d,) = list((out / "scenarios").iterdir())
+    md = (d / "report.md").read_text(encoding="utf-8")
+    assert DRAFTS_WARNING in md
+    summary = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+    assert summary["meta"]["include_drafts"] is True
+
+
+def test_include_drafts_applies_to_scenarios_only(tmp_path: Path, cached: Path):
+    r, out = bench_run(tmp_path, "--include-drafts")
+    assert r.exit_code == 2 and "--include-drafts applies to --scenarios only" in r.output
+    assert not out.exists()

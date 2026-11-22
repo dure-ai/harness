@@ -117,7 +117,7 @@ def test_bench_run_on_ordinary_scenarios_has_no_stress_tables(tmp_path):
 def test_bench_run_guards_for_variants(tmp_path, noise_file):
     _, out = build(tmp_path, noise_file, "--knob", "gap")
     r = runner.invoke(app, ["bench", "run", "--scenarios", str(out), "--yes", "--out", str(tmp_path / "r")])
-    assert r.exit_code == 2 and "no scenario" in r.output  # drafts need --include-drafts
+    assert r.exit_code == 2 and "are drafts" in r.output and "--include-drafts" in r.output
     r = bench(out, Path("scenarios/bench-tmp"))
     assert r.exit_code == 2 and "git-ignored" in r.output
     assert not Path("scenarios/bench-tmp").exists()
