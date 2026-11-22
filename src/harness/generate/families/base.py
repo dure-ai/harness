@@ -193,7 +193,9 @@ class SkeletonBuilder:
         """Add an event with empty text and return its id (`e1, e2, ...` in order of creation).
 
         Pass `refs` only for judging records: a CI result or human confirmation about earlier
-        events. Its `fact` is the fact the record asserts as true.
+        events. A `success` judgement's `fact` is the fact it asserts as true; a `failure`
+        confirmation (see `overturn`) says only that the referenced records no longer hold, so
+        its `fact` is None.
         """
         eid = f"e{len(self.events) + 1}"
         self.events.append(
@@ -306,6 +308,31 @@ def confirm(
     return b.event(
         b.at(day), user, fact, signal=signal, kind=kind, outcome="success", refs=judged
     )
+
+
+_OVERTURN_GAP = timedelta(minutes=30)
+
+
+def overturn(b: SkeletonBuilder, day: int, confirmer: str) -> tuple[str, str]:
+    """Overturn the `f_old` records on `day`: a failure confirmation, then a human record of `f_new`.
+
+    The confirmation (`human_confirm`, `failure`, `human`) refs every `f_old` event and carries
+    no fact of its own; 30 minutes later the same `confirmer` records `f_new` as a plain
+    human-signed `agent_record` without refs. Returns `(confirm_id, record_id)`.
+    """
+    t = b.at(day)
+    confirm_id = b.event(
+        t,
+        confirmer,
+        None,
+        signal="human",
+        kind="human_confirm",
+        outcome="failure",
+        refs=b.events_of("f_old"),
+    )
+    session = next(e.session for e in b.events if e.id == confirm_id)
+    record_id = b.event(t + _OVERTURN_GAP, confirmer, "f_new", session=session, signal="human")
+    return confirm_id, record_id
 
 
 def _needs_fix(cand: FactCandidate) -> str | None:
