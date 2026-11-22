@@ -111,8 +111,9 @@ def set_jaccard_at_least(sa: set[str], sb: set[str], tau: float) -> bool:
 class JaccardIndex:
     """Incremental similarity join: the earlier sets with Jaccard >= `tau` with each new set.
 
-    It avoids comparing a new set with every earlier one, yet `add` gives the same answer as checking every earlier set with `set_jaccard_at_least`, which
-    still makes the final call; the filters below only skip sets that cannot pass it.
+    It avoids comparing a new set with every earlier one, yet `add` gives the same answer as
+    checking every earlier set with `set_jaccard_at_least`, which still makes the final call;
+    the filters below only skip sets that cannot pass it.
 
     Prefix filtering: with all sets sorted in one fixed token order, two sets that share at least
     `a` tokens share one among the first |A| - a + 1 tokens of each, and a pair with Jaccard
