@@ -296,3 +296,39 @@ def test_bodies_prompt_explains_a_failure_confirmation_without_a_fact() -> None:
     config = pathlib.Path(__file__).resolve().parent.parent / "config" / "gen-v0.1.yaml"
     banned = load_gen_config(config).banned_cue_words
     assert not [w for w in banned if w.casefold() in rule.casefold()]
+
+
+def test_write_bodies_appends_the_revision_to_the_prompt() -> None:
+    sk = _skeleton()
+    plain = _client(_reply(sk))
+    write_bodies(plain, sk, _cand(), [make_trace()], _gen())
+    revised = _client(_reply(sk))
+    write_bodies(revised, sk, _cand(), [make_trace()], _gen(), revision="REVISION-TEXT")
+    assert "REVISION-TEXT" not in plain.requests[-1][2]
+    assert "REVISION-TEXT" in revised.requests[-1][2]
+    assert revised.requests[-1][2] != plain.requests[-1][2]
+
+
+def test_bodies_prompt_asks_block_probes_to_compete_on_equal_terms() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "every probe that is about more than one fact" in text
+    assert "every block probe" not in text  # paired probes get the same rule (rule 10)
+    assert "same component, file and repository names" in text
+
+
+def test_bodies_prompt_scopes_the_same_names_rule_away_from_workaround_then_root() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "same component, file and repository names" in text
+    assert "in a `workaround_then_root` scenario rule 8 applies instead" in text
+
+
+def test_bodies_prompt_lets_a_conditional_fabricated_fact_rename_what_tells_the_conditions_apart() -> None:
+    from harness.generate.candidates import load_prompt
+
+    text = load_prompt("bodies.md")
+    assert "in a `conditional` scenario" in text
+    assert "the names that tell the conditions apart (the service, repository or file the condition is about)" in text
