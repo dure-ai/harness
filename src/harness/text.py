@@ -134,30 +134,95 @@ def set_jaccard_at_least(sa: set[str], sb: set[str], tau: float) -> bool:
     return inter / (la + lb - inter) >= tau
 
 
-def _prefix_key(token: str) -> tuple[int, str]:
-    # Longer tokens first: they tend to be rarer, so short prefixes skip the common words.
-    return -len(token), token
+class JaccardIndex:
+    """Incremental similarity join: the earlier sets with Jaccard >= `tau` with each new set.
 
+    It avoids comparing a new set with every earlier one, yet `add` gives the same answer as checking every earlier set with `set_jaccard_at_least`, which
+    still makes the final call; the filters below only skip sets that cannot pass it.
 
-def jaccard_prefix(tokens: set[str], tau: float) -> list[str]:
-    """The tokens prefix filtering must index and probe so no pair with Jaccard >= `tau` > 0 is missed.
+    Prefix filtering: with all sets sorted in one fixed token order, two sets that share at least
+    `a` tokens share one among the first |A| - a + 1 tokens of each, and a pair with Jaccard
+    >= tau shares at least ceil(tau * |A|) tokens. Only those prefixes are indexed and probed.
+    Positional filtering (PPJoin): at a shared prefix token at positions i and j, the pair shares
+    at most (shared tokens found so far) + 1 + min(|A| - i - 1, |B| - j - 1) tokens, since every
+    shared token earlier in the order has been found by then; a pair whose bound is below the
+    overlap tau * (|A| + |B|) / (1 + tau) that Jaccard >= tau needs is dropped.
 
-    In one fixed order (`_prefix_key`), two sets that share at least `a` tokens share one among
-    the first |A| - a + 1 tokens of each. A pair with Jaccard >= `tau` shares at least
-    ceil(tau * |A|) tokens, since |A & B| >= tau * |A | B| >= tau * |A|. The prefix is cut with
-    that bound taken a hair low, which only lengthens it, so float rounding cannot drop a pair.
+    The order puts the tokens in fewest earlier sets first, so prefixes hold rare tokens and
+    probe short lists. It is re-taken, and every set re-indexed, each time the number of sets
+    doubles; between two re-orderings every set is indexed in the same order, which the filters
+    need. Bounds are taken a hair loose, so float rounding can only keep a pair, never drop one.
 
     Args:
-        tokens: The token set of one text.
-        tau: Similarity threshold, greater than 0.
-
-    Returns:
-        The prefix, in the fixed order; empty for an empty set.
+        tau: Similarity threshold; at or below 0 every pair passes and each set is compared
+            with every earlier one.
     """
-    if not tokens:
-        return []
-    shared = max(1, math.ceil(tau * len(tokens) - 1e-9))
-    return sorted(tokens, key=_prefix_key)[: len(tokens) - shared + 1]
+
+    _FIRST_REORDER = 32
+    _EPS = 1e-9
+
+    def __init__(self, tau: float) -> None:
+        self.tau = tau
+        self._sets: list[set[str]] = []
+        self._df: Counter[str] = Counter()  # token -> number of sets holding it
+        self._rank: dict[str, int] = {}  # the document frequencies the current order uses
+        self._index: dict[str, list[tuple[int, int]]] = {}  # token -> (set, position in its order)
+        self._next_reorder = self._FIRST_REORDER
+
+    def __len__(self) -> int:
+        return len(self._sets)
+
+    def _prefix(self, tokens: set[str]) -> list[str]:
+        """The first tokens of `tokens` in the current order that the prefix filter needs."""
+        if not tokens:
+            return []
+        rank = self._rank
+        ordered = sorted(tokens, key=lambda t: (rank.get(t, 0), t))
+        shared = max(1, math.ceil(self.tau * len(tokens) - self._EPS))
+        return ordered[: max(0, len(tokens) - shared + 1)]
+
+    def _candidates(self, tokens: set[str]) -> list[int]:
+        """Earlier sets that pass the prefix and positional filters with `tokens`, in order."""
+        la, sets, ratio = len(tokens), self._sets, self.tau / (1 + self.tau)
+        found: dict[int, int] = {}  # set -> shared prefix tokens found so far
+        dropped: set[int] = set()
+        for i, t in enumerate(self._prefix(tokens)):
+            for j, pos in self._index.get(t, ()):
+                if j in dropped:
+                    continue
+                lb = len(sets[j])
+                count = found.get(j, 0)
+                if count + 1 + min(la - i - 1, lb - pos - 1) < math.ceil(ratio * (la + lb) - self._EPS):
+                    dropped.add(j)
+                    found.pop(j, None)
+                else:
+                    found[j] = count + 1
+        return sorted(found)
+
+    def add(self, tokens: set[str]) -> list[int]:
+        """Add `tokens` and return the positions of the earlier sets similar to it, ascending."""
+        position = len(self._sets)
+        candidates = self._candidates(tokens) if self.tau > 0 else range(position)
+        similar = [j for j in candidates if set_jaccard_at_least(tokens, self._sets[j], self.tau)]
+        self._sets.append(tokens)
+        if self.tau > 0:
+            self._df.update(tokens)
+            if len(self._sets) >= self._next_reorder:
+                self._reorder()
+            else:
+                self._insert(position, tokens)
+        return similar
+
+    def _insert(self, position: int, tokens: set[str]) -> None:
+        for i, t in enumerate(self._prefix(tokens)):
+            self._index.setdefault(t, []).append((position, i))
+
+    def _reorder(self) -> None:
+        self._rank = dict(self._df)
+        self._index = {}
+        for position, tokens in enumerate(self._sets):
+            self._insert(position, tokens)
+        self._next_reorder *= 2
 
 
 def counted(text: str) -> tuple[Counter[str], int]:
