@@ -133,16 +133,16 @@ class JaccardIndex:
             with every earlier one.
     """
 
-    _FIRST_REORDER = 32
-    _EPS = 1e-9
+    _FIRST_REORDER: int = 32
+    _EPS: float = 1e-9
 
     def __init__(self, tau: float) -> None:
-        self.tau = tau
+        self.tau: float = tau
         self._sets: list[set[str]] = []
         self._df: Counter[str] = Counter()  # token -> number of sets holding it
         self._rank: dict[str, int] = {}  # the document frequencies the current order uses
         self._index: dict[str, list[tuple[int, int]]] = {}  # token -> (set, position in its order)
-        self._next_reorder = self._FIRST_REORDER
+        self._next_reorder: int = self._FIRST_REORDER
 
     def __len__(self) -> int:
         return len(self._sets)
@@ -169,7 +169,7 @@ class JaccardIndex:
                 count = found.get(j, 0)
                 if count + 1 + min(la - i - 1, lb - pos - 1) < math.ceil(ratio * (la + lb) - self._EPS):
                     dropped.add(j)
-                    found.pop(j, None)
+                    _ = found.pop(j, None)
                 else:
                     found[j] = count + 1
         return sorted(found)
@@ -215,8 +215,8 @@ class BM25:
     """
 
     def __init__(self, k1: float = 1.5, b: float = 0.75) -> None:
-        self.k1 = k1
-        self.b = b
+        self.k1: float = k1
+        self.b: float = b
         self._tf: dict[str, Counter[str]] = {}
         self._len: dict[str, int] = {}
         self._df: Counter[str] = Counter()

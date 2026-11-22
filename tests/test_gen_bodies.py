@@ -1,5 +1,6 @@
 """Tests for body writing with an LLM client."""
 
+import pathlib
 from typing import Any
 
 import pytest
@@ -282,6 +283,19 @@ def test_bodies_prompt_tells_workaround_then_root_to_keep_the_fixes_apart() -> N
     hint = text[text.index("In a `workaround_then_root` scenario") :]
     assert "do not repeat the workaround's" in hint
     assert "symptom" in hint
+
+
+def test_bodies_prompt_explains_a_failure_confirmation_without_a_fact() -> None:
+    from harness.generate.candidates import load_prompt
+    from harness.generate.config import load_gen_config
+
+    text = load_prompt("bodies.md")
+    rule = text[text.index("An event with `outcome: failure`") : text.index("the new fact.", text.index("An event with `outcome: failure`"))]
+    assert "asks not to follow those steps" in rule
+    assert "without any fact's marker" in rule
+    config = pathlib.Path(__file__).resolve().parent.parent / "config" / "gen-v0.1.yaml"
+    banned = load_gen_config(config).banned_cue_words
+    assert not [w for w in banned if w.casefold() in rule.casefold()]
 
 
 def test_write_bodies_appends_the_revision_to_the_prompt() -> None:

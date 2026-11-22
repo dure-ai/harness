@@ -95,15 +95,31 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: success
-  text: 'Review on the pay notes above: as of today''s merge the helpers sit in wechatpy/pay/signing.py,
-    and API modules must call self._client.sign_data(data) instead of passing the
-    api key themselves. Please update order.py-style code accordingly.'
+  outcome: failure
+  text: 'Review on the earlier notes: please don''t follow these steps; see my follow-up
+    note.'
   meta: {}
   refs:
   - e1
   - e2
   - e3
+  fact: null
+  secret_markers: []
+- id: e6
+  t: '2026-10-04T11:45:00+09:00'
+  user: u3
+  session: s12
+  repo: jxtech/wechatpy
+  scope: team
+  team: null
+  signal: human
+  kind: agent_record
+  outcome: unknown
+  text: 'Review on the pay notes above: as of today''s merge the helpers sit in wechatpy/pay/signing.py,
+    and API modules must call self._client.sign_data(data) instead of passing the
+    api key themselves. Please update order.py-style code accordingly.'
+  meta: {}
+  refs: []
   fact: f_new
   secret_markers: []
 - id: e5
@@ -334,9 +350,10 @@ probes:
     on_true: null
 review:
   status: approved
-  reviewer: sunmin
-  notes: ''
-  approved_hash: v1:9fe955c21717535ac55bbbf616d719a9a82977fdef1615e3c0325475a47d1d96
+  reviewer: HJinS
+  notes: '11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
+  approved_hash: v1:e4faf0a9ee6cd7b89209a569f04f2ce176cb03667bda8506bfb5cb38da581b59
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:
@@ -377,7 +394,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-29T02:04:07.402436Z'
-  label_fingerprint: l1:b629715a5b03e0e71733fc8e9ea139af24c4172114dc94944cbc24d59f3b5a57
+  label_fingerprint: l1:00dcc38dd054f7a6940e6aee2349fa7557e1912483d354fd3a34e31dfac72e84
   generated_hash: v1:5da710e6abf4e08a1ca8287be4353fb77062f01e7f558b4077bcccf6660c8ebb
