@@ -31,7 +31,7 @@ uv run basedpyright src         # type check
 uv run pytest -q -W error       # tests, warnings as errors
 ```
 
-CI runs these four on every PR. Run them before you push. The ruff rules are in `pyproject.toml`: docstrings, pyflakes, import order, bugbear, pyupgrade and simplifications; `uv run ruff check --fix src tests` fixes most findings. The code is not run through `ruff format`.
+CI runs these four on every PR. Run them before you push. basedpyright fails on any warning that is not in `.basedpyright/baseline.json`. When you fix a warning, the next run drops it from that file; commit the change. Accept a new warning on purpose with a targeted `# pyright: ignore[rule]` on its line, not a new baseline entry. The ruff rules are in `pyproject.toml`: docstrings, pyflakes, import order, bugbear, pyupgrade and simplifications; `uv run ruff check --fix src tests` fixes most findings. The code is not run through `ruff format`.
 
 If you change scenarios, also run `uv run harness scenario check <path>`. Approve a scenario with `uv run harness review set <id> approved --reviewer <name>`, not by editing `review.status` by hand. Run outputs under `runs/` are not committed.
 

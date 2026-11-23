@@ -487,10 +487,12 @@ HARNESS_LIVE_OSS=1 uv run pytest tests/test_oss_live.py
 ```bash
 uv run pytest -q
 uv run ruff check src tests   # 린트
-uv run basedpyright src       # 타입 검사 (오류만 실패, 경고는 표시만)
+uv run basedpyright src       # 타입 검사 (오류와, 기준선에 없는 경고가 실패)
 ```
 
 core extra를 설치한 환경(`uv sync --extra core`)에서 돌립니다. CI는 세 명령을 모두 돌리고, 테스트는 `-W error`로 경고도 실패로 칩니다.
+
+basedpyright는 `.basedpyright/baseline.json`에 적힌 기존 경고만 넘어가고, 새 경고가 하나라도 나오면 실패합니다. 경고를 고치면 다음 실행에서 그 항목이 기준선 파일에서 빠지니, 바뀐 파일을 함께 커밋하세요. 일부러 받아들이는 경고는 기준선에 더하지 말고 그 줄에 `# pyright: ignore[규칙]`을 다세요. 기준선은 CI와 같은 환경(`uv sync --extra core`, Python 3.12)에서 만든 것이라, 다른 extra를 더 설치하면 경고 수가 달라질 수 있습니다.
 
 ## 라이선스
 

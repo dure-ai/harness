@@ -77,5 +77,7 @@ convention = "google"
 "tests/**" = ["D"]
 
 [tool.basedpyright]
-# CI fails on errors only; the existing warnings are kept visible but do not fail the run.
-failOnWarnings = false
+# CI fails on errors and on any warning that is not in .basedpyright/baseline.json. A fixed
+# warning drops out of the baseline on the next run; accept a new one with a targeted
+# `# pyright: ignore[rule]`, not a new baseline entry.
+failOnWarnings = true
