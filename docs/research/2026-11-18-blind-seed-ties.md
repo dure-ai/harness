@@ -1,20 +1,20 @@
-# 블라인드 시드와 점수 동점: dev 측정 결과
+# Blind seeds and score ties: measurements on dev
 
-기준일 2026-11-18. 하네스 `origin/main` `f827138`, core 고정 rev `a02369d`(`pyproject.toml`). dev 세트(`scenarios/dev`, 승인 40개)만 썼고 봉인된 test 세트는 건드리지 않았다. API 키가 필요한 엔진은 돌리지 않았다.
+As of 2026-11-18. Harness `origin/main` `f827138`, core pinned at rev `a02369d` (`pyproject.toml`). Only the dev set (`scenarios/dev`, 40 approved scenarios) was used; the sealed test set was not touched. Engines that need an API key were not run.
 
-## 요약
+## Summary
 
-- 로컬 엔진 6개(none, all_store, repeat_n, oracle, core `PromoteAllEngine`, core `NoMemoryEngine`)를 시드 12개로 돌렸다. **시드에 따라 결과가 바뀌는 문항은 PromoteAll의 2개뿐**이다. 하네스 기준선 4개와 NoMemory는 시드 12개에서 문항 단위까지 같다. 고정 rev의 core에는 `EvidenceEngine`이 없다(`engines/baseline.py`에 NoMemory·PromoteAll뿐).
-- 두 문항 모두 최상위 점수가 **정확히 같은** 결과들 사이에서 순서가 갈린다(3개 동점, 4개 동점). core가 동점을 id 순으로 두고, 그 id가 시드로 정해지는 불투명 id라서다.
-- 원인은 하네스 버그도 시나리오 오류도 아니다. 질문이 두 답을 모두 이름으로 부르게 쓰여 있어(편향 없는 질문) 단어 겹침만 보는 엔진은 동점이 되는 것이 정상이고, 하네스의 불투명 id는 그 동점을 시드마다 고르게 섞는다. 고정 id였다면 시나리오 작성 순서(e1이 먼저)가 늘 이겼을 것이다.
-- core를 `daaba07`(PR #29의 고정 커밋, core#3 BM25 저장소 + core#4 EvidenceEngine)로 올리면 같은 시드 12개에서 **뒤집히는 문항이 없다**(EvidenceEngine 포함, 6절). 정수 점수가 BM25 실수 점수로 바뀌어 정확한 동점이 사라졌기 때문이다. 동점을 id 순으로 두는 규칙은 그대로이므로, 동점이 다시 생기면(같은 본문, 점수가 같은 다른 엔진) 같은 현상이 돌아온다.
-- 그래서 한 시드의 PromoteAll 수치는 동점 추첨 한 번이다. dev M1은 12/17(0.706)과 13/17(0.765) 사이를 오가고, 기댓값은 12.67/17(0.745)이다. **비교는 `harness seeds`로 시드 5개 이상의 평균과 [최소, 최대]를 보고, 차이가 그 범위 안이면 효과로 읽지 않는다.**
+- Six local engines (none, all_store, repeat_n, oracle, core `PromoteAllEngine`, core `NoMemoryEngine`) were run with 12 seeds. **Only two probes change with the seed, both for PromoteAll.** The four harness baselines and NoMemory are identical down to each probe across the 12 seeds. Core at the pinned rev has no `EvidenceEngine` (`engines/baseline.py` holds only NoMemory and PromoteAll).
+- In both probes the order changes among results with **exactly equal** top scores (a three-way tie and a four-way tie). Core orders ties by id, and that id is an opaque id derived from the seed.
+- This is neither a harness bug nor a scenario error. The questions name both answers on purpose (unbiased questions), so an engine that only counts shared words is expected to tie, and the harness's opaque ids shuffle the tie evenly across seeds. With fixed ids, the scenario's writing order (e1 first) would always win.
+- With core moved to `daaba07` (the pin in PR #29: core#3 BM25 store and core#4 EvidenceEngine), **no probe flips** across the same 12 seeds, EvidenceEngine included (section 6). Integer scores became real-valued BM25 scores, so the exact ties are gone. The rule that orders ties by id is unchanged, so the effect returns whenever ties come back (identical bodies, or another engine whose scores tie).
+- A single-seed PromoteAll number is therefore one draw of the tie order. Dev M1 moves between 12/17 (0.706) and 13/17 (0.765), with an expected value of 12.67/17 (0.745). **To compare, use `harness seeds` with at least 5 seeds and read the mean and [min, max]; do not read a difference inside that range as an effect.**
 
-## 1. 측정
+## 1. Measurement
 
-시드 12개: `1, 2, 3, 7, 42, 7391846205173948, 482910376145820931, 1181772346203451187, 9007199254740993, 15485863278812345, 2718281828459045235, 3141592653589793238`. 엔진마다 시드당 한 번, 시나리오마다 새 엔진(`harness run`과 같은 `run_scenario`·`blind_key` 경로).
+12 seeds: `1, 2, 3, 7, 42, 7391846205173948, 482910376145820931, 1181772346203451187, 9007199254740993, 15485863278812345, 2718281828459045235, 3141592653589793238`. Each engine ran once per seed, with a new engine per scenario (the same `run_scenario` and `blind_key` path as `harness run`).
 
-| 엔진 | M1 (read_only) | M2 | 바뀐 문항 |
+| Engine | M1 (read_only) | M2 | Probes that changed |
 |---|---|---|---|
 | none | 0/17 | 0/31 | 0 |
 | all_store | 17/17 | 29/31 | 0 |
@@ -23,95 +23,95 @@
 | core NoMemoryEngine | 0/17 | 0/31 | 0 |
 | core PromoteAllEngine | 12–13/17 | 25/31 | 2 |
 
-PromoteAll에서 바뀐 문항:
+Probes that changed for PromoteAll:
 
-| 문항 | 모드 | 시드 12개 결과 | 동점 | 기대 P(FP) |
+| Probe | Mode | Results over 12 seeds | Tie | Expected P(FP) |
 |---|---|---|---|---|
-| `conditional-geoarrow-python-b93126/p_block` | read_only | FP 8, BLOCKED 4 | 점수 9로 3개 동점(f_a 2, f_b 1) | 2/3 |
-| `echo-meson-python-128a90/p_block3` | feedback | FP 10, BLOCKED 2 | 점수 10으로 4개 동점(f_false 3, f_true 1) | 3/4 |
+| `conditional-geoarrow-python-b93126/p_block` | read_only | FP 8, BLOCKED 4 | three-way tie at score 9 (f_a 2, f_b 1) | 2/3 |
+| `echo-meson-python-128a90/p_block3` | feedback | FP 10, BLOCKED 2 | four-way tie at score 10 (f_false 3, f_true 1) | 3/4 |
 
-첫 문항은 헤드라인 M1과 conditional 계열 M1(1–2/3)을, 둘째는 되먹임 echo 계열 M1(11–12/15)을 흔든다. 관측 빈도는 기댓값과 맞는다(8/12 ≈ 2/3, 10/12 ≈ 3/4).
+The first probe moves the headline M1 and the conditional family M1 (1–2/3); the second moves the feedback echo family M1 (11–12/15). The observed frequencies match the expected values (8/12 ≈ 2/3, 10/12 ≈ 3/4).
 
-`fix/confirm-option-b`(승인 30개, 재승인 대기 10개 제외)에서도 같은 두 문항만 바뀐다(FP 8·BLOCKED 4, FP 10·BLOCKED 2). PromoteAll M1은 8–9/12.
+On `fix/confirm-option-b` (30 approved scenarios, the 10 awaiting re-approval excluded), the same two probes are the only ones that change (FP 8 and BLOCKED 4; FP 10 and BLOCKED 2). PromoteAll M1 is 8–9/12.
 
-**잠재 동점 확인.** 시드 1에서 PromoteAll의 판정 문항 85개마다, 에이전트가 따른 첫 관련 결과가 다른 사실을 말하는 결과와 같은 점수인지 봤다. 해당하는 문항은 위 2개뿐이다. 지금은 숨은 동점 문항이 없다.
+**Check for latent ties.** For each of PromoteAll's 85 judged probes at seed 1, I checked whether the first relevant result the agent followed had the same score as a result stating another fact. Only the two probes above do, so there are no hidden tied probes today.
 
-## 2. 동점 근거
+## 2. Evidence of the ties
 
-PromoteAll은 record마다 지식 하나를 `k-{이벤트 id}`로 올리고, 검색 점수는 `|질문 단어 ∩ 지식 단어|`(정수)다. core 메모리 저장소는 id 순으로 훑고 점수로 안정 정렬하므로 동점은 id 순이다. 이벤트 id는 `HMAC(blind_key(seed), ...)`라 시드마다 동점 안의 순서가 무작위로 바뀐다.
+PromoteAll promotes one knowledge item per record as `k-{event id}`, and its search score is `|query words ∩ knowledge words|` (an integer). Core's in-memory store scans in id order and sorts stably by score, so ties stay in id order. Event ids are `HMAC(blind_key(seed), ...)`, so the order inside a tie changes at random with the seed.
 
 ### conditional-geoarrow-python-b93126 / p_block
 
-질문(조건 `service: reports`): "For reports, which file does as_wkb go through and how are kernel options packed (Kernel.as_wkb in _kernel.py, or encode_options_json in reports/geo_export.py)?"
+Question (condition `service: reports`): "For reports, which file does as_wkb go through and how are kernel options packed (Kernel.as_wkb in _kernel.py, or encode_options_json in reports/geo_export.py)?"
 
-| 점수 | 이벤트 | 사실 | 이 문항에서 |
+| Score | Event | Fact | For this probe |
 |---|---|---|---|
-| 9 | e1 | f_b (reports 경로) | 맞음 |
-| 9 | e3 | f_a (geoarrow-python 경로) | 조건이 다름 → FP |
-| 9 | e4 | f_a | 조건이 다름 → FP |
-| 5 | e6 | f_b | 맞음 |
+| 9 | e1 | f_b (reports path) | right |
+| 9 | e3 | f_a (geoarrow-python path) | other condition → FP |
+| 9 | e4 | f_a | other condition → FP |
+| 5 | e6 | f_b | right |
 
-시드 1·1181772346203451187은 e3이나 e4가 맨 위(FP), 시드 2는 e1이 맨 위(BLOCKED). 세 결과를 가르는 신호는 질문의 조건(`service`)과 사건의 조건뿐인데 PromoteAll은 조건을 보지 않는다.
+Seeds 1 and 1181772346203451187 put e3 or e4 first (FP); seed 2 puts e1 first (BLOCKED). The only signal that separates the three results is the question's condition (`service`) and the events' conditions, and PromoteAll ignores conditions.
 
 ### echo-meson-python-128a90 / p_block3
 
-질문: "Which part of mesonpy.py decides the Python tag in the wheel filename, `Project.python_tag` or `_Tag.python`, and how is `abi_tag` related to it?"
+Question: "Which part of mesonpy.py decides the Python tag in the wheel filename, `Project.python_tag` or `_Tag.python`, and how is `abi_tag` related to it?"
 
-| 점수 | 이벤트 | 사실 |
+| Score | Event | Fact |
 |---|---|---|
-| 10 | e1 | f_false (원래 기록) |
-| 10 | e4 | f_false (되먹임 메아리: "Following the earlier note: " + e1 본문) |
-| 10 | e6 | f_false (메아리) |
+| 10 | e1 | f_false (the original record) |
+| 10 | e4 | f_false (feedback echo: "Following the earlier note: " + e1's body) |
+| 10 | e6 | f_false (echo) |
 | 10 | e2 | f_true |
 
-메아리는 원문에 문구를 덧붙인 것이라 단어 집합이 원문을 포함하고, 질문과 겹치는 단어 수는 원문과 같다. 참 기록도 같은 수가 겹친다. 시드 1181772346203451187과 15485863278812345에서 e2가 맨 위(BLOCKED)다.
+An echo adds a phrase to the original, so its word set contains the original's, and it shares as many words with the question as the original does. The true record shares the same number. Seeds 1181772346203451187 and 15485863278812345 put e2 first (BLOCKED).
 
-## 3. 원인 분류
+## 3. Cause
 
-| 문항 | 시나리오 설계 | 엔진 | 하네스 |
+| Probe | Scenario design | Engine | Harness |
 |---|---|---|---|
-| conditional p_block | 질문이 두 답을 다 부른다(의도: 질문이 답을 흘리지 않게). 거의 같은 본문은 아님. 조건만 답을 가른다 | PromoteAll은 조건을 무시하고 점수가 굵은 정수라 동점이 난다. 엔진이 모르는 문항이고, 결과는 동점 추첨 | 정상. 불투명 id가 동점을 고르게 섞음 |
-| echo p_block3 | 메아리 계열은 설계상 거의 같은 본문을 쌓는다. 질문도 두 답을 다 부른다 | 단어 집합 점수로는 메아리가 점수를 올리지 못하고 추첨권만 늘린다(4장 중 3장). 기댓값으로는 "메아리가 희석한다"가 제대로 측정됨 | 정상 |
+| conditional p_block | The question names both answers (on purpose, so it does not give the answer away). The bodies are not near-identical; only the condition separates the answers | PromoteAll ignores conditions and its integer scores are coarse, so it ties. The engine cannot answer this probe, and the result is a draw | Correct. Opaque ids shuffle the tie evenly |
+| echo p_block3 | The echo family stacks near-identical bodies by design, and the question names both answers | With word-set scores an echo cannot raise its score, only add tickets to the draw (3 of 4). In expectation, "echoes dilute" is measured correctly | Correct |
 
-둘 다 "문항이 동점에 기대는" 경우지만, 그 동점은 단어만 보는 엔진에게 의도된 것이다. 시나리오를 고쳐 동점을 없애면 질문이 한쪽 답의 단어를 더 갖게 되어 단어 겹침이 정답을 흘린다. 고칠 대상이 아니다.
+Both probes depend on a tie, but for an engine that only reads words that tie is intended. Removing it would make the question carry more of one answer's words, and word overlap would then give the answer away. They should not be changed.
 
-## 4. 고르지 않은 대안
+## 4. Alternatives not chosen
 
-- **core의 동점 규칙 변경(옵션 A)**: 저장소 세 곳의 계약이 바뀌고, 임의성은 다른 키(시각, 삽입 순서)로 옮겨 갈 뿐이다. 삽입 순서는 시나리오 작성 순서라 오히려 체계적 편향이 된다.
-- **시드 하나 고정(옵션 C)**: 재현은 되지만 그 시드의 추첨에 묶인다. 예: PR 측정에 쓰던 시드 7391846205173948은 PromoteAll M1이 12/17로, 12개 중 낮은 쪽이다.
-- **하네스가 동점을 풀기**: 하네스가 엔진 결과의 순서를 바꾸면 엔진 구조에 개입하게 된다. 하지 않는다.
+- **Change core's tie rule (option A)**: this changes the contract of three stores, and the randomness only moves to another key (time, insertion order). Insertion order is the scenario's writing order, which would be a systematic bias.
+- **Fix one seed (option C)**: reproducible, but tied to that seed's draw. For example, seed 7391846205173948, used for PR measurements, gives PromoteAll M1 12/17, the low end of the 12.
+- **Let the harness break ties**: reordering an engine's results means intervening in the engine. Not done.
 
-## 5. 권고와 바꾼 것
+## 5. Recommendations and changes
 
-1. **`harness seeds` 명령 추가.** 기준선과 후보를 시드마다 한 번씩 돌려 M1·M2·M3을 전체·계열별·되먹임 계열별로 `평균 [최소, 최대] (k/n)`으로 쓰고, 시드마다 결과가 바뀐 문항을 나열한다(`--sealed`면 개수만). 판정·순위는 하지 않는다. dev에서 로컬 엔진 6개 × 시드 12개가 1초 남짓이다.
+1. **Add a `harness seeds` command.** It runs the baselines and candidates once per seed, writes M1, M2 and M3 overall, per family and per feedback family as `mean [min, max] (k/n)`, and lists the probes whose result changed across seeds (only a count with `--sealed`). It does not judge or rank. Six local engines × 12 seeds take a little over a second on dev.
 
    ```bash
    uv run harness seeds --scenarios scenarios/dev --engine cortex_mem.engines.baseline:PromoteAllEngine --n 5
    ```
 
-2. **비교 절차.** 엔진이나 core를 바꾼 전후 비교(예: PR 본문 표)는 같은 시드 목록(`--blind-seed`를 반복, 이전 리포트의 `engine_ids.json`에서)으로 전후를 각각 돌려, 평균과 [최소, 최대]를 함께 적는다. 차이가 두 범위 안에 있으면 동점 추첨 차이일 수 있다. 시드별 값이 모두 같은 방향으로 움직였는지도 본다(같은 시드 목록이면 짝지어 비교할 수 있다).
-3. **11-28 검증 일정.** 시드 5개 이상을 기본으로 한다(옵션 B). 단어 기반·임베딩 기반처럼 동점이 날 수 있는 엔진은 모두 해당한다. LLM 엔진은 시드마다 API 비용이 들고, `seeds`는 후보를 시드당 한 번만 돌리므로 그 분산에는 표본 잡음도 섞인다. 표본 잡음 자체는 `run --repeat`의 뒤집힘률로 따로 본다.
-4. **한 시드 수치 읽기.** README "한 시드의 수치 읽기" 절에 정리했다.
+2. **Comparison procedure.** A before/after comparison of an engine or core change (for example, a table in a PR description) runs both sides with the same seed list (repeat `--blind-seed`, taking the seeds from the earlier report's `engine_ids.json`) and reports the mean with [min, max]. A difference inside both ranges may be a different tie draw. Also check whether every seed moved in the same direction (with the same seed list, the values pair up).
+3. **The 11-28 validation.** Use at least 5 seeds by default (option B). This applies to every engine that can tie, word-based or embedding-based. For LLM engines each seed costs API calls, and since `seeds` runs a candidate once per seed, sampling noise is part of the spread too. Look at sampling noise on its own with the flip rate of `run --repeat`.
+4. **Reading one seed's numbers.** Summarized in the README section "Reading the numbers of one seed".
 
-## 6. core `daaba07`(PR #29)에서 다시 잰 결과
+## 6. Measured again on core `daaba07` (PR #29)
 
-`origin/chore/bump-core-pin`(core `daaba07`)에서 같은 시드 12개로 다시 쟀다.
+Measured again with the same 12 seeds on `origin/chore/bump-core-pin` (core `daaba07`).
 
-| 엔진 | M1 | M2 | 바뀐 문항 |
+| Engine | M1 | M2 | Probes that changed |
 |---|---|---|---|
-| none / all_store / repeat_n / oracle / NoMemory | 1절과 같음 | 1절과 같음 | 0 |
+| none / all_store / repeat_n / oracle / NoMemory | as in section 1 | as in section 1 | 0 |
 | core PromoteAllEngine | 13/17 | 29/31 | 0 |
 | core EvidenceEngine | 5/17 | 31/31 | 0 |
 
-core#3이 메모리 저장소의 점수를 `|질문 단어 ∩ 본문 단어|`(정수)에서 단어·바이그램 BM25(문서 길이로 정규화한 실수)로 바꿨다. 위 두 문항의 동점 결과들은 본문 길이가 달라 이제 점수가 갈린다. 따라서:
+Core#3 changed the in-memory store's score from `|query words ∩ body words|` (an integer) to BM25 over words and bigrams (a real number normalized by document length). The tied results in the two probes above have bodies of different lengths, so their scores now differ. Therefore:
 
-- 당시 고정(`a02369d`)에서 나온 PromoteAll 수치의 흔들림은 #29 머지로 사라졌다. 다만 PromoteAll의 M1·M2 자체가 바뀌므로(12–13/17 → 13/17, 25/31 → 29/31) 고정 전후 비교에도 `seeds`를 쓰는 것이 안전하다.
-- 2026-11-22 추가: #31(unconfirmed_poison 5개)과 #32(옵션 B 확인) 머지 후 `main`의 dev 세트(45개)에서 같은 시드 12개로 다시 재도 뒤집히는 문항은 없다. PromoteAll M1 18/22·M2 33/36, EvidenceEngine 5/22·35/36, NoMemory 0/22·0/36.
-- 동점 규칙은 바뀌지 않았다. 본문이 똑같은 기록이 둘이거나, 점수가 굵게 나뉘는 엔진·저장소(예: 임베딩 거리를 반올림하는 저장소)가 들어오면 다시 시드에 따라 뒤집힌다. `seeds`의 "시드마다 바뀐 문항" 목록이 그 감지기다.
+- The PromoteAll spread under the old pin (`a02369d`) went away when #29 merged. PromoteAll's M1 and M2 themselves change, though (12–13/17 → 13/17, 25/31 → 29/31), so use `seeds` for comparisons across the pin change too.
+- Added 2026-11-22: after #31 (5 unconfirmed_poison scenarios) and #32 (option B confirmations) merged, the same 12 seeds on `main`'s dev set (45 scenarios) still flip no probe. PromoteAll M1 18/22 and M2 33/36, EvidenceEngine 5/22 and 35/36, NoMemory 0/22 and 0/36.
+- The tie rule did not change. Two records with identical bodies, or an engine or store whose scores are coarse (for example, a store that rounds embedding distances), will flip with the seed again. The "probes that changed across seeds" list in `seeds` is the detector for that.
 
-## 재현
+## Reproduction
 
-측정 스크립트는 레포 밖(세션 scratchpad)에서 돌렸고, 같은 결과는 다음으로 다시 얻을 수 있다.
+The measurement scripts ran outside the repository (in a session scratchpad). The same results can be obtained with:
 
 ```bash
 uv sync --extra core
@@ -124,4 +124,4 @@ uv run harness seeds --scenarios scenarios/dev \
   --blind-seed 2718281828459045235 --blind-seed 3141592653589793238 --out runs
 ```
 
-(작은 시드는 경고가 나오지만 dev 측정에는 상관없다.)
+(Small seeds print a warning, which does not matter for dev measurements.)

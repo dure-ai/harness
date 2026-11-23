@@ -26,7 +26,7 @@ uv run harness selfcheck --scenarios scenarios/examples --include-drafts
 uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 ```
 
-두 실행(엔진이나 core를 바꾼 전후)을 비교할 때는 네 번째 명령 `harness seeds`로 블라인드 시드 여러 개의 분포를 봅니다([아래](#한-시드의-수치-읽기-seeds)).
+To compare two runs (before and after an engine or core change), use a fourth command, `harness seeds`, to see the spread over several blind seeds ([below](#reading-the-numbers-of-one-seed-seeds)).
 
 평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). 오픈소스 엔진 `hindsight`, `mem0`은 이름으로 고릅니다([아래](#오픈소스-엔진-측정)). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다(pydantic JSON 모드로 바꿀 수 있는 값이면 됩니다. `Path` 등은 문자열로 기록). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
@@ -129,31 +129,33 @@ cmp /tmp/r1/*/results.jsonl /tmp/r2/*/results.jsonl && echo same
 
 LLM을 쓰는 엔진은 같은 입력에도 답이 달라질 수 있습니다. 그런 엔진은 `--repeat`(기본 3회)로 여러 번 돌리고, 리포트의 재실행 뒤집힘률(`flip`)로 흔들림을 봅니다. M1·M2 값은 회차 평균이고, 그 신뢰구간과 순위 부트스트랩은 첫 회차 기준이며, 나머지 표는 회차를 합산합니다(리포트 머리말에 표시).
 
-### 한 시드의 수치 읽기 (`seeds`)
+### Reading the numbers of one seed (`seeds`)
 
-블라인드 시드는 엔진이 보는 이벤트 id도 정합니다. 그래서 점수가 같은 결과를 id 순으로 두는 엔진(core의 지식 검색이 그렇습니다)은 시드가 바뀌면 동점 중 다른 결과를 맨 위에 둘 수 있고, 동점에 걸린 문항은 결과가 뒤집힙니다. 예: #29 이전의 core 고정 커밋 `a02369d`(단어 겹침 개수로 점수를 매기는 저장소)에서는 당시 dev 세트(시나리오 40개)의 core `PromoteAllEngine` M1이 시드에 따라 12/17 또는 13/17이었습니다. 지금 고정한 BM25 저장소(core `daaba07`)에서는 같은 시드 12개에서 뒤집히는 문항이 없지만, 동점을 id 순으로 두는 규칙은 같으므로 동점이 다시 생기면 같은 일이 일어납니다. 기준선 네 개는 시드와 무관합니다. 측정과 원인은 [docs/research/2026-11-18-blind-seed-ties.md](docs/research/2026-11-18-blind-seed-ties.md)에 있습니다.
+The blind seed also decides the event ids an engine sees. An engine that orders equally scored results by id (core's knowledge search does) can therefore put a different tied result first under another seed, and a probe that depends on the tie flips. For example, under core's pin before #29, `a02369d` (a store that scores by the number of shared words), core `PromoteAllEngine` scored M1 12/17 or 13/17 on the dev set of the time (40 scenarios), depending on the seed. On the current BM25 store (core `daaba07`) no probe flips across the same 12 seeds, but ties are still ordered by id, so the same thing happens whenever ties come back. The four baselines do not depend on the seed. The measurements and the cause are in [docs/research/2026-11-18-blind-seed-ties.md](docs/research/2026-11-18-blind-seed-ties.md).
 
-따라서 `run` 한 번의 수치는 동점 순서를 한 번 뽑은 결과입니다. 두 실행(엔진이나 core를 바꾼 전후)을 비교할 때는 `seeds`로 시드 여러 개의 분포를 봅니다.
+So a single `run` gives one draw of the tie order. To compare two runs (before and after an engine or core change), look at the spread over several seeds with `seeds`.
 
 ```bash
-# 시드 5개(무작위)로 기준선과 후보를 한 번씩 돌려 평균과 [최소, 최대]를 쓴다
+# Run the baselines and candidates once per seed with 5 random seeds, and write the mean and [min, max]
 uv run harness seeds --scenarios scenarios/dev --engine cortex_mem.engines.baseline:PromoteAllEngine --n 5
-# 전후 비교는 같은 시드 목록으로: 앞 실행의 engine_ids.json에 적힌 seeds를 --blind-seed로 반복해 준다
-uv run harness seeds --scenarios scenarios/dev --engine ... --blind-seed <시드1> --blind-seed <시드2> ...
+# Compare before and after with the same seed list: repeat --blind-seed with the seeds in the earlier run's engine_ids.json
+uv run harness seeds --scenarios scenarios/dev --engine ... --blind-seed <seed 1> --blind-seed <seed 2> ...
 ```
 
-`runs/<실행 id>-seeds/`에 `report.md`, `summary.json`, `engine_ids.json`이 생깁니다. 리포트의 값은 `평균 [최소, 최대] (k/n)`이고 모든 시드에서 같으면 `값 (k/n)`만 적습니다. 전체·계열별·되먹임 계열별 표, 후보 엔진의 버전과 설정(`run`처럼 블라인드 id로 가린 것), 시드마다 결과가 바뀐 문항 목록(`--sealed`면 개수만)이 있습니다. 판정과 순위는 내지 않습니다.
+It writes `report.md`, `summary.json` and `engine_ids.json` under `runs/<run id>-seeds/`. Report values are `mean [min, max] (k/n)`, or just `value (k/n)` when every seed agrees. The report has tables overall, per family and per feedback family, the candidates' versions and settings (blinded as in `run`), and the probes whose result changed across seeds (only a count with `--sealed`). It does not judge or rank.
 
-- `engine_ids.json`은 `run`과 같은 모양이지만 시드가 여러 개라 키가 `seed`가 아니라 `seeds`(목록)입니다.
-- 블라인드 id(E1, E2, ...)는 `run`처럼 첫 시드로 정합니다. 그래서 시드 목록의 순서나 후보 구성이 바뀌면 같은 엔진의 E 번호가 바뀔 수 있습니다. 전후 리포트는 E 번호가 아니라 각 실행의 `engine_ids.json`으로 엔진을 맞춥니다.
-- `summary.json`의 `k`·`n`·`values` 목록은 시드 순서입니다. 어떤 시드에서 한 계열의 시나리오가 모두 오류로 빠지면 그 자리는 `null`이라, 목록 길이가 늘 시드 수와 같습니다.
-- `--blind-seed`를 주면 `--n`은 쓰이지 않고(경고), 같은 시드를 두 번 주면 한 번만 돕니다(경고).
+- `engine_ids.json` has the same shape as for `run`, except that the key is `seeds` (a list) rather than `seed`.
+- Blind ids (E1, E2, ...) come from the first seed, as in `run`. A different seed order or set of candidates can therefore give the same engine another E number. Match engines across reports by each run's `engine_ids.json`, not by E number.
+- The `k`, `n` and `values` lists in `summary.json` are in seed order. If every scenario of a family errors on some seed, that position is `null`, so each list is as long as the seed list.
+- When `n` differs across seeds (some scenarios error or are skipped on some seeds only), the cell is marked `*`: its k and n ranges are taken separately, so read the per-seed lists in `summary.json` instead.
+- With `--blind-seed`, `--n` is ignored (with a warning), and a seed given twice runs once (with a warning).
+- Each seed builds the candidate engines anew. An engine that stops answering is skipped for the rest of that seed after three errors in a row, and tried again on the next seed.
 
-읽는 규칙:
+How to read it:
 
-- 차이가 양쪽의 [최소, 최대] 안에 있으면 동점 순서 차이일 수 있으므로 효과로 읽지 않습니다. 같은 시드 목록으로 돌렸다면 시드별 값이 모두 같은 방향으로 움직였는지도 봅니다(`summary.json`의 `k` 목록이 시드 순서입니다).
-- 비교·발표 수치에는 시드 5개 이상을 씁니다. 시드 하나를 고정하면 재현은 되지만 그 시드의 추첨에 묶입니다.
-- `seeds`는 후보를 시드당 한 번 돌립니다. LLM 엔진이면 이 분산에 표본 잡음도 섞이고, 표본 잡음 자체는 `run --repeat`의 뒤집힘률로 봅니다.
+- A difference inside both sides' [min, max] may be a different tie order, so do not read it as an effect. If both sides used the same seed list, also check whether every seed moved in the same direction (the `k` lists in `summary.json` are in seed order).
+- Use at least 5 seeds for numbers you compare or publish. Fixing one seed is reproducible but ties you to that seed's draw.
+- `seeds` runs a candidate once per seed. For an LLM engine the spread also includes sampling noise; look at that noise on its own with the flip rate of `run --repeat`.
 
 ### 직접 만든 엔진 붙여 보기
 
