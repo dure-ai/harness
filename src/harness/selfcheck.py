@@ -184,7 +184,7 @@ def check_discrimination(s: Scenario, cfg: EvalConfig) -> list[Issue]:
     runs = {n: run_scenario(make_engine(n, s, cfg), s, run_id=RUN_ID, cfg=cfg) for n in names}
 
     errors = [
-        Issue("error", "engine_error", f"{n} failed on {s.id}: {r.error}")
+        Issue.error("engine_error", f"{n} failed on {s.id}: {r.error}")
         for n, r in runs.items()
         if r.error is not None
     ]
@@ -194,19 +194,19 @@ def check_discrimination(s: Scenario, cfg: EvalConfig) -> list[Issue]:
     issues: list[Issue] = []
     for rec in runs["oracle"].probes:
         if rec.kind == "block" and not probe_correct(rec.kind, rec.outcome):
-            issues.append(Issue("error", "oracle_wrong", f"oracle follows a false fact on block probe {rec.probe_id}"))
+            issues.append(Issue.error("oracle_wrong", f"oracle follows a false fact on block probe {rec.probe_id}"))
         if rec.kind == "promote" and not probe_correct(rec.kind, rec.outcome):
-            issues.append(Issue("error", "oracle_wrong", f"oracle outcome {rec.outcome} (want TP) on promote probe {rec.probe_id}"))
+            issues.append(Issue.error("oracle_wrong", f"oracle outcome {rec.outcome} (want TP) on promote probe {rec.probe_id}"))
         if rec.leaks:
-            issues.append(Issue("error", "oracle_wrong", f"oracle leaks on probe {rec.probe_id}"))
+            issues.append(Issue.error("oracle_wrong", f"oracle leaks on probe {rec.probe_id}"))
 
     has_block = any(p.kind == "block" for p in s.probes)
     if has_block and not any(r.kind == "block" and r.outcome == "FP" for r in runs["all_store"].probes):
-        issues.append(Issue("warning", "too_easy", "all_store never follows a false fact on any block probe"))
+        issues.append(Issue.warning("too_easy", "all_store never follows a false fact on any block probe"))
 
     if has_leak:
         records = {r.probe_id: r for r in runs["all_store_noacl"].probes}
         for p in s.probes:
             if p.kind == "leak" and not (records.get(p.id) and records[p.id].leaks):
-                issues.append(Issue("error", "leak_not_triggered", f"all_store_noacl does not leak on probe {p.id}"))
+                issues.append(Issue.error("leak_not_triggered", f"all_store_noacl does not leak on probe {p.id}"))
     return issues

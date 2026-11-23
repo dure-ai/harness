@@ -123,28 +123,24 @@ def approval_issue(raw: Mapping[str, Any], s: Scenario) -> Issue | None:
         return None
     state = approval_state(raw, s)
     if state == "changed":
-        return Issue(
-            "error",
+        return Issue.error(
             APPROVAL_CHANGED,
             "the file was edited after it was approved; review it and approve it again (harness review set)",
         )
     if state == "missing":
-        return Issue(
-            "error",
+        return Issue.error(
             APPROVAL_MISSING,
             "marked approved by hand: the file was generated with the review tooling but has no "
             "valid review.approved_hash; review it and approve it with harness review set",
         )
     if state == "unverified" and s.provenance.author == "llm":
-        return Issue(
-            "error",
+        return Issue.error(
             APPROVAL_LLM_UNHASHED,
             "approved without a usable content hash; an LLM-authored scenario must be approved "
             "with harness review set, which records one",
         )
     if state == "unverified":
-        return Issue(
-            "warning",
+        return Issue.warning(
             APPROVAL_UNVERIFIED,
             "approved without a recorded content hash, so later edits cannot be detected; "
             "approve it again with harness review set to record one",
