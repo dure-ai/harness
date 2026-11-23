@@ -5,7 +5,7 @@ import os
 import secrets
 import tempfile
 from collections import Counter
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -29,12 +29,15 @@ from harness.scenario.load import (
     load_set,
     read_scenario,
 )
-from harness.scenario.model import Scenario
+from harness.scenario.model import EXT_FAMILIES, Scenario
 from harness.scenario.validate import Issue, validate_scenario
 from harness.selection import EngineScore, rank
 from harness.selfcheck import CheckResult, check_discrimination, run_selfcheck
 
 if TYPE_CHECKING:
+    from harness.bench.config import BenchConfig
+    from harness.bench.dataset import Converted
+    from harness.bench.run import BenchRun, DatasetFacts
     from harness.generate.config import GenConfig
 
 NO_SCENARIOS = "승인된 시나리오가 없습니다. 초안을 포함하려면 --include-drafts"
@@ -48,6 +51,8 @@ review_app = typer.Typer(help="Review drafts: list, show, edit, approve or rejec
 app.add_typer(review_app, name="review")
 traces_app = typer.Typer(help="Source trajectories for scenario generation.", no_args_is_help=True)
 app.add_typer(traces_app, name="traces")
+bench_app = typer.Typer(help="External benchmarks converted into scenarios.", no_args_is_help=True)
+app.add_typer(bench_app, name="bench")
 
 ScenariosOpt = Annotated[
     list[Path],
@@ -376,6 +381,76 @@ def _skip_reason(name: str, streak: int, last: str | None) -> str:
     return f"skipped: {name} was {UNAVAILABLE} for {_scenarios(streak)} in a row; last: {last}"
 
 
+def _check_engine_specs(specs: list[str] | None) -> None:
+    """Exit 2 on the first spec that is neither a baseline, an OSS engine nor 'package.module:Class'."""
+    for name in specs or []:
+        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
+            raise _fail(
+                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
+                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
+                2,
+            )
+
+
+def _blind_seed(blind_seed: int | None) -> int:
+    """The run's blind seed: the given one (with a warning when it is guessable), else a random one."""
+    if blind_seed is None:
+        return secrets.randbits(64)
+    if blind_seed < 2**32:
+        typer.echo(
+            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
+            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
+            "unless you are only reproducing a run",
+            err=True,
+        )
+    return blind_seed
+
+
+def _dataset_types(types: list[str] | None) -> set[str] | None:
+    """`--types` values, repeatable and comma separated, as a set; None when none is given."""
+    return {t.strip() for arg in types or [] for t in arg.split(",") if t.strip()} or None
+
+
+def _cannot_be_committed(path: Path) -> bool:
+    """Whether `path` is git-ignored or outside every git work tree.
+
+    Raises:
+        typer.Exit: git is not installed, so this cannot be told (exit 2).
+    """
+    import subprocess
+
+    path = path.resolve()
+    anchor = next((p for p in (path, *path.parents) if p.is_dir()), Path.cwd())
+    try:
+        found = subprocess.run(["git", "-C", str(anchor), "check-ignore", "-q", str(path)], capture_output=True)
+        if found.returncode in (0, 1):  # 0 ignored, 1 not ignored
+            return found.returncode == 0
+        inside = subprocess.run(
+            ["git", "-C", str(anchor), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True
+        )
+    except FileNotFoundError as e:
+        raise _fail("error: git is needed to check that --out cannot be committed, and it was not found", 2) from e
+    return inside.returncode != 0 or inside.stdout.strip() != "true"
+
+
+BenchConfigOpt = Annotated[
+    Path, typer.Option("--config", help="Bench config YAML (default config/bench-v0.1.yaml).")
+]
+TypesOpt = Annotated[
+    list[str] | None,
+    typer.Option("--types", help="Only these dataset types (repeatable, or comma separated)."),
+]
+
+
+def _bench_config(config: Path) -> "BenchConfig":
+    from harness.bench.config import load_bench_config
+
+    try:
+        return load_bench_config(config)
+    except Exception as e:
+        raise _fail(f"error: cannot load config {config}: {e}", 2) from e
+
+
 @app.command()
 def run(
     scenarios: ScenariosOpt,
@@ -405,27 +480,22 @@ def run(
 ) -> None:
     """Self-check the baselines, evaluate extra engines, judge, rank and write the report."""
     # First, so a typo does not pay for loading the scenarios and the baseline self-check.
-    for name in engine or []:
-        if name not in BASELINES and name not in OSS_ENGINES and ":" not in name:  # e.g. all_store_noacl
-            raise _fail(
-                f"error: unknown engine {name!r}; use {', '.join(map(repr, OSS_ENGINES))} or "
-                f"'package.module:ClassName' (baselines {', '.join(BASELINES)} always run)",
-                2,
-            )
+    _check_engine_specs(engine)
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
+    external = sum(s.family in EXT_FAMILIES for s in scenario_list)
+    if external:  # the pre-registered verdict is not defined on external benchmark scenarios
+        raise _fail(
+            f"error: {external} scenario(s) of an external benchmark family ({', '.join(EXT_FAMILIES)}); "
+            "harness run judges only the main families, so run them with harness bench run --scenarios "
+            "(add --include-drafts for files from bench export, which are drafts)",
+            2,
+        )
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     infos: dict[str, EngineInfo] = {}
     if candidates and scenario_list:  # no scenarios: _selfcheck reports it
         _preflight(candidates, scenario_list[0], cfg, infos, sealed)
-    seed = secrets.randbits(64) if blind_seed is None else blind_seed
-    if blind_seed is not None and blind_seed < 2**32:
-        typer.echo(
-            f"warning: --blind-seed {blind_seed} is small and guessable; the namespace key is "
-            "derived from it, so use a high-entropy value (such as one recorded in engine_ids.json) "
-            "unless you are only reproducing a run",
-            err=True,
-        )
+    seed = _blind_seed(blind_seed)
     key = blind_key(seed)  # one seed: candidate ids and namespaces, so engine_ids.json reproduces both
     checks, base_runs = _selfcheck(loaded, cfg, sealed, key)
     if not all(c.ok for c in checks):
@@ -559,6 +629,269 @@ def traces_fetch(
         except Exception as e:
             raise _fail(f"error: download failed: {type(e).__name__}: {e}", 2) from e
         typer.echo(str(path))
+
+
+@bench_app.command("list")
+def bench_list() -> None:
+    """Show the registered external datasets and whether they are in the cache."""
+    from harness.bench.dataset import is_cached
+    from harness.bench.datasets import DATASETS
+
+    for name in sorted(DATASETS):
+        ds = DATASETS[name]
+        size = sum(f.size for f in ds.files())
+        typer.echo(f"{name}  {ds.license}  {_mb(size)}  cached: {'yes' if is_cached(ds) else 'no'}")
+
+
+@bench_app.command("fetch")
+def bench_fetch(
+    dataset: Annotated[str, typer.Option("--dataset", help="Dataset name; see harness bench list.")],
+    yes: Annotated[bool, typer.Option("--yes", help="Download without asking.")] = False,
+    timeout: Annotated[
+        float, typer.Option(help="Seconds a server may stay silent before giving up (>0).")
+    ] = 60.0,
+) -> None:
+    """Download a dataset's files into the cache, after showing their size."""
+    from harness.bench.dataset import FetchError, bench_cache, fetch_file
+    from harness.bench.datasets import DATASETS
+
+    if not timeout > 0:
+        raise _fail(f"error: --timeout must be greater than 0, got {timeout:g}", 2)
+    ds = DATASETS.get(dataset)
+    if ds is None:
+        raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
+    files = ds.files()
+    for f in files:
+        typer.echo(f"{f.name}  {_mb(f.size)}")
+    if not yes and not typer.confirm("받을까요?", default=False):
+        raise _fail("취소했습니다. 아무것도 받지 않았습니다.", 1)
+    dest = bench_cache(ds.name)
+    try:
+        for f in files:
+            fetch_file(f, dest, timeout=timeout)
+    except FetchError as e:
+        raise _fail(f"error: {e}", 2) from e
+    typer.echo(str(dest))
+
+
+@bench_app.command("export")
+def bench_export(
+    dataset: Annotated[str, typer.Option("--dataset", help="Dataset name; see harness bench list.")],
+    out: Annotated[Path, typer.Option("--out", help="Directory for the scenario files.")],
+    types: TypesOpt = None,
+    limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
+    config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
+) -> None:
+    """Convert a cached dataset into scenario files, one per item that passes the same screening as bench run."""
+    from harness.bench import check
+    from harness.bench.convert import scenario_text
+    from harness.bench.dataset import FetchError, bench_cache, is_cached, verify_cached
+    from harness.bench.datasets import DATASETS
+
+    ds = DATASETS.get(dataset)
+    if ds is None:
+        raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
+    if not ds.commit_ok and not _cannot_be_committed(out):
+        raise _fail(f"error: {dataset} may not be committed; --out {out} must be git-ignored", 2)
+    if not is_cached(ds):
+        raise _fail(f"error: {dataset} is not in the cache; run harness bench fetch --dataset {dataset} first", 2)
+    try:
+        verify_cached(ds)
+    except FetchError as e:
+        raise _fail(f"error: {e}", 2) from e
+    cfg = _bench_config(config)
+    out.mkdir(parents=True, exist_ok=True)
+    written = skipped = 0
+    for c in check.screened(ds.convert(bench_cache(ds.name), types=_dataset_types(types), limit=limit), cfg.eval):
+        if c.scenario is None:
+            skipped += 1
+            typer.echo(f"skipped {c.source_id}: {c.skipped}")
+            continue
+        (out / f"{c.scenario.id}.yaml").write_text(scenario_text(c.scenario), encoding="utf-8")
+        written += 1
+    typer.echo(f"wrote {written} scenarios to {out}, skipped {skipped}")
+
+
+@bench_app.command("run")
+def bench_run(
+    dataset: Annotated[str | None, typer.Option("--dataset", help="Dataset name; see harness bench list.")] = None,
+    scenarios_path: Annotated[
+        Path | None,
+        typer.Option("--scenarios", help="Scenario file or directory to run instead of a dataset (e.g. scenarios/dev)."),
+    ] = None,
+    engine: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--engine",
+            help="Extra engine: 'hindsight', 'mem0' or 'pkg.module:Class' (repeatable). The baselines always run.",
+        ),
+    ] = None,
+    types: TypesOpt = None,
+    limit: Annotated[int | None, typer.Option(min=1, help="At most this many source items.")] = None,
+    include_drafts: Annotated[
+        bool,
+        typer.Option(
+            "--include-drafts",
+            help="With --scenarios, also run draft scenarios, such as the files bench export writes. "
+            "The report is marked as not for publication.",
+        ),
+    ] = False,
+    gold: Annotated[bool, typer.Option("--gold", help="Also run with only the events of facts a probe asks about.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Run without asking.")] = False,
+    config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
+    out: Annotated[Path, typer.Option("--out", help="Directory for bench reports.")] = Path("runs/bench"),
+    blind_seed: Annotated[
+        int | None,
+        typer.Option(
+            "--blind-seed",
+            help="Reproduce a recorded run: the seed from its engine_ids.json. Random by default.",
+        ),
+    ] = None,
+) -> None:
+    """Run the baselines and extra engines on a converted external dataset and write its report."""
+    import time
+
+    from harness.bench.check import screened
+    from harness.bench.config import bench_config_hash
+    from harness.bench.report import write_bench_report
+    from harness.bench.run import BenchMeta
+
+    _check_engine_specs(engine)
+    if (dataset is None) == (scenarios_path is None):
+        raise _fail("error: give exactly one of --dataset and --scenarios", 2)
+    if scenarios_path is not None and types:
+        raise _fail("error: --types applies to --dataset only; it cannot be combined with --scenarios", 2)
+    if dataset is not None and include_drafts:
+        raise _fail("error: --include-drafts applies to --scenarios only; dataset items are converted on the fly", 2)
+    cfg = _bench_config(config)
+    found, facts, folder = _bench_source(dataset, scenarios_path, types, limit, include_drafts)
+    items = list(screened(found, cfg.eval))
+    candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
+    scenarios = _confirm_bench(items, candidates, gold=gold, yes=yes)
+
+    infos: dict[str, EngineInfo] = {}
+    _preflight(candidates, scenarios[0], cfg.eval, infos, False)
+    seed = _blind_seed(blind_seed)
+    started_at = datetime.now().astimezone()
+    run_id = started_at.strftime("%Y%m%d-%H%M%S")
+    t0 = time.monotonic()
+    normal, gold_run = _bench_passes(
+        items, [*BASELINES, *candidates], cfg, run_id=run_id, key=blind_key(seed), dataset=facts["dataset"], gold=gold
+    )
+    wall = time.monotonic() - t0
+    for b in (normal, gold_run):
+        if b is not None:
+            b.infos.update(infos)  # the pre-flight checked these are writable
+    meta = BenchMeta(
+        **facts,
+        run_id=run_id,
+        started_at=started_at,
+        harness_version=harness_version(),
+        config_hash=bench_config_hash(cfg),
+        machine=machine_info(),
+        blind_seed=seed,
+    )
+    out_dir = out / folder / run_id
+    write_bench_report(out_dir, meta, normal, gold_run)
+    typer.echo(str(out_dir / "report.md"))
+    typer.echo(f"wall time: {wall:.1f} s", err=True)
+
+
+def _bench_source(
+    dataset: str | None,
+    scenarios_path: Path | None,
+    types: list[str] | None,
+    limit: int | None,
+    include_drafts: bool = False,
+) -> "tuple[Iterable[Converted], DatasetFacts, str]":
+    """The items `bench run` converts, the facts its report records, and its report folder name.
+
+    A dataset must be known and cached with the right sha256 (exit 2 otherwise); its items are
+    converted lazily. Scenario files are loaded now: approved ones only unless `include_drafts`.
+    When only drafts are found (such as `bench export` output), it exits 2 and says so; when some
+    are drafts, it warns how many it leaves out.
+    """
+    from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
+    from harness.bench.datasets import DATASETS
+    from harness.bench.run import dataset_facts, scenario_facts
+
+    if dataset is not None:
+        ds = DATASETS.get(dataset)
+        if ds is None:
+            raise _fail(f"error: unknown dataset {dataset!r}; choose from: {', '.join(sorted(DATASETS))}", 2)
+        if not is_cached(ds):
+            raise _fail(f"error: run 'harness bench fetch --dataset {dataset}' first", 2)
+        try:
+            file_sha256 = verify_cached(ds)
+        except FetchError as e:
+            raise _fail(f"error: {e}", 2) from e
+        found = ds.convert(bench_cache(ds.name), types=_dataset_types(types), limit=limit)
+        return found, dataset_facts(ds, file_sha256), ds.name
+    assert scenarios_path is not None
+    try:
+        loaded = load_set([scenarios_path], include_drafts=include_drafts).scenarios
+        drafts = 0 if include_drafts else len(load_set([scenarios_path], include_drafts=True).scenarios) - len(loaded)
+        if not loaded and drafts:
+            raise _fail(
+                f"error: the scenarios in {scenarios_path} are drafts (bench export writes drafts); "
+                "pass --include-drafts to run them",
+                2,
+            )
+        if drafts:
+            typer.echo(
+                f"warning: skipped {drafts} draft scenario(s) in {scenarios_path}; pass --include-drafts to run them",
+                err=True,
+            )
+    except typer.Exit:
+        raise
+    except Exception as e:
+        raise _fail(f"error: cannot load scenarios {scenarios_path}: {e}", 2) from e
+    found = [Converted(s, s.id, s.family, None) for s in loaded[:limit]]
+    return found, scenario_facts(str(scenarios_path), include_drafts), "scenarios"
+
+
+def _confirm_bench(items: "list[Converted]", candidates: list[str], *, gold: bool, yes: bool) -> list[Scenario]:
+    """Show what `bench run` will replay and its LLM-call estimate, ask unless `yes`, and return the scenarios.
+
+    Exits 2 when no scenario survived conversion and screening, 1 when the user declines.
+    """
+    from harness.bench.gold import gold_copy
+
+    scenarios = [c.scenario for c in items if c.scenario is not None]
+    if not scenarios:
+        raise _fail("error: no scenario was converted; check --types and --limit", 2)
+    n_events = sum(len(s.events) for s in scenarios)
+    n_probes = sum(len(s.probes) for s in scenarios)
+    typer.echo(f"scenarios: {len(scenarios)} (skipped {len(items) - len(scenarios)}), events: {n_events}, probes: {n_probes}")
+    n_calls = n_events + (sum(len(gold_copy(s).events) for s in scenarios) if gold else 0)
+    per = "one per recorded event, both passes" if gold else "one per recorded event"
+    for name in candidates:
+        if name in OSS_ENGINES:
+            typer.echo(f"{name}: about {n_calls} LLM calls ({per})")
+    if not yes and not typer.confirm("실행할까요?", default=False):
+        raise _fail("취소했습니다. 아무것도 실행하지 않았습니다.", 1)
+    return scenarios
+
+
+def _bench_passes(
+    items: "list[Converted]", names: list[str], cfg: "BenchConfig", *, run_id: str, key: bytes, dataset: str, gold: bool
+) -> "tuple[BenchRun, BenchRun | None]":
+    """The normal pass and, with `gold`, the gold pass, warning about engines that were tripped."""
+    from harness.bench.run import run_bench
+
+    trip = MAX_CONSECUTIVE_ENGINE_ERRORS
+    normal = run_bench(items, names, cfg, run_id=run_id, key=key, dataset=dataset, max_unavailable=trip)
+    gold_run = None
+    if gold:
+        gold_run = run_bench(
+            items, names, cfg, run_id=run_id + "-gold", key=key, gold=True, dataset=dataset,
+            max_unavailable=trip, tripped=normal.tripped,
+        )
+    for b in (normal, gold_run):
+        if b is not None:
+            for name in sorted(b.tripped):
+                typer.echo(f"warning: {name} stayed unavailable in the {b.mode} pass; its remaining scenarios were skipped", err=True)
+    return normal, gold_run
 
 
 @traces_app.command("list")

@@ -125,6 +125,15 @@ class BaseEngine(ABC):
     def flush(self) -> None:
         """Finish any pending work. Default: no-op."""
 
+    def usage(self) -> dict[str, float] | None:
+        """Report what the engine spent on the scenario replayed so far, or None if it cannot say.
+
+        Called once after each scenario by `harness bench run`. Known keys: `llm_calls`,
+        `input_tokens`, `output_tokens` and `embed_calls`; leave out the ones the engine does
+        not count. Default: None (unknown).
+        """
+        return None
+
 
 def can_see(event: Event, user: str, team: str) -> bool:
     """Visibility rule shared by leak scoring and the baselines.
