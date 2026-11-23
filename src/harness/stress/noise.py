@@ -147,6 +147,17 @@ def trace_pool(paths: Iterable[Path], gen: GenConfig, limit: int = DEFAULT_POOL)
     return out
 
 
+def drop_cue_words(texts: Iterable[NoiseText], words: Sequence[str]) -> list[NoiseText]:
+    """`texts` without those that hold a banned cue word (`GenConfig.banned_cue_words`).
+
+    A cue word in noise cannot change a label, but it would hint to an engine that reads cue
+    words, which generated event texts never carry.
+    """
+    from harness.generate.checks import cue_words_in
+
+    return [t for t in texts if not cue_words_in(t.text, words)]
+
+
 def file_pool(path: Path) -> list[NoiseText]:
     """One noise text per line of a UTF-8 file, for offline runs and tests; short lines are skipped."""
     out: list[NoiseText] = []

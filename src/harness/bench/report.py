@@ -10,6 +10,7 @@ from harness.bench.gold import CELLS, compare_modes, gold_only_wrong_examples, p
 from harness.bench.run import BenchMeta, BenchRun
 from harness.bench.timing import cost_rows
 from harness.contract import EngineInfo
+from harness.engines import BASELINES
 from harness.metrics import m1_rate, m2_rate
 from harness.replay import ScenarioRun
 from harness.scenario.model import EXT_FAMILIES
@@ -115,9 +116,11 @@ def _group_table(tables: Mapping[str, Mapping[str, Any]]) -> list[str]:
     return markdown_table(["엔진", "유형", "문항 수", "M2", "오류"], rows)
 
 
-# Reference points, not candidates: the oracle answers every probe and `none` answers none, so a
-# probe "splits the engines" only when the others disagree.
+# Reference points, never compared: the oracle answers every probe and `none` answers none.
 _NOT_COMPARED = ("oracle", "none")
+# Every baseline. With two or more candidate engines only they are compared: `repeat_n` often
+# answers like `none`, so a baseline in the comparison would make most probes split trivially.
+_BASELINES = (*BASELINES, "all_store_noacl")
 # The eval config's default bootstrap seed; every cell with the same base count shares resamples.
 _CLUSTER_SEED = Stats().seed
 
@@ -186,14 +189,19 @@ def _stress(b: BenchRun, ids: Mapping[str, str]) -> dict[str, Any] | None:
 
     discrimination: per group, the judged probes of finished read-only runs that every compared
     engine answered, and how many of them split the compared engines, all got right or all got
-    wrong (`probe_correct`). The oracle and `none` are not compared.
+    wrong (`probe_correct`). With two or more candidate engines only they are compared
+    (`compared_kind` "candidates"); otherwise the baselines other than the oracle and `none`.
     """
     if all(b.bases.get(sid, sid) == sid for sid in b.groups):
         return None
     engines = sorted(b.runs, key=order_key(ids))
-    compared = [name for name in engines if name not in _NOT_COMPARED]
+    compared = [name for name in engines if name not in _BASELINES]
+    candidates = len(compared) >= 2
+    if not candidates:
+        compared = [name for name in engines if name not in _NOT_COMPARED]
     return {
         "compared": [ids[name] for name in compared],
+        "compared_kind": "candidates" if candidates else "baselines",
         "curve": _curve(b, engines, ids),
         "discrimination": _discrimination(b, compared),
     }
@@ -217,13 +225,21 @@ def _stress_lines(stress: Mapping[str, Any]) -> list[str]:
         "계열마다 손잡이를 하나씩 돌린 변형의 M1·M2다(끝난 read_only 실행). 칸마다 원본 시나리오가 변형 하나씩 들어 있으므로, "
         f"원본 단위 95% 구간은 원본 시나리오를 {CLUSTER_ITERS:,}회 다시 뽑은 부트스트랩이다(원본이 {MIN_CLUSTERS}개 미만이면 n/a). "
         "같은 원본이 모든 단계에 나와 단계끼리 서로 독립이 아니므로, 단계 사이의 차이는 구간이 겹치는지로 판단하지 않는다. "
-        "이 표는 어느 손잡이에서 어느 엔진이 무너지는지 보는 진단이고, 엔진 순위의 근거로 쓰지 않는다.",
+        "이 표는 어느 손잡이에서 어느 엔진이 무너지는지 보는 진단이고, 엔진 순위의 근거로 쓰지 않는다. "
+        "M1(막아야 할 프로브 중 잘못 쓴 비율)은 낮을수록 좋고, 노이즈에서 내려갈 수도 있다: 노이즈가 검색 점수의 단어 통계를 바꿔 "
+        "원본 이벤트의 순위가 달라지고, 노이즈 자체가 상위 결과에 들어오기도 한다. "
+        "원본 단위 구간이 한 점(예: [1.000, 1.000])이면 모든 원본에서 같은 값이 나왔다는 뜻이고, 원본이 적을 때도 생긴다.",
         "",
         *markdown_table(["엔진", "계열/손잡이", "원본 수", "M1", "M1 원본 단위 95%", "M2", "M2 원본 단위 95%"], curve_rows),
         "## 표 7. 문항 변별력",
         "",
-        f"표 6과 같은 실행의 판정 프로브(block·promote) 중 비교한 엔진({compared})의 결과가 갈린 수다. oracle과 none은 기준점이라 비교에서 뺐다. "
-        "모두 맞히거나 모두 틀린 프로브는 이 엔진들을 가르지 못한다.",
+        f"표 6과 같은 실행의 판정 프로브(block·promote) 중 비교한 엔진({compared})의 결과가 갈린 수다. "
+        + (
+            "후보 엔진이 둘 이상이라 후보끼리만 비교했다(기준 엔진은 뺐다). "
+            if stress.get("compared_kind") == "candidates"
+            else "후보 엔진이 둘 미만이라 oracle과 none을 뺀 기준 엔진끼리 비교했다. repeat_n은 none처럼 답하는 일이 많아 갈림이 쉽게 생기므로, 후보 엔진의 변별력으로 읽지 않는다. "
+        )
+        + "모두 맞히거나 모두 틀린 프로브는 이 엔진들을 가르지 못한다.",
         "",
     ]
     if len(stress["compared"]) < 2:

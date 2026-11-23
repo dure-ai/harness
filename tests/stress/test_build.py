@@ -62,6 +62,28 @@ def test_build_refuses_a_full_out_unless_forced(tmp_path, noise_file):
     assert all("--gap-" in p.name for p in out.iterdir())  # the noise variants of the first run are gone
 
 
+def test_force_deletes_only_stress_variants(tmp_path, noise_file):
+    """--out may hold other YAML files that git cannot restore; --force replaces only variants."""
+    _, out = build(tmp_path, noise_file, "--knob", "gap")
+    other = out / "notes.yaml"
+    other.write_text("mine: true\n", encoding="utf-8")
+    r, _ = build(tmp_path, noise_file, "--knob", "gap", "--force")
+    assert r.exit_code == 0, r.output
+    assert other.read_text(encoding="utf-8") == "mine: true\n"
+
+
+def test_noise_with_a_banned_cue_word_is_never_drawn(tmp_path):
+    """A cue word cannot change a label, but it would hint to an engine that reads cue words."""
+    path = tmp_path / "noise.txt"
+    lines = [f"ran the full test suite for module_{i} and read the stack trace of failure number {i}" for i in range(400)]
+    lines += [f"the helper in module_{i} is deprecated now, so I used the other one in the loop" for i in range(400)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    r, out = build(tmp_path, path, "--knob", "noise")
+    assert r.exit_code == 0, r.output
+    texts = [e.text for s in load_set([out], include_drafts=True).scenarios for e in s.events if e.id.startswith("noise-")]
+    assert texts and not any("deprecated" in t for t in texts)
+
+
 def test_build_rejects_bad_input(tmp_path, noise_file):
     r, _ = build(tmp_path, noise_file, "--knob", "colour")
     assert r.exit_code == 2 and "colour" in r.output
@@ -100,10 +122,23 @@ def test_bench_run_reports_curves_and_discrimination_for_variants(tmp_path, nois
     assert curve["coincidence/noise=0"]["n_bases"] == 4 and curve["coincidence/noise=0"]["m2_base_ci"] is not None
     assert list(summary["engines"]["all_store"]["by_group"]) == groups  # tables 2 and 6 read in knob order
     assert summary["stress"]["compared"] == ["all_store", "repeat_n"]
+    assert summary["stress"]["compared_kind"] == "baselines"
     # all_store follows every coincidence block probe and repeat_n none, so each of them splits the two.
     discrimination = summary["stress"]["discrimination"]["coincidence/noise=0"]
     assert discrimination["probes"] == discrimination["split"] + discrimination["all_right"] + discrimination["all_wrong"]
     assert discrimination["probes"] >= 4
+
+
+def test_table_7_compares_only_candidates_when_there_are_two(tmp_path, noise_file):
+    _, out = build(tmp_path, noise_file, "--knob", "noise")
+    extra = ["--engine", "tests.dummy_engine:Dummy", "--engine", "tests.core_engines:AllStoreOnCore"]
+    r = bench(out, tmp_path / "reports", *extra)
+    assert r.exit_code == 0, r.output
+    (run_dir,) = list((tmp_path / "reports" / "scenarios").iterdir())
+    stress = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))["stress"]
+    assert stress["compared_kind"] == "candidates" and len(stress["compared"]) == 2
+    assert not {"oracle", "none", "all_store", "repeat_n"} & set(stress["compared"])
+    assert "후보끼리만 비교했다" in (run_dir / "report.md").read_text(encoding="utf-8")
 
 
 def test_bench_run_on_ordinary_scenarios_has_no_stress_tables(tmp_path):

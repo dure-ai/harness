@@ -9,7 +9,7 @@ from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
@@ -924,7 +924,7 @@ def stress_build(
     config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
     pool_size: Annotated[int, typer.Option("--pool-size", min=1, help="Noise texts read from the traces.")] = 20000,
     force: Annotated[
-        bool, typer.Option("--force", help="Delete the YAML files already in --out before writing.")
+        bool, typer.Option("--force", help="Delete the stress variants already in --out before writing.")
     ] = False,
 ) -> None:
     """Write label-preserving variants of approved scenarios, one knob at a time, screened like bench items.
@@ -944,9 +944,9 @@ def stress_build(
             raise _fail(f"error: unknown knob {name!r}; choose from {', '.join(KNOBS)}", 2)
     if not _cannot_be_committed(out):  # noise texts come from third-party trajectories
         raise _fail(f"error: --out {out} must be git-ignored or outside the repository", 2)
-    stale = sorted(out.glob("*.yaml")) if out.is_dir() else []
+    stale = _stress_variants_in(out)
     if stale and not force:
-        raise _fail(f"error: --out {out} already holds {len(stale)} YAML files; pass --force to replace them", 2)
+        raise _fail(f"error: --out {out} already holds {len(stale)} stress variants; pass --force to replace them", 2)
     cfg = _bench_config(config)
     bases = _load_scenarios(scenarios_path, include_drafts=False)
     if not bases:
@@ -973,6 +973,25 @@ def stress_build(
     typer.echo(f"next: harness bench run --scenarios {out} --include-drafts")
 
 
+def _stress_variants_in(out: Path) -> list[Path]:
+    """The top-level YAML files in `out` that are stress variants (`provenance.variant` is set).
+
+    Other files there are left alone: `out` is outside git, so a deleted file could not be restored.
+    """
+    from harness.yamlio import load_yaml
+
+    found: list[Path] = []
+    for path in sorted(out.glob("*.yaml")) if out.is_dir() else []:
+        try:
+            data: object = load_yaml(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue  # not a scenario this command wrote
+        provenance: object = cast("dict[str, object]", data).get("provenance") if isinstance(data, dict) else None
+        if isinstance(provenance, dict) and cast("dict[str, object]", provenance).get("variant") is not None:
+            found.append(path)
+    return found
+
+
 def _load_scenarios(path: Path, *, include_drafts: bool) -> list[Scenario]:
     """The scenarios under `path`; exit 2 with the reason when they do not load."""
     try:
@@ -982,22 +1001,26 @@ def _load_scenarios(path: Path, *, include_drafts: bool) -> list[Scenario]:
 
 
 def _noise_pool(noise_file: Path | None, gen_config: Path, pool_size: int) -> "NoisePool":
-    """Noise texts from `noise_file`, or else from the cached Open-SWE-Traces shards; exit 2 if none."""
-    from harness.stress.noise import NoisePool, file_pool, trace_pool
+    """Noise texts from `noise_file`, or else from the cached Open-SWE-Traces shards; exit 2 if none.
 
+    Texts that hold a banned cue word of the generation config are left out.
+    """
+    from harness.stress.noise import NoisePool, drop_cue_words, file_pool, trace_pool
+
+    gen = _gen_config(gen_config)
     if noise_file is not None:
         try:
-            return NoisePool(file_pool(noise_file))
+            return NoisePool(drop_cue_words(file_pool(noise_file), gen.banned_cue_words))
         except (OSError, UnicodeDecodeError) as e:
             raise _fail(f"error: cannot read --noise-file {noise_file}: {e}", 2) from e
     with _needs_gen():
-        from harness.generate.config import cache_root, load_gen_config
+        from harness.generate.config import cache_root
         from harness.generate.fetch import local_shards
 
         shards = local_shards(cache_root() / "traces")
         if not shards:
             raise _fail("error: no cached trajectories; run harness traces fetch first, or pass --noise-file", 2)
-        return NoisePool(trace_pool(shards, load_gen_config(gen_config), pool_size))
+        return NoisePool(drop_cue_words(trace_pool(shards, gen, pool_size), gen.banned_cue_words))
 
 
 @traces_app.command("list")
