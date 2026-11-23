@@ -96,7 +96,9 @@ def dump_yaml(data: Any) -> str:
     libyaml's emitter is several times faster. It writes the same text as the pure-Python one
     except that it escapes characters outside the Basic Multilingual Plane (emoji become
     `\U0001F600` in double quotes); a document whose libyaml text holds `\U` is written again by
-    the Python emitter. Tests compare both emitters on every scenario file in the repository.
+    the Python emitter. U+0085 (next line) also differs: libyaml writes `"x\Ny"`, which reads
+    back the same, so it is kept. Tests compare both emitters on every scenario file in the
+    repository.
 
     Args:
         data: Plain data (dicts, lists, strings, numbers).
