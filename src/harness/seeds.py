@@ -109,16 +109,21 @@ def unstable_probes(per_seed: Sequence[Sequence[ScenarioRun]]) -> list[dict[str,
 
 
 def _cell(spread: Mapping[str, Any]) -> str:
-    """`mean [min, max] (k/n)`; just `value (k/n)` when every seed agrees."""
+    """`mean [min, max] (k/n)`; just `value (k/n)` when every seed agrees.
+
+    The k and n ranges are taken separately, so when n differs across seeds they no longer pair
+    up; such a cell ends in `*`, and the per-seed lists in summary.json are the ones to read.
+    """
     if spread["mean"] is None:
         return NA
     ks = [k for k in spread["k"] if k is not None]
     ns = [n for n in spread["n"] if n is not None]
     k = f"{min(ks)}" if min(ks) == max(ks) else f"{min(ks)}–{max(ks)}"
     n = f"{min(ns)}" if min(ns) == max(ns) else f"{min(ns)}–{max(ns)}"
+    mark = "" if min(ns) == max(ns) else "*"
     if spread["min"] == spread["max"]:
-        return f"{spread['mean']:.3f} ({k}/{n})"
-    return f"{spread['mean']:.3f} [{spread['min']:.3f}, {spread['max']:.3f}] ({k}/{n})"
+        return f"{spread['mean']:.3f} ({k}/{n}){mark}"
+    return f"{spread['mean']:.3f} [{spread['min']:.3f}, {spread['max']:.3f}] ({k}/{n}){mark}"
 
 
 def _count_cell(spread: Mapping[str, Any]) -> str:
@@ -160,6 +165,7 @@ def _markdown(
         f"- 블라인드 시드 {len(seeds)}개(engine_ids.json), 엔진마다 시드당 한 번 실행",
         "",
         "값은 `평균 [최소, 최대] (k/n)`이고, 모든 시드에서 같으면 `값 (k/n)`만 적는다. "
+        "`*`는 시드마다 n이 달라 k와 n의 범위를 따로 적은 칸이다(시드별 값은 summary.json). "
         "시드는 엔진이 보는 이벤트 id를 바꾸므로, 점수가 같은 결과를 id 순으로 고르는 엔진은 "
         "시드마다 다른 결과를 고를 수 있다. 한 시드의 수치는 이 분포에서 뽑은 하나이고, "
         "두 실행을 비교할 때 차이가 [최소, 최대] 안이면 동점 순서의 차이일 수 있다. "

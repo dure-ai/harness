@@ -540,6 +540,10 @@ def seeds(
     tie order; this command shows the draws, per metric and per family, and lists the probes
     whose outcome changed. It writes report.md, summary.json and engine_ids.json to
     `<out>/<run id>-seeds/` and does not judge or rank.
+
+    Each seed builds the candidate engines anew, so an engine that stops answering is skipped for
+    the rest of a seed after MAX_CONSECUTIVE_ENGINE_ERRORS errors in a row and tried again on the
+    next one (`run --repeat` checks only the first scenario of later repeats).
     """
     _check_engine_names(engine)
     if blind_seed:

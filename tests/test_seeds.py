@@ -8,7 +8,7 @@ from harness.cli import app
 from harness.config import load_config
 from harness.metrics import compute_metrics
 from harness.replay import blind_key, run_scenario
-from harness.seeds import metric_spread, unstable_probes
+from harness.seeds import _cell, metric_spread, unstable_probes
 from harness.selfcheck import CheckResult
 from tests.dummy_engine import LatestWins, LowestIdFirst
 from tests.test_cli import good_dir
@@ -82,6 +82,16 @@ def _seeds_cli(tmp_path, *extra):
 
 def _seed_args():
     return [a for s in SEEDS for a in ("--blind-seed", str(s))]
+
+
+def test_a_cell_whose_n_differs_across_seeds_is_marked():
+    """k and n ranges are taken separately, so with n varying they no longer pair up (2/1 never happened)."""
+    varied = {"mean": 2 / 3, "min": 0.0, "max": 1.0, "k": [1, 2, 0], "n": [1, 2, 2]}
+    assert _cell(varied) == "0.667 [0.000, 1.000] (0–2/1–2)*"
+    same_n = {"mean": 0.5, "min": 0.0, "max": 1.0, "k": [1, 0], "n": [1, 1]}
+    assert _cell(same_n) == "0.500 [0.000, 1.000] (0–1/1)"
+    with_gap = {"mean": 1.0, "min": 1.0, "max": 1.0, "k": [2, None, 2], "n": [2, None, 2]}
+    assert _cell(with_gap) == "1.000 (2/2)"  # a seed where the family is missing does not mark it
 
 
 def test_seeds_cli_writes_spread_report(tmp_path):
