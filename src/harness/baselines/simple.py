@@ -8,7 +8,7 @@ from harness.contract import BaseEngine, EngineInfo, Event, Query, Result, can_s
 from harness.text import BM25, JaccardIndex, counted, set_jaccard_at_least
 
 
-class _NamespacedEngine(BaseEngine, ABC):
+class NamespacedEngine(BaseEngine, ABC):
     """Keeps a dict of namespace -> stored events; `reset` selects and clears one."""
 
     def __init__(self) -> None:
@@ -30,7 +30,7 @@ class _NamespacedEngine(BaseEngine, ABC):
         self._store().append(event)
 
 
-class _IndexedEngine(_NamespacedEngine, ABC):
+class _IndexedEngine(NamespacedEngine, ABC):
     """Also keeps every stored event's term counts, made once when it is recorded."""
 
     def __init__(self) -> None:
@@ -87,7 +87,7 @@ def _rank(
     return [Result(text=e.text, sources=[e.id]) for e in hits[: q.k]]
 
 
-class NoneEngine(_NamespacedEngine):
+class NoneEngine(NamespacedEngine):
     """Hands over nothing: the "no memory" floor (M1 = M2 = 0)."""
 
     def info(self) -> EngineInfo:

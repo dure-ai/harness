@@ -5,7 +5,7 @@ import random
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TextIO, TypeVar
+from typing import TextIO
 
 import yaml
 from pydantic import BaseModel
@@ -30,7 +30,6 @@ from harness.scenario.load import ScenarioLoadError, read_scenario
 from harness.scenario.model import Scenario
 from harness.yamlio import load_yaml
 
-T = TypeVar("T", bound=BaseModel)
 
 _ERRORS_IN_A_ROW = 3
 """Non-fatal LLM errors in a row that stop a run: the provider is most likely down."""
@@ -123,7 +122,7 @@ class DryRunClient:
         self.model = model
         self.last_model: str | None = None
 
-    def complete_json(
+    def complete_json[T: BaseModel](
         self,
         kind: str,
         system: str,
