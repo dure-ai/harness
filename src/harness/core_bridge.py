@@ -77,7 +77,7 @@ class CoreBridge(BaseEngine):
 
     def __init__(self, engine: CoreEngine, embedding: CoreEmbedding | None = None) -> None:
         self.engine = engine
-        self.embedding = embedding
+        self.embedding: CoreEmbedding | None = embedding
         self.embedder: QwenEmbedder | None = None
         self.runtime: Runtime | None = None
 

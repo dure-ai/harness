@@ -10,8 +10,18 @@ from cortex_mem.embed import EmbedKind, EmbeddingError
 from pydantic import BaseModel, FiniteFloat, ValidationError
 
 from harness.config import CoreEmbedding
+from harness.contract import EngineUnavailable
 
 _QUERY_INSTRUCTION = "Retrieve relevant software engineering memories that answer the query."
+_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+
+
+class EmbeddingUnavailable(EmbeddingError, EngineUnavailable):
+    """The embedding server could not be reached or answered with a retryable status.
+
+    It is an `EngineUnavailable`, so the run loop counts it toward stopping the engine
+    and reports the scenario as unavailable rather than as an engine error.
+    """
 
 
 class _Vector(BaseModel):
@@ -25,7 +35,11 @@ class _Response(BaseModel):
 
 @final
 class QwenEmbedder:
-    """A local Core embedder that remembers failures Core may deliberately hide from callers."""
+    """A local Core embedder that remembers failures Core may deliberately hide from callers.
+
+    The first failure stays in `failure` for the rest of the scenario, even if a later
+    request succeeds, so a scenario that saw any embedding failure is never scored.
+    """
 
     def __init__(self, config: CoreEmbedding) -> None:
         self.model: str = config.model
@@ -64,9 +78,12 @@ class QwenEmbedder:
             )
             with connection.getresponse() as response:
                 if response.status != 200:
-                    raise EmbeddingError(f"Qwen embedding request failed with HTTP {response.status}")
+                    error = EmbeddingUnavailable if response.status in _RETRYABLE_STATUS else EmbeddingError
+                    raise error(f"Qwen embedding request failed with HTTP {response.status}")
                 payload = _Response.model_validate_json(response.read(), strict=True)
-        except (OSError, http.client.HTTPException, ValidationError) as exc:
+        except OSError as exc:
+            raise EmbeddingUnavailable(f"Qwen embedding request failed ({type(exc).__name__})") from None
+        except (http.client.HTTPException, ValidationError) as exc:
             raise EmbeddingError(f"Qwen embedding request failed ({type(exc).__name__})") from None
         finally:
             connection.close()

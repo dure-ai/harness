@@ -9,7 +9,7 @@ from cortex_mem.embed import EmbeddingError
 from cortex_mem.engines.baseline import PromoteAllEngine
 
 from harness.config import CoreEmbedding, EvalConfig, load_config
-from harness.contract import BaseEngine, Event, Query
+from harness.contract import BaseEngine, EngineUnavailable, Event, Query
 from harness.core_bridge import CoreBridge, to_core_event
 from harness.engines import make_engine
 from harness.replay import run_scenario
@@ -192,6 +192,37 @@ def test_invalid_local_qwen_response_fails_scenario(qwen_http, payload, message)
     replies["payload"] = payload
     with pytest.raises(EmbeddingError, match=message):
         bridge.record(event(id="e2", text="a new record"))
+
+
+@pytest.mark.parametrize("status", [429, 502, 503, 504])
+def test_a_retryable_qwen_status_marks_the_engine_unavailable(qwen_http, status):
+    _, replies = qwen_http
+    bridge = CoreBridge(EmbeddingAwareEngine(), CoreEmbedding())
+    bridge.reset("ns")
+    bridge.record(event())
+    replies["query_status"] = status
+    with pytest.raises(EngineUnavailable, match=f"HTTP {status}"):
+        bridge.search(query())
+
+
+def test_an_unreachable_qwen_server_marks_the_engine_unavailable(monkeypatch):
+    connection = MagicMock()
+    connection.request.side_effect = ConnectionRefusedError()
+    monkeypatch.setattr("harness.core_embedding.http.client.HTTPConnection", MagicMock(return_value=connection))
+    bridge = CoreBridge(PromoteAllEngine(), CoreEmbedding())
+    bridge.reset("ns")
+    with pytest.raises(EngineUnavailable, match="ConnectionRefusedError"):
+        bridge.record(event())
+
+
+def test_a_malformed_qwen_reply_is_not_an_outage(qwen_http):
+    _, replies = qwen_http
+    bridge = CoreBridge(PromoteAllEngine(), CoreEmbedding())
+    bridge.reset("ns")
+    replies["payload"] = {"data": [{"index": 1, "embedding": [1.0, 0.0]}]}
+    with pytest.raises(EmbeddingError) as raised:
+        bridge.record(event())
+    assert not isinstance(raised.value, EngineUnavailable)
 
 
 def test_engine_failure_reaches_the_replay():
