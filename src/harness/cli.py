@@ -32,6 +32,7 @@ from harness.scenario.load import (
 from harness.scenario.model import EXT_FAMILIES, Scenario
 from harness.scenario.validate import Issue, validate_scenario
 from harness.selection import EngineScore, rank
+from harness.seeds import write_seed_report
 from harness.selfcheck import CheckResult, check_discrimination, run_selfcheck
 
 if TYPE_CHECKING:
@@ -563,6 +564,105 @@ def run(
             **candidate_repeats,
         },
     )
+    typer.echo(str(out_dir / "report.md"))
+
+
+@app.command()
+def seeds(
+    scenarios: ScenariosOpt,
+    engine: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--engine",
+            help="Extra engine, as in `run` (repeatable). Baselines always run.",
+        ),
+    ] = None,
+    config: ConfigOpt = Path("config/eval-v0.1.yaml"),
+    out: Annotated[
+        Path, typer.Option("--out", help="Directory for run reports.")
+    ] = Path("runs"),
+    include_drafts: DraftsOpt = False,
+    sealed: SealedOpt = False,
+    n: Annotated[
+        int | None, typer.Option("--n", min=2, help="Number of random blind seeds (default 5).")
+    ] = None,
+    blind_seed: Annotated[
+        list[int] | None,
+        typer.Option(
+            "--blind-seed",
+            help="Use these seeds (repeatable, at least two) instead of --n random ones, e.g. to reproduce a seed report.",
+        ),
+    ] = None,
+) -> None:
+    """Run every engine once per blind seed; report the mean and min-max of each metric.
+
+    The blind seed decides the opaque event ids an engine sees, so an engine that breaks score
+    ties on ids can pick a different result under another seed. One `run` is one draw of that
+    tie order; this command shows the draws, per metric and per family, and lists the probes
+    whose outcome changed. It writes report.md, summary.json and engine_ids.json to
+    `<out>/<run id>-seeds/` and does not judge or rank.
+
+    Each seed builds the candidate engines anew, so an engine that stops answering is skipped for
+    the rest of a seed after MAX_CONSECUTIVE_ENGINE_ERRORS errors in a row and tried again on the
+    next one (`run --repeat` checks only the first scenario of later repeats).
+    """
+    _check_engine_specs(engine)
+    if blind_seed:
+        if len(set(blind_seed)) < 2:
+            raise _fail("error: give at least two different --blind-seed values", 2)
+        if n is not None:
+            typer.echo(f"warning: --n is ignored because --blind-seed values are given (n={n})", err=True)
+        for s, count in Counter(blind_seed).items():
+            if count > 1:
+                typer.echo(f"warning: --blind-seed {s} is given more than once; it runs once", err=True)
+        seed_list = list(dict.fromkeys(blind_seed))
+        for s in seed_list:
+            _ = _blind_seed(s)  # warns when the seed is guessable
+    else:
+        seed_list = [secrets.randbits(64) for _ in range(5 if n is None else n)]
+    cfg, loaded = _load(scenarios, config, include_drafts, sealed)
+    scenario_list = loaded.scenarios
+    by_id = {s.id: s for s in scenario_list}
+    candidates = list(dict.fromkeys(name for name in engine or [] if name not in BASELINES))
+    infos: dict[str, EngineInfo] = {}
+    if candidates and scenario_list:  # no scenarios: _selfcheck reports it
+        _preflight(candidates, scenario_list[0], cfg, infos, sealed)
+
+    started_at = datetime.now().astimezone()
+    run_id = started_at.strftime("%Y%m%d-%H%M%S")
+    runs: dict[str, list[list[ScenarioRun]]] = {name: [] for name in [*BASELINES, *candidates]}
+    for i, seed in enumerate(seed_list, 1):
+        key = blind_key(seed)
+        if i == 1:
+            checks, base_runs = _selfcheck(loaded, cfg, sealed, key)  # also validates the set
+        else:
+            checks, base_runs = run_selfcheck(scenario_list, cfg, key)
+        if not all(c.ok for c in checks):
+            typer.echo(f"self-check failed with seed #{i}", err=True)
+            _echo_checks(checks, sealed)
+            raise typer.Exit(1)
+        for name in BASELINES:
+            runs[name].append(base_runs[name])
+        for name in candidates:
+            runs[name] += _run_extra(name, 1, scenario_list, cfg, f"{run_id}-s{i}", infos, key, sealed=sealed)
+
+    meta = RunMeta(
+        run_id=run_id,
+        started_at=started_at,
+        harness_version=harness_version(),
+        config_hash=config_hash(cfg),
+        scenario_set_hash=loaded.hash,
+        n_scenarios=len(scenario_list),
+        machine=machine_info(),
+        engine_infos=infos,
+        sealed=sealed,
+        include_drafts=include_drafts,
+        scenario_roots=[str(root) for root in scenarios],
+        repeats=dict.fromkeys(runs, 1),
+    )
+    metrics = {name: [compute_metrics(r, by_id) for r in per_seed] for name, per_seed in runs.items()}
+    out_dir = out / f"{run_id}-seeds"
+    write_seed_report(out_dir, meta, seed_list, metrics, runs)
     typer.echo(str(out_dir / "report.md"))
 
 

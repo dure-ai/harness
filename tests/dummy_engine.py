@@ -141,3 +141,12 @@ class PathConfig(LatestWins):
             name="pathy", version="1", sources=True,
             config={"v": Path("/data"), "rate": Decimal("1.5"), "raw": b"x"},
         )
+
+
+class LowestIdFirst(LatestWins):
+    """Returns every visible event, ordered by its opaque id: like an engine whose results all tie
+    on score and are ordered by id (core's knowledge search). Its outcomes depend on the blind seed."""
+
+    def search(self, query: Query) -> list[Result]:
+        seen = [e for e in self.events if can_see(e, query.user, query.team) and e.t <= query.t]
+        return [Result(text=e.text, sources=[e.id]) for e in sorted(seen, key=lambda e: e.id)][: query.k]

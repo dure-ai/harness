@@ -229,6 +229,19 @@ def info_json(
     return {**_scrub_value(jsonable(info), scrub), "name": ids[name]}
 
 
+def scrubbed_infos(ids: Mapping[str, str], infos: Mapping[str, EngineInfo]) -> dict[str, dict[str, Any]]:
+    """Each engine's `info()` as JSON the way the report writes it, keyed by engine name.
+
+    Candidate identifiers in every string are replaced with blind ids (see `scrubber`), and
+    `name` is the blind id. Ordered with baselines first, then E1, E2, ... .
+    """
+    scrub = scrubber(ids, infos)
+    return {
+        name: info_json(name, info, ids, scrub)
+        for name, info in sorted(infos.items(), key=lambda kv: order_key(ids)(kv[0]))
+    }
+
+
 def order_key(ids: Mapping[str, str]) -> Callable[[str], tuple[int, int]]:
     """Sort key over engine names: the baselines in their fixed order, then candidates by blind id."""
     def key(name: str) -> tuple[int, int]:
