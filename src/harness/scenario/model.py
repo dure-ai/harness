@@ -7,13 +7,13 @@ Hidden labels are the ground truth used only for scoring and are never sent to e
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from harness.contract import Event, Kind, Outcome, Query, Scope, Signal
 
-Family = Literal[
+MainFamily = Literal[
     "normal_repeat",
     "coincidence",
     "single_source_poison",
@@ -26,7 +26,14 @@ Family = Literal[
     "leak_personal",
     "leak_cross_team",
 ]
-FAMILIES: tuple[str, ...] = get_args(Family)
+# Families of external benchmark scenarios (`harness bench`). Kept out of `FAMILIES`, which the
+# main measurement and its generation templates rely on.
+ExtFamily = Literal["ext_recall", "ext_update"]
+# A nested Literal flattens, so `get_args(Family)` lists the values; `MainFamily | ExtFamily` would
+# list the two Literal types instead.
+Family = Literal[MainFamily, ExtFamily]
+FAMILIES: tuple[str, ...] = get_args(MainFamily)
+EXT_FAMILIES: tuple[str, ...] = get_args(ExtFamily)
 FEEDBACK_FAMILIES = ("echo", "failure_feedback")
 
 
@@ -250,6 +257,17 @@ class Scenario(_Strict):
     probes: list[Probe]
     review: Review = Review()
     provenance: Provenance
+
+    def file_data(self) -> dict[str, Any]:
+        """The JSON-ready content of this scenario's YAML file.
+
+        `provenance.too_easy_repairs` is left out when 0, so a scenario written before that field
+        existed is saved byte for byte as it was and keeps its hashes.
+        """
+        data = self.model_dump(mode="json")
+        if not data["provenance"]["too_easy_repairs"]:
+            del data["provenance"]["too_easy_repairs"]
+        return data
 
     def team_of(self, user: str) -> str:
         """Return the team `user` belongs to.

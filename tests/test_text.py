@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 from harness.text import BM25, contains_secret, jaccard, tokenize
 
 
@@ -110,3 +112,44 @@ def test_contains_secret_short_marker_needs_a_plain_match_and_never_matches_ever
     assert not contains_secret("anything at all", "")
     assert not contains_secret("a b c", "a-b")  # short: separators are not dropped
     assert contains_secret("the A-B pair", "a-b")
+
+
+def test_set_jaccard_at_least_agrees_with_set_jaccard():
+    import random
+
+    from harness.text import set_jaccard, set_jaccard_at_least
+
+    rng = random.Random(7)
+    vocab = [f"w{i}" for i in range(12)]
+    taus = [0.0, 0.1, 1 / 3, 0.5, 2 / 3, 0.7, 0.9, 1.0]
+    for _ in range(3000):
+        a = set(rng.sample(vocab, rng.randint(0, 8)))
+        b = set(rng.sample(vocab, rng.randint(0, 8)))
+        for tau in taus:
+            assert set_jaccard_at_least(a, b, tau) == (set_jaccard(a, b) >= tau), (a, b, tau)
+
+
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("tau", [0.0, 0.05, 0.3, 1 / 3, 0.5, 0.7, 0.9, 1.0])
+def test_jaccard_index_finds_exactly_the_similar_earlier_sets(seed, tau):
+    import random
+
+    from harness.text import JaccardIndex, set_jaccard_at_least
+
+    rng = random.Random(seed)
+    common = ["the", "a", "to", "of", "and", "in", "it", "is", "something", "function"]
+    rare = [f"word{i}" for i in range(80)]
+    base = [{rng.choice(common + rare) for _ in range(rng.randint(0, 25))} for _ in range(30)]
+    index = JaccardIndex(tau)
+    seen: list[set[str]] = []
+    for _ in range(300):  # crosses the re-ordering at 32, 64, 128 and 256 sets
+        roll = rng.random()
+        if roll < 0.05:
+            tokens: set[str] = set()
+        elif roll < 0.5:
+            tokens = {t for t in rng.choice(base) if rng.random() > 0.2}
+        else:
+            tokens = {rng.choice(common + rare) for _ in range(rng.randint(1, 35))}
+        expected = [j for j, other in enumerate(seen) if set_jaccard_at_least(tokens, other, tau)]
+        assert index.add(tokens) == expected
+        seen.append(tokens)

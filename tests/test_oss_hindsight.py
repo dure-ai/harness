@@ -67,6 +67,22 @@ def test_flush_waits_then_checks_failed(fake, engine):
     assert fake.requests[-1].query["status"] == "failed"
 
 
+def test_flush_polls_soon_then_backs_off_to_the_poll_interval(fake):
+    waits = []
+    eng = make(fake, sleep=waits.append)
+    fake.pending_rounds = 7; eng.reset("ns"); eng.record(ev("e1")); eng.flush()
+    # Background work often ends within a moment: the first polls come quickly, then double
+    # up to the poll interval instead of always waiting the whole interval.
+    assert waits == [0.05, 0.1, 0.2, 0.4, 0.5, 0.5, 0.5]
+
+
+@pytest.mark.parametrize("waits", [{"first_poll": 0}, {"first_poll": -1}, {"poll_interval": 0}])
+def test_a_wait_that_is_not_positive_is_refused(fake, waits):
+    # A zero wait never doubles, so flush would send its status requests back to back.
+    with pytest.raises(ValueError, match="positive"):
+        make(fake, **waits)
+
+
 def test_flush_timeout(fake):
     fake.pending_rounds = 10**6
     eng = make(fake, clock=iter(range(0, 10**6, 100)).__next__, flush_timeout=600)
