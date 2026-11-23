@@ -389,6 +389,19 @@ def test_bench_run_says_exported_files_are_drafts_and_runs_them_with_include_dra
     assert summary["meta"]["include_drafts"] is True
 
 
+def test_bench_run_says_how_many_drafts_a_mixed_folder_leaves_out(tmp_path: Path, cached: Path):
+    sc = tmp_path / "sc"
+    r = runner.invoke(app, ["bench", "export", "--dataset", "longmemeval-s", "--out", str(sc)])
+    assert r.exit_code == 0, r.output
+    drafts = len(list(sc.rglob("*.yaml")))
+    approved = Path("scenarios/dev/leak_personal/leak_personal-pypistats-cd5645.yaml")
+    (sc / approved.name).write_text(approved.read_text(encoding="utf-8"), encoding="utf-8")
+    out = tmp_path / "out"
+    r = runner.invoke(app, ["bench", "run", "--scenarios", str(sc), "--yes", "--blind-seed", "1", "--out", str(out)])
+    assert r.exit_code == 0, r.output
+    assert f"skipped {drafts} draft scenario" in r.output and "--include-drafts" in r.output
+
+
 def test_include_drafts_applies_to_scenarios_only(tmp_path: Path, cached: Path):
     r, out = bench_run(tmp_path, "--include-drafts")
     assert r.exit_code == 2 and "--include-drafts applies to --scenarios only" in r.output

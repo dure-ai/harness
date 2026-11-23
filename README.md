@@ -135,7 +135,7 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
   --engine tests.dummy_engine:LatestWins --repeat 2 --out runs
 ```
 
-엔진은 `harness.contract.BaseEngine`을 구현합니다(`info`, `reset`, `record`, `search`, 선택으로 `tick`·`flush`). 백엔드에 닿지 못하거나 재시도할 만한 실패가 계속되면 `harness.contract.EngineUnavailable`을 상속한 예외를 던지면 연속 중단 대상이 되고, 그 밖의 예외는 그 시나리오만 오류로 끝납니다. 결과의 `sources`에 근거 이벤트 id를 채우면 출처로 정밀 채점되고, 비우면 사실의 판정 문자열(`markers`)로 채점됩니다.
+엔진은 `harness.contract.BaseEngine`을 구현합니다(`info`, `reset`, `record`, `search`, 선택으로 `tick`·`flush`·`usage`. `usage`는 `harness bench run`이 시나리오마다 비용을 읽을 때 씁니다). 백엔드에 닿지 못하거나 재시도할 만한 실패가 계속되면 `harness.contract.EngineUnavailable`을 상속한 예외를 던지면 연속 중단 대상이 되고, 그 밖의 예외는 그 시나리오만 오류로 끝납니다. 결과의 `sources`에 근거 이벤트 id를 채우면 출처로 정밀 채점되고, 비우면 사실의 판정 문자열(`markers`)로 채점됩니다.
 
 ### 종료 코드
 
@@ -351,8 +351,9 @@ uv run harness bench run --scenarios scenarios/dev --yes   # 데이터셋 대신
   - `promote`의 about은 근거 세션 전부이고 그중 하나에만 닿아도 TP입니다. 그래서 `multi-session`의 M2는 "근거 세션을 모두 찾았다"가 아니라 "근거 세션 하나 이상에 닿았다"입니다.
   - knowledge-update에서 옛 값을 묻는 문항(라벨 `old`)은 about이 옛 사실뿐이라, 새 세션만 가리킨 결과는 틀린 근거가 아니라 관련 없는 결과로 셉니다(M2에서 TP가 아닐 뿐 M1에는 들어가지 않습니다).
 - **건너뛴 문항의 이유**가 리포트 머리말에 이유별로 남습니다. `evidence session after the question`은 원본의 근거 세션 날짜가 질문보다 늦은 경우(데이터 문제), `evidence turn pushed past the question by turn spacing`은 변환기가 턴을 1분 간격(앞 이벤트보다 늦지 않으면 그 1초 뒤)으로 놓다가 근거 턴이 질문 시각을 넘은 경우(변환기 탓)입니다.
-- **knowledge-update는 판정이 다릅니다.** LongMemEval의 원래 판정은 옛 값과 새 값을 같이 말해도 새 값이 답이면 정답으로 봅니다. 이 하네스는 옛 사실을 근거로 행동하면 `block` FP로 세므로 섞인 근거는 틀린 것입니다. 이 차이는 의도한 것이니 같은 문항의 점수를 논문이나 다른 구현의 값과 직접 비교하지 않습니다.
+- **knowledge-update는 판정이 다릅니다.** LongMemEval의 원래 판정은 옛 값과 새 값을 같이 말해도 새 값이 답이면 정답으로 봅니다. 이 하네스는 옛 사실을 근거로 행동하면 `block` FP로 세므로, 결과 하나의 근거에 옛 사실과 새 사실이 함께 있으면(섞인 근거) 틀린 것입니다. 결과 여러 개에 나뉘어 있으면 에이전트가 따르는 첫 관련 결과가 판정을 정합니다. 새 근거만 든 결과가 먼저면 뒤에 옛 근거를 든 결과가 있어도 FP가 아닙니다. 이 차이는 의도한 것이니 같은 문항의 점수를 논문이나 다른 구현의 값과 직접 비교하지 않습니다.
 - **`--scenarios`는 개발용 세트(`scenarios/dev` 등)를 돌려 보는 용도입니다.** 봉인한 테스트 세트에는 쓰지 않습니다. `bench run`에는 `--sealed`가 없고, `results.jsonl`과 리포트에 시나리오·문항 id가 늘 남습니다.
+- **메모리**: `bench run`과 `bench export`는 데이터셋 JSON(277 MB) 전체를 한 번에 읽습니다. 모든 문항 유형을 돌리면 최대 RSS가 약 2 GB입니다(`bench run --gold` 2.2 GB, `bench export` 1.9 GB에서 측정).
 - `harness run`만 외부 계열을 막습니다. `scenario check`와 `selfcheck --include-drafts`는 `ext_*` 시나리오도 받습니다(형식 검사와 기준선 확인은 외부 계열에도 그대로 맞습니다).
 
 ## 스트레스 세트 (`stress`)

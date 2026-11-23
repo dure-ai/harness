@@ -823,8 +823,8 @@ def _bench_source(
     A dataset must be known and cached with the right sha256 (exit 2 otherwise); its items are
     converted lazily. Scenario files are loaded now: approved ones only unless `include_drafts`.
     When only drafts are found (such as `bench export` or `harness stress build` output), it
-    exits 2 and says so. A stress variant's group is "<family>/<knob>=<value>", any other
-    scenario's its family.
+    exits 2 and says so; when some are drafts, it warns how many it leaves out. A stress variant's
+    group is "<family>/<knob>=<value>", any other scenario's its family.
     """
     from harness.stress.groups import group_of
     from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
@@ -845,11 +845,17 @@ def _bench_source(
         return found, dataset_facts(ds, file_sha256), ds.name
     assert scenarios_path is not None
     loaded = _load_scenarios(scenarios_path, include_drafts=include_drafts)
-    if not loaded and not include_drafts and _load_scenarios(scenarios_path, include_drafts=True):
+    drafts = 0 if include_drafts else len(_load_scenarios(scenarios_path, include_drafts=True)) - len(loaded)
+    if not loaded and drafts:
         raise _fail(
             f"error: the scenarios in {scenarios_path} are drafts (bench export and harness stress build "
             "write drafts); pass --include-drafts to run them",
             2,
+        )
+    if drafts:
+        typer.echo(
+            f"warning: skipped {drafts} draft scenario(s) in {scenarios_path}; pass --include-drafts to run them",
+            err=True,
         )
     found = [Converted(s, s.id, group_of(s), None) for s in loaded[:limit]]
     return found, scenario_facts(str(scenarios_path), include_drafts), "scenarios"
