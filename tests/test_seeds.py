@@ -140,8 +140,21 @@ def test_seeds_cli_needs_two_seeds(tmp_path):
 
 
 def test_seeds_cli_rejects_unknown_engine(tmp_path):
-    result = _seeds_cli(tmp_path, "--engine", "all_store_noacl")
-    assert result.exit_code == 2
+    for name in ("all_store_noacl", "typo"):
+        (tmp_path / name).mkdir()
+        result = _seeds_cli(tmp_path / name, "--engine", name)
+        assert result.exit_code == 2
+        assert f"unknown engine {name!r}" in result.output
+
+
+def test_seeds_cli_warns_about_each_guessable_seed(tmp_path):
+    result = _seeds_cli(tmp_path, "--blind-seed", "5", "--blind-seed", "7", "--blind-seed", str(2**40))
+    assert result.exit_code == 0, result.output
+    assert "--blind-seed 5 is small and guessable" in result.output
+    assert "--blind-seed 7 is small and guessable" in result.output
+    assert f"--blind-seed {2**40} is small" not in result.output
+    ids = json.loads((Path(result.output.strip().splitlines()[-1]).parent / "engine_ids.json").read_text())
+    assert ids["seeds"] == [5, 7, 2**40]
 
 
 def test_seeds_cli_warns_that_n_is_ignored_with_blind_seeds(tmp_path):
