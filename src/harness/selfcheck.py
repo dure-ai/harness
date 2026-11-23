@@ -9,6 +9,7 @@ from harness.metrics import FamilyRow, Metrics, compute_metrics
 from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, run_scenario
 from harness.scenario.model import Scenario
 from harness.scenario.validate import Issue
+from harness.scoring import probe_correct
 from harness.stats import Rate
 from harness.world import probe_ctx, true_at
 
@@ -192,9 +193,9 @@ def check_discrimination(s: Scenario, cfg: EvalConfig) -> list[Issue]:
 
     issues: list[Issue] = []
     for rec in runs["oracle"].probes:
-        if rec.kind == "block" and rec.outcome == "FP":
+        if rec.kind == "block" and not probe_correct(rec.kind, rec.outcome):
             issues.append(Issue("error", "oracle_wrong", f"oracle follows a false fact on block probe {rec.probe_id}"))
-        if rec.kind == "promote" and rec.outcome != "TP":
+        if rec.kind == "promote" and not probe_correct(rec.kind, rec.outcome):
             issues.append(Issue("error", "oracle_wrong", f"oracle outcome {rec.outcome} (want TP) on promote probe {rec.probe_id}"))
         if rec.leaks:
             issues.append(Issue("error", "oracle_wrong", f"oracle leaks on probe {rec.probe_id}"))

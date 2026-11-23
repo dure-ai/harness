@@ -136,3 +136,21 @@ def test_secret_marker_is_found_through_spacing_and_hyphen_changes(text):
 def test_unrelated_text_is_not_a_secret_marker_leak():
     s, p, events = _leak_world()
     assert find_leaks([Result(text="top of the secret list")], p, s, events) == []
+
+
+@pytest.mark.parametrize(
+    ("index", "basis", "abstained"),
+    [(None, frozenset(), True), (0, frozenset(), True), (0, frozenset({"f1"}), False)],
+)
+def test_choice_abstains_without_a_result_or_a_fact(index, basis, abstained):
+    assert Choice(index, basis).abstained is abstained
+
+
+def test_probe_correct_is_one_rule_for_selfcheck_and_the_bench():
+    from harness.bench import gold
+    from harness.scoring import probe_correct
+
+    assert gold.probe_correct is probe_correct
+    assert [probe_correct("block", o) for o in ("FP", "BLOCKED")] == [False, True]
+    assert [probe_correct("promote", o) for o in ("TP", "FN", "PROMOTE_FP")] == [True, False, False]
+    assert not probe_correct("leak", "LEAK_ONLY")

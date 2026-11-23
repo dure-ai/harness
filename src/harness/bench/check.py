@@ -5,12 +5,12 @@ from collections.abc import Callable, Iterable, Iterator
 from harness.baselines.oracle import OracleEngine
 from harness.baselines.simple import NoneEngine
 from harness.bench.dataset import Converted
-from harness.bench.gold import probe_correct
 from harness.config import EvalConfig
 from harness.contract import BaseEngine
 from harness.replay import ScenarioRun, blind_key, run_scenario
 from harness.scenario.model import Scenario
 from harness.scenario.validate import validate_scenario
+from harness.scoring import probe_correct
 
 _RUN_ID = "bench-check"
 

@@ -24,6 +24,11 @@ class Choice:
     index: int | None
     basis: frozenset[str]
 
+    @property
+    def abstained(self) -> bool:
+        """Whether there is nothing to act on: no result followed, or one that states no fact."""
+        return self.index is None or not self.basis
+
 
 def _marker_hits(result: Result, scenario: Scenario, fact_ids) -> set[str]:
     # Facts whose markers appear in the text (case-insensitive). Used when an engine returns no

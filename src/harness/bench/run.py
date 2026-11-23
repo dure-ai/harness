@@ -11,9 +11,9 @@ from harness.bench.config import BenchConfig
 from harness.bench.dataset import Converted, Dataset
 from harness.bench.gold import gold_copy
 from harness.bench.timing import TimedEngine
-from harness.contract import EngineInfo, EngineUnavailable
+from harness.contract import EngineInfo
 from harness.engines import make_engine
-from harness.replay import ScenarioRun, error_kind_of, run_scenario
+from harness.replay import ScenarioRun, run_scenario
 from harness.scenario.model import Scenario
 from harness.stress.groups import base_of
 
@@ -120,14 +120,7 @@ def _run_one(name: str, s: Scenario, cfg: BenchConfig, run_id: str, key: bytes, 
         if name not in out.infos:
             out.infos[name] = engine.info()
     except Exception as e:
-        return ScenarioRun(
-            s.id,
-            s.family,
-            s.mode,
-            error=f"{type(e).__name__}: {e}",
-            error_kind=error_kind_of(e),
-            status="unavailable" if isinstance(e, EngineUnavailable) else "error",
-        )
+        return ScenarioRun.failed(s.id, s.family, s.mode, e)
     wrapper = TimedEngine(engine)
     out.timed.setdefault(name, []).append(wrapper)
     try:
