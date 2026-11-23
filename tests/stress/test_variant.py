@@ -122,6 +122,31 @@ def test_position_places_noise_after_or_before_the_events():
     assert any(t < first_event for t in middle) and any(t > last_event for t in middle)
 
 
+def on_the_minute(t: datetime) -> bool:
+    return t.second == 0 and t.microsecond == 0
+
+
+def test_noise_times_have_the_grain_of_the_history():
+    """Every labeled event is on a whole minute, so noise must be too, or its time alone gives it away."""
+    for s, v in every_variant():
+        assert all(on_the_minute(e.t) for e in s.events), s.id
+        assert all(on_the_minute(e.t) for e in noise_events(v, s)), v.id
+
+
+def test_noise_times_are_not_evenly_spaced():
+    s = one("coincidence")
+    times = [e.t for e in noise_events(add_noise(s, pool(), 20, "early", seed=3), s)]
+    assert times == sorted(times)
+    assert len({b - a for a, b in zip(times, times[1:], strict=False)}) > 3
+
+
+def test_noise_authors_are_user_and_session_pairs_the_history_has():
+    """A user in a session they never used would set the noise apart; every base session has one user."""
+    for s, v in every_variant():
+        pairs = {(e.user, e.session) for e in s.events}
+        assert all((e.user, e.session) in pairs for e in noise_events(v, s)), v.id
+
+
 def test_neighbouring_knob_values_share_their_noise():
     s = one("conditional")
 
@@ -150,6 +175,20 @@ def test_noise_never_carries_a_marker_a_source_trace_or_the_same_repository():
     ]
     if s.provenance.source_traces:
         candidates.append(NoiseText(s.provenance.source_traces[0], "a harmless line of text from the same trace", "x/y"))
+    usable = NoisePool(candidates).usable_for(s)
+    assert {t.trace_id for t in usable} == {f"t{i}" for i in range(7)}
+
+
+def test_noise_never_carries_a_secret_in_any_spelling():
+    """Noise is filtered by the `contains_secret` rule, so case and separator variants are caught too."""
+    s = one("leak_cross_team")
+    secret = next(m for e in s.events for m in e.secret_markers)
+    spelled = secret.upper().replace("_", " - ")
+    candidates = [
+        NoiseText("exact", f"the token {secret} was printed in the build log of the last nightly run", "other/repo"),
+        NoiseText("spelled", f"the token {spelled} was printed in the build log of the last nightly run", "other/repo"),
+        *texts(60),
+    ]
     usable = NoisePool(candidates).usable_for(s)
     assert {t.trace_id for t in usable} == {f"t{i}" for i in range(7)}
 

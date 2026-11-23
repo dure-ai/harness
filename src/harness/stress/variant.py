@@ -27,8 +27,8 @@ LATE_WINDOW = timedelta(days=7)  # how far before the first event "late" noise s
 class VariantError(ValueError):
     """A variant cannot be built.
 
-    Too few usable noise texts, askers on several teams, no history before the first probe, an
-    unknown knob value, or a result that is not a valid scenario.
+    Too few usable noise texts, askers on several teams, no event by the askers' team, no history
+    before the first probe, an unknown knob value, or a result that is not a valid scenario.
     """
 
 
@@ -37,13 +37,28 @@ def _rng(seed: int, *parts: object) -> random.Random:
     return random.Random(":".join(map(str, (seed, *parts))))
 
 
-def _between(start: datetime, end: datetime, n: int) -> list[datetime]:
-    """`n` times evenly spaced inside (start, end); all equal to `start` when start == end."""
-    step = (end - start) / (n + 1)
-    return [start + step * (i + 1) for i in range(n)]
+MINUTE = timedelta(minutes=1)
 
 
-def _noise_times(s: Scenario, n: int, position: Position) -> list[datetime]:
+def _minutes(start: datetime, end: datetime, n: int, rng: random.Random) -> list[datetime]:
+    """`n` whole-minute times strictly inside (start, end), drawn by `rng`, in increasing order.
+
+    Labeled events are on whole minutes, so noise is too, at irregular steps: an even cadence or
+    a finer grain would tell noise from evidence by its time alone. The minutes are distinct
+    while the window has enough of them and repeat otherwise. With no whole minute inside the
+    window, every time is `start`.
+    """
+    if n == 0:
+        return []
+    first = start.replace(second=0, microsecond=0) + MINUTE
+    count = max(0, -(-(end - first) // MINUTE))  # minutes first, first + 1 min, ... before end
+    if count == 0:
+        return [start] * n
+    picks = rng.sample(range(count), n) if count >= n else rng.choices(range(count), k=n)
+    return [first + MINUTE * i for i in sorted(picks)]
+
+
+def _noise_times(s: Scenario, n: int, position: Position, rng: random.Random) -> list[datetime]:
     """Times for `n` noise events, all before the first probe, in increasing order.
 
     The history recorded by the first probe is the events at or before its time. "early": the
@@ -60,7 +75,7 @@ def _noise_times(s: Scenario, n: int, position: Position) -> list[datetime]:
         raise VariantError(f"{s.id}: no event before the first probe to place noise around")
     first, last = min(recorded), max(recorded)
     after = {"early": n, "late": 0, "middle": n - n // 2}[position]
-    return _between(first - LATE_WINDOW, first, n - after) + _between(last, p0, after)
+    return _minutes(first - LATE_WINDOW, first, n - after, rng) + _minutes(last, p0, after, rng)
 
 
 def _draw(s: Scenario, pool: NoisePool, seed: int) -> list[NoiseText]:
@@ -82,9 +97,12 @@ def _add_noise(s: Scenario, pool: NoisePool, n: int, position: Position, seed: i
     order = _draw(s, pool, seed)
     if len(order) < n:
         raise VariantError(f"{s.id}: {len(order)} usable noise texts, {n} needed")
-    times = _noise_times(s, n, position)
-    members = sorted(s.world.teams[teams.pop()])
-    sessions = sorted({e.session for e in s.events})
+    times = _noise_times(s, n, position, _rng(seed, s.id, "when", position, n))
+    members = s.world.teams[teams.pop()]
+    # A user in a session they never used would set the noise apart, so authors are pairs the history has.
+    authors = sorted({(e.user, e.session) for e in s.events if e.user in members})
+    if not authors:
+        raise VariantError(f"{s.id}: no event by the askers' team to take a noise author from")
     repo = Counter(e.repo for e in s.events).most_common(1)[0][0]
     who = _rng(seed, s.id, "who")  # drawn in text order, so the first n authors are the same for every n
     taken = {e.id for e in s.events}
@@ -94,9 +112,10 @@ def _add_noise(s: Scenario, pool: NoisePool, n: int, position: Position, seed: i
         while event_id in taken:
             event_id += "x"
         taken.add(event_id)
+        user, session = who.choice(authors)
         noise.append(
             ScenarioEvent(
-                id=event_id, t=t, user=who.choice(members), session=who.choice(sessions), repo=repo,
+                id=event_id, t=t, user=user, session=session, repo=repo,
                 scope="team", signal="self", kind="agent_record", outcome="unknown", text=pick.text,
             )
         )
@@ -109,13 +128,14 @@ def _add_noise(s: Scenario, pool: NoisePool, n: int, position: Position, seed: i
 def add_noise(s: Scenario, pool: NoisePool, n: int, position: Position, *, seed: int) -> Scenario:
     """`s` with `n` unlabeled events every asker can see, placed by `position` before the first probe.
 
-    Each noise event has no fact, no secret marker and team scope, a user from the askers' team,
-    one of the scenario's sessions and its most common repository. The same arguments give the
+    Each noise event has no fact, no secret marker and team scope, a (user, session) pair that an
+    event by the askers' team already has, its most common repository, and a whole-minute time
+    drawn by the seed (see `_minutes`). The same arguments give the
     same scenario, and a smaller `n` gives a prefix of a larger one's texts and authors.
 
     Raises:
         VariantError: Askers on several teams, too few usable texts (see `NoisePool.usable_for`),
-            or no event recorded by the first probe.
+            no event by the askers' team, or no event recorded by the first probe.
     """
     return _add_noise(s, pool, n, position, seed)[0]
 
