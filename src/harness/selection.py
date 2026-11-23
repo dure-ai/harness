@@ -227,8 +227,7 @@ def relative_metrics(
 
 
 def _promote_tp_by_scenario(runs: list[ScenarioRun]) -> dict[str, tuple[int, int]]:
-    ids = sorted(r.scenario_id for r in runs if r.error is None and r.mode == "read_only")
-    return dict(zip(ids, per_scenario_counts(runs, "promote", "TP")))
+    return per_scenario_counts(runs, "promote", "TP")
 
 
 def _canonical_ci(

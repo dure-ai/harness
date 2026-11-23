@@ -521,22 +521,22 @@ def run(
         for name in BASELINES
     ]
     report_runs = dict(base_runs)
-    repeat_counts: dict[str, int] = dict.fromkeys(BASELINES, 1)
-
-    candidate_scores: list[EngineScore] = []
-    candidate_runs: dict[str, list[ScenarioRun]] = {}
-    candidate_repeats: dict[str, list[list[ScenarioRun]]] = {}
-    for name in candidates:
-        repeats = repeat if repeat is not None else cfg.llm_repeats
-        per_repeat = _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed=sealed)
-        metrics = [compute_metrics(runs, by_id) for runs in per_repeat]
-        flip = flip_rate(per_repeat) if repeats > 1 else None
-        candidate_scores.append(
-            EngineScore.from_repeats(name, metrics, base, cfg, flip)
+    repeats = repeat if repeat is not None else cfg.llm_repeats
+    candidate_repeats = {
+        name: _run_extra(name, repeats, scenario_list, cfg, run_id, infos, key, sealed=sealed) for name in candidates
+    }
+    candidate_scores = [
+        EngineScore.from_repeats(
+            name,
+            [compute_metrics(runs, by_id) for runs in per_repeat],
+            base,
+            cfg,
+            flip_rate(per_repeat) if repeats > 1 else None,
         )
-        candidate_runs[name] = per_repeat[0]
-        candidate_repeats[name] = per_repeat
-        repeat_counts[name] = repeats
+        for name, per_repeat in candidate_repeats.items()
+    ]
+    candidate_runs = {name: per_repeat[0] for name, per_repeat in candidate_repeats.items()}
+    repeat_counts = dict.fromkeys(BASELINES, 1) | dict.fromkeys(candidates, repeats)
 
     ranking = rank(candidate_scores, candidate_runs, cfg)
     meta = RunMeta(

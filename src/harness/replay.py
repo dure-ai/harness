@@ -12,7 +12,7 @@ from typing import Literal, Self
 
 from harness.agent import Choice, choose, result_basis
 from harness.config import EvalConfig
-from harness.contract import BaseEngine, EngineUnavailable, Event, Result
+from harness.contract import BaseEngine, EngineUnavailable, Event, Query, Result
 from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, Scenario
 from harness.scoring import Leak, ProbeOutcome, find_leaks, is_wrong, judge
 
@@ -466,31 +466,18 @@ def run_scenario(
 
     while timeline:
         t, item = timeline.pop()
+        tick_at = t if virtual_clock else None
         if isinstance(item, LabeledEvent):
             try:
-                if virtual_clock:
-                    engine.tick(t)
-                start = time.perf_counter()
-                engine.record(ids.out(item.event))
-                run.record_ms.append((time.perf_counter() - start) * 1000)
+                run.record_ms.append(_record(engine, ids, item.event, tick_at))
             except Exception as e:
                 run.fail(e)
                 return run
             recorded[item.event.id] = item
             continue
-        query = scenario.query_for(
-            item, cfg.k
-        )  # harness code: not wrapped, so harness bugs surface
+        query = scenario.query_for(item, cfg.k)  # harness code: not wrapped, so harness bugs surface
         try:
-            if virtual_clock:
-                engine.tick(t)
-            engine.flush()
-            start = time.perf_counter()
-            raw = list(engine.search(query))
-            search_ms = (time.perf_counter() - start) * 1000
-            raw = [
-                _as_result(r) for r in raw
-            ]  # a malformed return errors this scenario only
+            raw, search_ms = _search(engine, query, tick_at)
         except Exception as e:
             run.fail(e)
             return run
@@ -500,11 +487,32 @@ def run_scenario(
         if scenario.mode == "feedback" and item.feedback is not None:
             index = record.choice.index
             judged = results[index].sources if index is not None else ()
-            for slot, generated in feedback_events(
-                item, record.choice, scenario, cfg, taken, judged
-            ):
+            for slot, generated in feedback_events(item, record.choice, scenario, cfg, taken, judged):
                 taken.add(generated.event.id)  # id numbering/clash set only; evidence is `recorded`
                 run.generated.append(generated)
                 run.generated_ids[(item.id, slot)] = generated.event.id
                 push_event(timeline, generated)
     return run
+
+
+def _record(engine: BaseEngine, ids: _EngineIds, event: Event, tick_at: datetime | None) -> float:
+    """`tick` (with a virtual clock), then `record` the event under its opaque id; the call's ms."""
+    if tick_at is not None:
+        engine.tick(tick_at)
+    start = time.perf_counter()
+    engine.record(ids.out(event))
+    return (time.perf_counter() - start) * 1000
+
+
+def _search(engine: BaseEngine, query: Query, tick_at: datetime | None) -> tuple[list[Result], float]:
+    """`tick` (with a virtual clock), `flush`, then `search`; the validated results and the search ms.
+
+    A malformed item raises here, so it errors this scenario only.
+    """
+    if tick_at is not None:
+        engine.tick(tick_at)
+    engine.flush()
+    start = time.perf_counter()
+    raw = list(engine.search(query))
+    search_ms = (time.perf_counter() - start) * 1000
+    return [_as_result(r) for r in raw], search_ms

@@ -336,8 +336,11 @@ def test_per_scenario_counts():
         run("s3", [rec("a", "block", "FP")], family="echo", mode="feedback"),
         run("s4", [rec("a", "block", "FP")], error="x"),
     ]
-    assert per_scenario_counts(runs, "block", "FP") == [(0, 0), (1, 2)]
-    assert per_scenario_counts(runs, "promote", "TP") == [(1, 1), (0, 0)]
+    block = per_scenario_counts(runs, "block", "FP")
+    promote = per_scenario_counts(runs, "promote", "TP")
+    assert list(block) == ["s1", "s2"]  # ordered by scenario id
+    # The feedback run and the errored run are left out.
+    assert block == {"s1": (0, 0), "s2": (1, 2)} and promote == {"s1": (1, 1), "s2": (0, 0)}
 
 
 def test_flip_rate():

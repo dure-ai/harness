@@ -540,17 +540,8 @@ def _section_errors(
     return [*out, *markdown_table(["엔진", "회차", "시나리오", "상태", "오류"], rows)]
 
 
-def _markdown(
-    meta: RunMeta,
-    ordered: list[EngineScore],
-    ranking: list[RankEntry],
-    runs: Mapping[str, list[ScenarioRun]],
-    repeat_runs: Mapping[str, list[list[ScenarioRun]]],
-    selfcheck: list[CheckResult],
-    ids: Mapping[str, str],
-    scrub: Callable[[str], str],
-) -> str:
-    by_name = {s.engine_id: s for s in ordered}
+def _section_head(meta: RunMeta, ids: Mapping[str, str]) -> list[str]:
+    """Title and run facts: what was run, on what, and how repeats were pooled."""
     roots = (
         f"- 시나리오 경로 수: {len(meta.scenario_roots)}"
         if meta.sealed
@@ -558,7 +549,7 @@ def _markdown(
     )
     repeats = ", ".join(f"{ids[name]} {n}" for name, n in _ordered_repeats(meta, ids)) or "-"
     repeated = any(n > 1 for n in meta.repeats.values())
-    head = [
+    return [
         "# 메모리 평가 리포트",
         "",
         *([DRAFTS_WARNING, ""] if meta.include_drafts else []),
@@ -576,13 +567,12 @@ def _markdown(
         *([f"- 집계: {AGGREGATION_NOTE}"] if repeated else []),
         "",
     ]
-    check_rows = [
-        [c.name, "통과" if c.ok else "실패", "-" if meta.sealed else scrub(c.detail)] for c in selfcheck
-    ]
-    lines = [
-        *head,
-        *_section_judgment(ordered, ids),
-        *_section_aux(ordered, ids, by_name),
+
+
+def _section_breakdowns(meta: RunMeta, ordered: list[EngineScore], ids: Mapping[str, str]) -> list[str]:
+    """M1-M3 by family, in feedback mode by family, and M1/M2 by who wrote the events."""
+    repeated = any(n > 1 for n in meta.repeats.values())
+    return [
         "## 계열별",
         "",
         *([POOLING_CAVEAT, ""] if repeated else []),
@@ -603,13 +593,36 @@ def _markdown(
                 for author, t in s.metrics.by_author.items()
             ],
         ),
+    ]
+
+
+def _section_selfcheck(meta: RunMeta, selfcheck: list[CheckResult], scrub: Callable[[str], str]) -> list[str]:
+    """The baseline self-check; details are hidden under --sealed."""
+    rows = [[c.name, "통과" if c.ok else "실패", "-" if meta.sealed else scrub(c.detail)] for c in selfcheck]
+    return ["## 자가 검증", "", *markdown_table(["검사", "결과", "상세"], rows)]
+
+
+def _markdown(
+    meta: RunMeta,
+    ordered: list[EngineScore],
+    ranking: list[RankEntry],
+    runs: Mapping[str, list[ScenarioRun]],
+    repeat_runs: Mapping[str, list[list[ScenarioRun]]],
+    selfcheck: list[CheckResult],
+    ids: Mapping[str, str],
+    scrub: Callable[[str], str],
+) -> str:
+    by_name = {s.engine_id: s for s in ordered}
+    lines = [
+        *_section_head(meta, ids),
+        *_section_judgment(ordered, ids),
+        *_section_aux(ordered, ids, by_name),
+        *_section_breakdowns(meta, ordered, ids),
         *_section_ranking(ranking, ids),
         *_section_performance(ordered, ids),
         *_section_limits(meta, ids, scrub),
         *_section_errors(meta, repeat_runs, ids, scrub),
-        "## 자가 검증",
-        "",
-        *markdown_table(["검사", "결과", "상세"], check_rows),
+        *_section_selfcheck(meta, selfcheck, scrub),
     ]
     return "\n".join(lines)
 
