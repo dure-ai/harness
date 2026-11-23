@@ -142,7 +142,9 @@ class RepeatNEngine(_IndexedEngine):
         self.tau = tau
         # Per namespace, by position in the store: the positions of the events similar to each
         # event (itself included when it is similar to itself). Found once, when an event is
-        # recorded, so a query only counts them; the index finds them without a full scan.
+        # recorded, so a query only counts them; the index finds them without a full scan. Every
+        # similar pair is stored twice, so memory grows with the square of the events when most
+        # are alike (about 1 GB for 10,000 near-identical events).
         self._similar: dict[str, list[list[int]]] = {}
         self._joins: dict[str, JaccardIndex] = {}
 

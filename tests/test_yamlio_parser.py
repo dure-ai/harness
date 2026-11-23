@@ -2,6 +2,7 @@
 parser gives: approval hashes are computed from the parsed content, so any difference would
 invalidate approved scenarios."""
 
+import subprocess
 from datetime import date, datetime
 from pathlib import Path
 
@@ -11,9 +12,14 @@ import yaml
 from harness.yamlio import PurePythonUniqueKeyLoader, UniqueKeyLoader, load_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# The tracked files only: a walk of the checkout would also pick up other checkouts or worktrees
+# nested in it, and skip any directory that happens to be named `runs`.
 FILES = sorted(
-    p for p in ROOT.rglob("*.y*ml")
-    if p.suffix in (".yaml", ".yml") and ".venv" not in p.parts and "runs" not in p.parts
+    ROOT / name
+    for name in subprocess.run(
+        ["git", "ls-files", "-z", "*.yaml", "*.yml"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.split("\0")
+    if name
 )
 
 
@@ -68,3 +74,38 @@ def test_both_parsers_reject_a_repeated_key_with_its_line(loader):
     assert load_yaml("k: 1") == {"k": 1}
     assert isinstance(load_yaml("t: 2026-10-01T13:00:00+09:00")["t"], datetime)
     assert isinstance(load_yaml("d: 2026-10-01")["d"], date)
+
+
+@pytest.mark.parametrize(
+    ("text", "fast", "pure"),
+    [
+        ("a: b\tc\n", {"a": "b\tc"}, "ScannerError"),  # a tab inside a plain scalar
+        ('a: "\\ud83d\\ude00"\n', "ScannerError", {"a": "\ud83d\ude00"}),  # an escaped surrogate pair
+    ],
+    ids=["tab-in-plain-scalar", "escaped-surrogate-pair"],
+)
+def test_the_parsers_differ_where_the_docstring_says(text, fast, pure):
+    """Pins the differences UniqueKeyLoader's docstring lists, so a PyYAML or libyaml upgrade that
+    changes them is noticed. No file in the repository uses either form."""
+    if not getattr(yaml, "__with_libyaml__", False):
+        pytest.skip("PyYAML was built without libyaml")
+    for loader, expected in ((UniqueKeyLoader, fast), (PurePythonUniqueKeyLoader, pure)):
+        if isinstance(expected, str):
+            with pytest.raises(yaml.YAMLError) as caught:
+                yaml.load(text, Loader=loader)  # noqa: S506
+            assert type(caught.value).__name__ == expected
+        else:
+            assert yaml.load(text, Loader=loader) == expected  # noqa: S506
+
+
+def test_only_the_pure_parser_shows_the_offending_line_in_errors():
+    if not getattr(yaml, "__with_libyaml__", False):
+        pytest.skip("PyYAML was built without libyaml")
+    text = "a: [1, 2\nb: 3\n"
+    messages = {}
+    for loader in (UniqueKeyLoader, PurePythonUniqueKeyLoader):
+        with pytest.raises(yaml.YAMLError) as caught:
+            yaml.load(text, Loader=loader)  # noqa: S506
+        messages[loader] = str(caught.value)
+    assert "^" not in messages[UniqueKeyLoader]
+    assert "^" in messages[PurePythonUniqueKeyLoader]
