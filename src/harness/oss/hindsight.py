@@ -42,6 +42,7 @@ class HindsightEngine(BaseEngine):
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         poll_interval: float = 0.5,
+        first_poll: float = 0.05,
         flush_timeout: float = 600.0,
     ) -> None:
         """Connect to the server and check the model configuration.
@@ -53,14 +54,19 @@ class HindsightEngine(BaseEngine):
             environ: Environment to read; defaults to `os.environ`.
             sleep: Function used to wait, for flush polling and request retries.
             clock: Monotonic clock in seconds, for the flush timeout.
-            poll_interval: Seconds between flush polls.
+            poll_interval: Longest wait between flush polls.
+            first_poll: First wait between flush polls; each later one doubles, up to
+                `poll_interval`, since background work often ends within a moment.
             flush_timeout: Seconds `flush()` waits for background work before giving up.
 
         Raises:
-            ValueError: If the address is not an allowed local one or the models differ.
+            ValueError: If the address is not an allowed local one, the models differ, or
+                `poll_interval` or `first_poll` is not positive.
             EngineHTTPError: If the server cannot be reached; the first build against an address is
                 not retried, later ones are.
         """
+        if poll_interval <= 0 or first_poll <= 0:  # a zero wait never doubles: flush would spin
+            raise ValueError(f"hindsight: poll waits must be positive, got {first_poll} and {poll_interval}")
         env = os.environ if environ is None else environ
         url = check_local_url(base_url or env.get(ENV_URL) or DEFAULT_URL)
         self._llm_model: str
@@ -70,6 +76,7 @@ class HindsightEngine(BaseEngine):
         self._sleep: Callable[[float], None] = sleep
         self._clock: Callable[[], float] = clock
         self._poll_interval: float = poll_interval
+        self._first_poll: float = min(first_poll, poll_interval)
         self._flush_timeout: float = flush_timeout
         version: Any = self._client.request("GET", "/version", retry=url in _verified_urls)
         _verified_urls.add(url)
@@ -153,13 +160,15 @@ class HindsightEngine(BaseEngine):
             RuntimeError: If any background operation failed.
         """
         start = self._clock()
+        wait = self._first_poll
         while True:
             busy = self._total("pending") + self._total("processing")
             if busy == 0:
                 break
             if self._clock() - start > self._flush_timeout:
                 raise FlushTimeout(f"hindsight: background work not finished after {self._flush_timeout}s")
-            self._sleep(self._poll_interval)
+            self._sleep(wait)
+            wait = min(wait * 2, self._poll_interval)
         failed = self._total("failed")
         if failed > 0:
             raise RuntimeError(f"hindsight: {failed} background operations failed")

@@ -82,10 +82,128 @@ def contains_secret(text: str, marker: str) -> bool:
 
 def jaccard(a: str, b: str) -> float:
     """Jaccard similarity of the two texts' token sets; 0.0 when both are empty."""
-    sa, sb = set(tokenize(a)), set(tokenize(b))
+    return set_jaccard(set(tokenize(a)), set(tokenize(b)))
+
+
+def set_jaccard(sa: set[str], sb: set[str]) -> float:
+    """`jaccard` of two token sets already made, for comparing one text with many."""
     if not sa and not sb:
         return 0.0
     return len(sa & sb) / len(sa | sb)
+
+
+def set_jaccard_at_least(sa: set[str], sb: set[str], tau: float) -> bool:
+    """Whether `set_jaccard(sa, sb) >= tau`, without the intersection when the sizes rule it out.
+
+    The Jaccard ratio is at most min(|a|, |b|) / max(|a|, |b|), and float division is monotonic,
+    so when that bound is below `tau` the ratio is too. Otherwise the union's size is taken as
+    |a| + |b| - |a & b|, the same integer `set_jaccard` divides by, so the answer is identical.
+    """
+    la, lb = len(sa), len(sb)
+    if la == 0 and lb == 0:
+        return 0.0 >= tau
+    if min(la, lb) / max(la, lb) < tau:
+        return False
+    inter = len(sa & sb)
+    return inter / (la + lb - inter) >= tau
+
+
+class JaccardIndex:
+    """Incremental similarity join: the earlier sets with Jaccard >= `tau` with each new set.
+
+    It avoids comparing a new set with every earlier one, yet `add` gives the same answer as
+    checking every earlier set with `set_jaccard_at_least`, which still makes the final call;
+    the filters below only skip sets that cannot pass it.
+
+    Prefix filtering: with all sets sorted in one fixed token order, two sets that share at least
+    `a` tokens share one among the first |A| - a + 1 tokens of each, and a pair with Jaccard
+    >= tau shares at least ceil(tau * |A|) tokens. Only those prefixes are indexed and probed.
+    Positional filtering (PPJoin): at a shared prefix token at positions i and j, the pair shares
+    at most (shared tokens found so far) + 1 + min(|A| - i - 1, |B| - j - 1) tokens, since every
+    shared token earlier in the order has been found by then; a pair whose bound is below the
+    overlap tau * (|A| + |B|) / (1 + tau) that Jaccard >= tau needs is dropped.
+
+    The order puts the tokens in fewest earlier sets first, so prefixes hold rare tokens and
+    probe short lists. It is re-taken, and every set re-indexed, each time the number of sets
+    doubles; between two re-orderings every set is indexed in the same order, which the filters
+    need. Bounds are taken a hair loose, so float rounding can only keep a pair, never drop one.
+
+    Args:
+        tau: Similarity threshold; at or below 0 every pair passes and each set is compared
+            with every earlier one.
+    """
+
+    _FIRST_REORDER: int = 32
+    _EPS: float = 1e-9
+
+    def __init__(self, tau: float) -> None:
+        self.tau: float = tau
+        self._sets: list[set[str]] = []
+        self._df: Counter[str] = Counter()  # token -> number of sets holding it
+        self._rank: dict[str, int] = {}  # the document frequencies the current order uses
+        self._index: dict[str, list[tuple[int, int]]] = {}  # token -> (set, position in its order)
+        self._next_reorder: int = self._FIRST_REORDER
+
+    def __len__(self) -> int:
+        return len(self._sets)
+
+    def _prefix(self, tokens: set[str]) -> list[str]:
+        """The first tokens of `tokens` in the current order that the prefix filter needs."""
+        if not tokens:
+            return []
+        rank = self._rank
+        ordered = sorted(tokens, key=lambda t: (rank.get(t, 0), t))
+        shared = max(1, math.ceil(self.tau * len(tokens) - self._EPS))
+        return ordered[: max(0, len(tokens) - shared + 1)]
+
+    def _candidates(self, tokens: set[str]) -> list[int]:
+        """Earlier sets that pass the prefix and positional filters with `tokens`, in order."""
+        la, sets, ratio = len(tokens), self._sets, self.tau / (1 + self.tau)
+        found: dict[int, int] = {}  # set -> shared prefix tokens found so far
+        dropped: set[int] = set()
+        for i, t in enumerate(self._prefix(tokens)):
+            for j, pos in self._index.get(t, ()):
+                if j in dropped:
+                    continue
+                lb = len(sets[j])
+                count = found.get(j, 0)
+                if count + 1 + min(la - i - 1, lb - pos - 1) < math.ceil(ratio * (la + lb) - self._EPS):
+                    dropped.add(j)
+                    _ = found.pop(j, None)
+                else:
+                    found[j] = count + 1
+        return sorted(found)
+
+    def add(self, tokens: set[str]) -> list[int]:
+        """Add `tokens` and return the positions of the earlier sets similar to it, ascending."""
+        position = len(self._sets)
+        candidates = self._candidates(tokens) if self.tau > 0 else range(position)
+        similar = [j for j in candidates if set_jaccard_at_least(tokens, self._sets[j], self.tau)]
+        self._sets.append(tokens)
+        if self.tau > 0:
+            self._df.update(tokens)
+            if len(self._sets) >= self._next_reorder:
+                self._reorder()
+            else:
+                self._insert(position, tokens)
+        return similar
+
+    def _insert(self, position: int, tokens: set[str]) -> None:
+        for i, t in enumerate(self._prefix(tokens)):
+            self._index.setdefault(t, []).append((position, i))
+
+    def _reorder(self) -> None:
+        self._rank = dict(self._df)
+        self._index = {}
+        for position, tokens in enumerate(self._sets):
+            self._insert(position, tokens)
+        self._next_reorder *= 2
+
+
+def counted(text: str) -> tuple[Counter[str], int]:
+    """A text's term counts and token count, as `BM25.add` indexes it."""
+    tokens = tokenize(text)
+    return Counter(tokens), len(tokens)
 
 
 class BM25:
@@ -97,8 +215,8 @@ class BM25:
     """
 
     def __init__(self, k1: float = 1.5, b: float = 0.75) -> None:
-        self.k1 = k1
-        self.b = b
+        self.k1: float = k1
+        self.b: float = b
         self._tf: dict[str, Counter[str]] = {}
         self._len: dict[str, int] = {}
         self._df: Counter[str] = Counter()
@@ -109,12 +227,21 @@ class BM25:
         Raises:
             ValueError: If `doc_id` was already added.
         """
+        self.add_counted(doc_id, *counted(text))
+
+    def add_counted(self, doc_id: str, tf: Counter[str], length: int) -> None:
+        """Index one document from its term counts and token count (see `counted`).
+
+        A caller that indexes the same text for many queries tokenizes it once this way. `tf` is
+        not copied and must not change afterwards.
+
+        Raises:
+            ValueError: If `doc_id` was already added.
+        """
         if doc_id in self._tf:
             raise ValueError(f"duplicate doc id: {doc_id}")
-        tokens = tokenize(text)
-        tf = Counter(tokens)
         self._tf[doc_id] = tf
-        self._len[doc_id] = len(tokens)
+        self._len[doc_id] = length
         self._df.update(tf.keys())
 
     def scores(self, query: str) -> dict[str, float]:

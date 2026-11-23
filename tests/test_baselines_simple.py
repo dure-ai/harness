@@ -127,3 +127,15 @@ def test_repeat_n_dissimilar_not_counted():
     e.record(ev("e1", "vendor module rule"))
     e.record(ev("e2", "vendor totally different words here now"))
     assert e.search(q("vendor")) == []
+
+
+@pytest.mark.parametrize("engine", [AllStoreEngine(), RepeatNEngine(n=2, tau=0.5)], ids=["all_store", "repeat_n"])
+def test_indexed_engines_refuse_a_repeated_event_id(engine):
+    # Term counts are kept by event id, so a second event with the same id would be ranked with
+    # the first one's counts. Validation stops this on the CLI path; direct callers get an error.
+    engine.reset("n")
+    engine.record(ev("e1", "vendor module"))
+    with pytest.raises(ValueError, match="e1"):
+        engine.record(ev("e1", "other text"))
+    engine.reset("m")  # another namespace starts empty
+    engine.record(ev("e1", "vendor module"))
