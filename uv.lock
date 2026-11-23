@@ -85,7 +85,7 @@ wheels = [
 [[package]]
 name = "cortex-mem"
 version = "0.1.0"
-source = { git = "https://github.com/dure-ai/core?rev=cb88eb846ba53a40545b1911bc0e97538087684a#cb88eb846ba53a40545b1911bc0e97538087684a" }
+source = { git = "https://github.com/dure-ai/core?rev=e125f9b2b76b1ea347993fa42f98a30b710d3c1d#e125f9b2b76b1ea347993fa42f98a30b710d3c1d" }
 
 [[package]]
 name = "docstring-parser"
@@ -666,7 +666,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'gen'", specifier = ">=1.15" },
-    { name = "cortex-mem", marker = "extra == 'core'", git = "https://github.com/dure-ai/core?rev=cb88eb846ba53a40545b1911bc0e97538087684a" },
+    { name = "cortex-mem", marker = "extra == 'core'", git = "https://github.com/dure-ai/core?rev=e125f9b2b76b1ea347993fa42f98a30b710d3c1d" },
     { name = "huggingface-hub", marker = "extra == 'gen'", specifier = ">=2.2" },
     { name = "openai", marker = "extra == 'gen'", specifier = ">=3.35" },
     { name = "pyarrow", marker = "extra == 'gen'", specifier = ">=26.0" },
