@@ -808,7 +808,8 @@ def _bench_source(
 
     A dataset must be known and cached with the right sha256 (exit 2 otherwise); its items are
     converted lazily. Scenario files are loaded now: approved ones only unless `include_drafts`.
-    When only drafts are found (such as `bench export` output), it exits 2 and says so.
+    When only drafts are found (such as `bench export` output), it exits 2 and says so; when some
+    are drafts, it warns how many it leaves out.
     """
     from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
@@ -829,11 +830,17 @@ def _bench_source(
     assert scenarios_path is not None
     try:
         loaded = load_set([scenarios_path], include_drafts=include_drafts).scenarios
-        if not loaded and not include_drafts and load_set([scenarios_path], include_drafts=True).scenarios:
+        drafts = 0 if include_drafts else len(load_set([scenarios_path], include_drafts=True).scenarios) - len(loaded)
+        if not loaded and drafts:
             raise _fail(
                 f"error: the scenarios in {scenarios_path} are drafts (bench export writes drafts); "
                 "pass --include-drafts to run them",
                 2,
+            )
+        if drafts:
+            typer.echo(
+                f"warning: skipped {drafts} draft scenario(s) in {scenarios_path}; pass --include-drafts to run them",
+                err=True,
             )
     except typer.Exit:
         raise

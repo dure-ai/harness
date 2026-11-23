@@ -83,9 +83,9 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
     sessions: list[_Session] = []
     for sid, date, turns in zip(q["haystack_session_ids"], q["haystack_dates"], q["haystack_sessions"], strict=True):
         t = parse_lme_date(date)
-        if t > qdate:
+        if t >= qdate:  # a session at the question's time has no turn before the probe either
             if sid in answer_ids:
-                return skip("evidence session after the question")
+                return skip("evidence session at or after the question")
             continue
         sessions.append(_Session(sid, t, turns))
     sessions.sort(key=lambda s: s.t)  # stable: equal dates keep file order

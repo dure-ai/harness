@@ -97,7 +97,9 @@ def test_questions_with_bad_evidence_are_skipped_with_a_reason():
     late = lme_question(
         "l1", "multi-session", [("2023/08/01 (Tue) 09:00", [("user", "x")])], [0], QDATE
     )
-    assert convert_question(late, {}).skipped == "evidence session after the question"
+    assert convert_question(late, {}).skipped == "evidence session at or after the question"
+    at_the_time = lme_question("a1", "multi-session", [(QDATE, [("user", "x")])], [0], QDATE)
+    assert convert_question(at_the_time, {}).skipped == "evidence session at or after the question"
     no_mark = lme_question(
         "n1", "multi-session", [("2023/05/01 (Mon) 09:00", [("user", "x")])], [0], QDATE, has_answer={0: []}
     )
