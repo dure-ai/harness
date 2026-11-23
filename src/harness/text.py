@@ -127,7 +127,7 @@ def set_jaccard_at_least(sa: set[str], sb: set[str], tau: float) -> bool:
     """
     la, lb = len(sa), len(sb)
     if la == 0 and lb == 0:
-        return 0.0 >= tau
+        return tau <= 0.0
     if min(la, lb) / max(la, lb) < tau:
         return False
     inter = len(sa & sb)

@@ -1,8 +1,8 @@
 """LongMemEval-S (MIT): long chat histories converted into `ext_update` and `ext_recall` scenarios."""
 
 import json
-from dataclasses import dataclass
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from importlib import resources
 from pathlib import Path

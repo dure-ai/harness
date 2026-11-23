@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import final
 from urllib.parse import urlsplit
 
-from cortex_mem.embed import EmbedKind, EmbeddingError
+from cortex_mem.embed import EmbeddingError, EmbedKind
 from pydantic import BaseModel, FiniteFloat, ValidationError
 
 from harness.config import CoreEmbedding

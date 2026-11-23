@@ -258,7 +258,7 @@ def _score_probe(
         leaks=find_leaks(results, probe, scenario, recorded),
         bases=bases,
         contaminated=any(wrong),
-        reached=any(bool(b) and not w for b, w in zip(bases, wrong)),
+        reached=any(bool(b) and not w for b, w in zip(bases, wrong, strict=True)),
         search_ms=search_ms,
         context_chars=sum(len(r.text) for r in results),
     )

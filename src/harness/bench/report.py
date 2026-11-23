@@ -9,14 +9,11 @@ from typing import Any
 from harness.bench.gold import CELLS, compare_modes, gold_only_wrong_examples, probe_correct
 from harness.bench.run import BenchMeta, BenchRun
 from harness.bench.timing import cost_rows
+from harness.config import Stats
 from harness.contract import EngineInfo
 from harness.engines import BASELINES
 from harness.metrics import m1_rate, m2_rate
 from harness.replay import ScenarioRun
-from harness.scenario.model import EXT_FAMILIES
-from harness.stress.groups import group_sort_key
-from harness.config import Stats
-from harness.stats import CLUSTER_ITERS, MIN_CLUSTERS, Rate, cluster_ci, rate
 from harness.report import (
     DRAFTS_WARNING,
     blind_ids,
@@ -29,6 +26,9 @@ from harness.report import (
     result_lines,
     scrubber,
 )
+from harness.scenario.model import EXT_FAMILIES
+from harness.stats import CLUSTER_ITERS, MIN_CLUSTERS, Rate, cluster_ci, rate
+from harness.stress.groups import group_sort_key
 
 HEADER = "**외부 벤치마크 트랙. 사전 등록한 판정 기준이 아니며 `harness run` 결과와 섞지 않는다.**"
 M2_TITLE = "근거 도달(M2)"

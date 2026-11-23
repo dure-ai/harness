@@ -1,9 +1,7 @@
 import gc
 import weakref
 from dataclasses import asdict
-from typing import Any
-
-from typing import override
+from typing import Any, override
 
 from harness.baselines.simple import NoneEngine
 from harness.bench.config import BenchConfig

@@ -1,12 +1,11 @@
-from datetime import timedelta
 
 from harness.baselines.oracle import OracleEngine
 from harness.bench.check import check_conversion, screened
 from harness.bench.dataset import Converted
 from harness.bench.datasets.longmemeval import convert_question
 from harness.config import EvalConfig
-from harness.scenario.model import Fact, Probe, Provenance, Scenario, ScenarioEvent, World
-from tests.bench.test_longmemeval import QDATE, ku
+from harness.scenario.model import Fact, Provenance, Scenario, World
+from tests.bench.test_longmemeval import ku
 from tests.factories import T, ev, probe
 
 

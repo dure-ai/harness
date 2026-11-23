@@ -3,8 +3,8 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from harness.generate.candidates import FactCandidate, load_prompt
 from harness.config import EvalConfig
+from harness.generate.candidates import FactCandidate, load_prompt
 from harness.generate.checks import marker_issues, repeat_issues
 from harness.generate.config import GenConfig
 from harness.generate.llm import LLMClient

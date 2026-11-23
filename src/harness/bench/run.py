@@ -3,8 +3,8 @@
 import hashlib
 from collections.abc import Iterable, Mapping, Set
 from dataclasses import dataclass, field
-from importlib import resources
 from datetime import datetime
+from importlib import resources
 from typing import Literal, TypedDict
 
 from harness.bench.config import BenchConfig

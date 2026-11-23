@@ -1,6 +1,6 @@
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -91,7 +91,7 @@ def test_mixed_offsets_compare(tmp_path):
     text = EXAMPLE_YAML.replace("2026-10-01T10:00+09:00", "2026-10-01T00:30Z")
     s = load_scenario(write(tmp_path, text))
     # 00:30Z is 09:30 KST, before e2
-    assert s.events[0].t.utcoffset() == timezone.utc.utcoffset(None)
+    assert s.events[0].t.utcoffset() == UTC.utcoffset(None)
     assert s.events[0].t < s.events[1].t
 
 

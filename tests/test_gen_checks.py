@@ -1,18 +1,19 @@
-import pytest
 from pathlib import Path
 
+import pytest
+
 from harness.config import EvalConfig
+from harness.engines import make_engine
 from harness.generate.checks import _secret_issues, blocking, check_draft, secret_events, too_easy_hint
 from harness.generate.config import GenConfig, load_gen_config
-from harness.scenario.model import Evidence, Provenance, Scenario
-from harness.scenario.load import load_scenario
-from harness.scenario.validate import Issue
-from harness.engines import make_engine
 from harness.replay import run_scenario
+from harness.scenario.load import load_scenario
+from harness.scenario.model import Evidence, Provenance, Scenario
+from harness.scenario.validate import Issue
 from harness.selfcheck import RUN_ID
 from tests.factories import T, ev, fact, probe, scenario
-from tests.test_gen_families import _filled, _skeleton
 from tests.test_cli import too_easy
+from tests.test_gen_families import _filled, _skeleton
 from tests.test_selfcheck import poison, truth_change
 
 CFG = EvalConfig()

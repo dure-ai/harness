@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
-
 from rich.console import Console
 
 from harness.config import EvalConfig, config_hash, load_config
@@ -31,16 +30,16 @@ from harness.scenario.load import (
 )
 from harness.scenario.model import EXT_FAMILIES, Scenario
 from harness.scenario.validate import Issue, validate_scenario
-from harness.selection import EngineScore, rank
 from harness.seeds import write_seed_report
+from harness.selection import EngineScore, rank
 from harness.selfcheck import CheckResult, check_discrimination, run_selfcheck
 
 if TYPE_CHECKING:
     from harness.bench.config import BenchConfig
     from harness.bench.dataset import Converted
     from harness.bench.run import BenchRun, DatasetFacts
-    from harness.stress.noise import NoisePool
     from harness.generate.config import GenConfig
+    from harness.stress.noise import NoisePool
 
 NO_SCENARIOS = "승인된 시나리오가 없습니다. 초안을 포함하려면 --include-drafts"
 GEN_MISSING = "uv sync --extra gen 이 필요합니다"
@@ -918,10 +917,10 @@ def _bench_source(
     exits 2 and says so; when some are drafts, it warns how many it leaves out. A stress variant's
     group is "<family>/<knob>=<value>", any other scenario's its family.
     """
-    from harness.stress.groups import group_of
     from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
     from harness.bench.run import dataset_facts, scenario_facts
+    from harness.stress.groups import group_of
 
     if dataset is not None:
         ds = DATASETS.get(dataset)

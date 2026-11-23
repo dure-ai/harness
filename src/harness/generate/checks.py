@@ -126,9 +126,12 @@ def _attached(inner: str, start: int, end: int) -> bool:
     space (`status: obsolete`, `x = obsolete`, `stale cache`) is not attached.
     """
     before, after = inner[:start], inner[end:]
-    if before and before[-1] in _CODE_CHARS:
-        if before[-1] != "(" or (len(before) >= 2 and (before[-2].isalnum() or before[-2] == "_")):
-            return True
+    if (
+        before
+        and before[-1] in _CODE_CHARS
+        and (before[-1] != "(" or (len(before) >= 2 and (before[-2].isalnum() or before[-2] == "_")))
+    ):
+        return True
     if len(after) >= 2 and after[0] in _CODE_CHARS and not after[1].isspace():
         return True
     if inner[start:end].casefold() != "false":
@@ -620,9 +623,7 @@ _TOO_EASY_FIX_ROOT = (
 _MAX_UNIQUE_WORDS = 8
 # Words that carry no topic: listed in a hint they only push out the names that matter.
 _HINT_STOPWORDS = frozenset(
-    "a an and are as at be been but by can could did do does for from had has have how if in into is it its "
-    "may might must no not of on or should so than that the then there these this those to was were what when "
-    "where which while who will with would you your".split()
+    ["a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do", "does", "for", "from", "had", "has", "have", "how", "if", "in", "into", "is", "it", "its", "may", "might", "must", "no", "not", "of", "on", "or", "should", "so", "than", "that", "the", "then", "there", "these", "this", "those", "to", "was", "were", "what", "when", "where", "which", "while", "who", "will", "with", "would", "you", "your"]
 )
 
 

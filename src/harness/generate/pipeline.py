@@ -30,7 +30,6 @@ from harness.scenario.load import ScenarioLoadError, read_scenario
 from harness.scenario.model import Scenario
 from harness.yamlio import load_yaml
 
-
 _ERRORS_IN_A_ROW = 3
 """Non-fatal LLM errors in a row that stop a run: the provider is most likely down."""
 

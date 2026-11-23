@@ -2,6 +2,7 @@
 
 import json
 from datetime import timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -360,7 +361,7 @@ def test_scenario_id_limit_matches_the_core_model() -> None:
     from harness.generate.families.base import SCENARIO_ID_MAX
 
     meta = Scenario.model_fields["id"].metadata
-    assert SCENARIO_ID_MAX == next(m.max_length for m in meta if hasattr(m, "max_length"))
+    assert next(m.max_length for m in meta if hasattr(m, "max_length")) == SCENARIO_ID_MAX
 
 
 def test_scenario_id_is_unchanged_when_it_fits() -> None:
@@ -835,7 +836,7 @@ def test_block_probes_come_after_the_previous_failure_record(family: str) -> Non
     for seed in range(20):
         s = _skeleton(family, seed=seed).scenario
         blocks = [p for p in s.probes if p.kind == "block"]
-        for prev, nxt in zip(blocks, blocks[1:]):
+        for prev, nxt in pairwise(blocks):
             assert prev.feedback is not None and prev.feedback.on_false is not None
             delay = prev.feedback.on_false.delay
             assert delay is not None and nxt.t - prev.t > delay, (seed, prev.id, nxt.id)
