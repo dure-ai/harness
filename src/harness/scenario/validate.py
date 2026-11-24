@@ -208,8 +208,8 @@ def _confirmations_of_other_facts(s: Scenario) -> Iterator[Issue]:
             yield Issue.warning(
                 "confirm_asserts_other_fact",
                 f"event {e.id}: a successful judgement of {e.refs} asserts fact "
-                f"{e.fact!r}, not the fact of the events it judges "
-                "(contract §3-2: refs are what is judged)",
+                + f"{e.fact!r}, not the fact of the events it judges "
+                + "(contract §3-2: refs are what is judged)",
             )
 
 
