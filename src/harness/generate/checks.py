@@ -623,7 +623,13 @@ _TOO_EASY_FIX_ROOT = (
 _MAX_UNIQUE_WORDS = 8
 # Words that carry no topic: listed in a hint they only push out the names that matter.
 _HINT_STOPWORDS = frozenset(
-    ["a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do", "does", "for", "from", "had", "has", "have", "how", "if", "in", "into", "is", "it", "its", "may", "might", "must", "no", "not", "of", "on", "or", "should", "so", "than", "that", "the", "then", "there", "these", "this", "those", "to", "was", "were", "what", "when", "where", "which", "while", "who", "will", "with", "would", "you", "your"]
+    [
+        "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do",
+        "does", "for", "from", "had", "has", "have", "how", "if", "in", "into", "is", "it", "its",
+        "may", "might", "must", "no", "not", "of", "on", "or", "should", "so", "than", "that",
+        "the", "then", "there", "these", "this", "those", "to", "was", "were", "what", "when",
+        "where", "which", "while", "who", "will", "with", "would", "you", "your",
+    ]
 )
 
 
