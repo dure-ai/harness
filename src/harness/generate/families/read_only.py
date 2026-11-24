@@ -1,3 +1,5 @@
+# The scenario builder returns the new id, which these templates rarely need.
+# pyright: reportUnusedCallResult=false
 """Templates of the seven read-only families, one function per row of the design table (spec 5.3).
 
 Each takes (candidate, traces of its bundle, seed) and returns a skeleton with empty text, or
@@ -77,10 +79,10 @@ def normal_repeat(
     for i, user in enumerate(observers):
         day = b.next_day()
         if i == judge_at:
-            _ = confirm(b, day, user, fact, b.events_of(fact))
+            confirm(b, day, user, fact, b.events_of(fact))
         else:
-            _ = b.event(b.at(day), user, fact)
-    _ = b.probe("p_promote", "promote", b.at(b.next_day()), asker, [fact])
+            b.event(b.at(day), user, fact)
+    b.probe("p_promote", "promote", b.at(b.next_day()), asker, [fact])
     return b.build()
 
 
@@ -99,13 +101,13 @@ def coincidence(
         if slot == "burst":
             session = b.session()
             for t in b.times_on(day, 3):
-                _ = b.event(t, burster, false, session=session)
+                b.event(t, burster, false, session=session)
         elif not b.events_of(true):
-            _ = b.event(b.at(day), source, true)
+            b.event(b.at(day), source, true)
         else:
-            _ = confirm(b, day, confirmer, true, b.events_of(true))
+            confirm(b, day, confirmer, true, b.events_of(true))
     for kind, day in _probes_in_random_order(b):
-        _ = b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
+        b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
     return b.build()
 
 
@@ -122,13 +124,13 @@ def single_source_poison(
     for slot in order:
         day = b.next_day()
         if slot == "poison":
-            _ = b.event(b.at(day), poisoner, false)
+            b.event(b.at(day), poisoner, false)
         elif not b.events_of(true):
-            _ = b.event(b.at(day), source, true)
+            b.event(b.at(day), source, true)
         else:
-            _ = confirm(b, day, confirmer, true, b.events_of(true))
+            confirm(b, day, confirmer, true, b.events_of(true))
     for kind, day in _probes_in_random_order(b):
-        _ = b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
+        b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
     return b.build()
 
 
@@ -150,11 +152,11 @@ def unconfirmed_poison(
     for slot in order:
         day = b.next_day()
         if slot == "poison":
-            _ = b.event(b.at(day), poisoner, false)
+            b.event(b.at(day), poisoner, false)
         else:
-            _ = b.event(b.at(day), sources.pop(0), true)
+            b.event(b.at(day), sources.pop(0), true)
     for kind, day in _probes_in_random_order(b):
-        _ = b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
+        b.probe(f"p_{kind}", kind, b.at(day), asker, [false, true])
     return b.build()
 
 
@@ -173,16 +175,16 @@ def truth_change(
     writers = [first, second, b.rng.choice([first, second])]
     b.rng.shuffle(writers)
     for user in writers:
-        _ = b.event(b.at(b.next_day()), user, "f_old")
+        b.event(b.at(b.next_day()), user, "f_old")
     promote_day = b.next_day()
     d = b.next_day()
     boundary = b.midnight(d)
-    _ = b.fact("f_old", valid_until=boundary)
-    _ = b.fact("f_new", fabricated=True, valid_from=boundary)
-    _ = overturn(b, d, confirmer)
-    _ = b.event(b.at(b.next_day()), b.rng.choice([first, second]), "f_new")
-    _ = b.probe("p_promote", "promote", b.at(promote_day), asker, ["f_old", "f_new"])
-    _ = b.probe("p_block", "block", b.at(b.next_day()), asker, ["f_old", "f_new"])
+    b.fact("f_old", valid_until=boundary)
+    b.fact("f_new", fabricated=True, valid_from=boundary)
+    overturn(b, d, confirmer)
+    b.event(b.at(b.next_day()), b.rng.choice([first, second]), "f_new")
+    b.probe("p_promote", "promote", b.at(promote_day), asker, ["f_old", "f_new"])
+    b.probe("p_block", "block", b.at(b.next_day()), asker, ["f_old", "f_new"])
     return b.build()
 
 
@@ -256,9 +258,9 @@ def conditional(
         user = writers[fact].pop(0)
         repo, meta = context[fact]
         if slot == "rec":
-            _ = b.event(b.at(b.next_day()), user, fact, repo=repo, meta=meta)
+            b.event(b.at(b.next_day()), user, fact, repo=repo, meta=meta)
         else:
-            _ = b.event(
+            b.event(
                 b.at(b.next_day()),
                 user,
                 fact,
@@ -273,7 +275,7 @@ def conditional(
     for probe_kind, day in _probes_in_random_order(b):
         held = block_in if probe_kind == "block" else (f_b if block_in == f_a else f_a)
         repo, meta = context[held]
-        _ = b.probe(
+        b.probe(
             f"p_{probe_kind}",
             probe_kind,
             b.at(day),
@@ -299,9 +301,9 @@ def workaround_then_root(
     b = SkeletonBuilder("workaround_then_root", cand, traces, seed)
     first, second, confirmer, fixer, checker, asker = b.users(6)
     for user in (first, second):
-        _ = b.event(b.at(b.next_day()), user, "f_workaround")
+        b.event(b.at(b.next_day()), user, "f_workaround")
     signal, kind = b.rng.choice(CONFIRMS)
-    _ = b.event(
+    b.event(
         b.at(b.next_day()),
         confirmer,
         "f_workaround",
@@ -313,19 +315,19 @@ def workaround_then_root(
     promote_day = b.next_day()
     r = b.next_day()
     boundary = b.midnight(r)
-    _ = b.fact(
+    b.fact(
         "f_workaround",
         fabricated=cand.fix == "root",
         valid_until=boundary,
         fix="workaround",
     )
-    _ = b.fact(
+    b.fact(
         "f_root", fabricated=cand.fix == "workaround", valid_from=boundary, fix="root"
     )
     commit = b.event(
         b.at(r), fixer, "f_root", kind="commit", outcome="success"
     )  # first shows the fix
-    _ = b.event(
+    b.event(
         b.at(b.next_day()),
         checker,
         "f_root",
@@ -334,8 +336,8 @@ def workaround_then_root(
         outcome="success",
         refs=[commit],
     )
-    _ = b.probe(
+    b.probe(
         "p_promote", "promote", b.at(promote_day), asker, ["f_workaround", "f_root"]
     )
-    _ = b.probe("p_block", "block", b.at(b.next_day()), asker, ["f_workaround", "f_root"])
+    b.probe("p_block", "block", b.at(b.next_day()), asker, ["f_workaround", "f_root"])
     return b.build()

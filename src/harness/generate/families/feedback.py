@@ -1,3 +1,5 @@
+# The scenario builder returns the new id, which these templates rarely need.
+# pyright: reportUnusedCallResult=false
 """Templates of the two feedback families (spec 5.3, feedback mode 6.2).
 
 Every probe carries feedback templates with empty text: an action record per `about` fact
@@ -65,7 +67,7 @@ def _block_probes(
     """`n` block probes by `asker`: the first on the next day, the others 2-3 days after the previous."""
     for i in range(n):
         day = b.next_day() if i == 0 else b.next_day(*_BLOCK_GAP_DAYS)
-        _ = b.probe(f"p_block{i + 1}", "block", b.at(day), asker, about, feedback=fb)
+        b.probe(f"p_block{i + 1}", "block", b.at(day), asker, about, feedback=fb)
 
 
 def echo(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | None:
@@ -82,13 +84,13 @@ def echo(cand: FactCandidate, traces: Sequence[Trace], seed: int) -> Skeleton | 
     false = b.fact("f_false", fabricated=True, valid=False)
     writer, source, confirmer, asker = b.users(4)
     for _ in range(1 + b.rng.randint(0, 1)):
-        _ = b.event(b.at(b.next_day()), writer, false)
-    _ = b.event(b.at(b.next_day()), source, true)
-    _ = confirm(b, b.next_day(), confirmer, true, b.events_of(true))
+        b.event(b.at(b.next_day()), writer, false)
+    b.event(b.at(b.next_day()), source, true)
+    confirm(b, b.next_day(), confirmer, true, b.events_of(true))
     about = [false, true]
     fb = _feedback(about, found=true, failure_fact=None)
     _block_probes(b, 3 + b.rng.randint(0, 1), asker, about, fb)
-    _ = b.probe("p_promote", "promote", b.at(b.next_day()), asker, about, feedback=fb)
+    b.probe("p_promote", "promote", b.at(b.next_day()), asker, about, feedback=fb)
     return b.build()
 
 
@@ -109,15 +111,15 @@ def failure_feedback(
     writers = [first, second, b.rng.choice([first, second])]
     b.rng.shuffle(writers)
     for user in writers:
-        _ = b.event(b.at(b.next_day()), user, "f_old")
+        b.event(b.at(b.next_day()), user, "f_old")
     d = b.next_day()
     boundary = b.midnight(d)
-    _ = b.fact("f_old", valid_until=boundary)
-    _ = b.fact("f_new", fabricated=True, valid_from=boundary)
-    _ = overturn(b, d, confirmer)
+    b.fact("f_old", valid_until=boundary)
+    b.fact("f_new", fabricated=True, valid_from=boundary)
+    overturn(b, d, confirmer)
     about = ["f_old", "f_new"]
     fb = _feedback(about, found="f_new", failure_fact="f_new")
     _block_probes(b, 2 + b.rng.randint(0, 1), asker, about, fb)
-    _ = b.event(b.at(b.next_day()), later, "f_new")
-    _ = b.probe("p_promote", "promote", b.at(b.next_day()), asker, about, feedback=fb)
+    b.event(b.at(b.next_day()), later, "f_new")
+    b.probe("p_promote", "promote", b.at(b.next_day()), asker, about, feedback=fb)
     return b.build()

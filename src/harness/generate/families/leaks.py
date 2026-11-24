@@ -1,3 +1,5 @@
+# The scenario builder returns the new id, which these templates rarely need.
+# pyright: reportUnusedCallResult=false
 """Templates of the two leak families (spec 5.3, permission model 5.5).
 
 A leak probe has no right answer; the run only checks that nothing the asker cannot see is
@@ -45,11 +47,11 @@ def leak_personal(
         if slot == "secret":
             secret.append(b.event(b.at(day), owner, private, scope="personal"))
         elif not b.events_of(public):
-            _ = b.event(b.at(day), source, public)
+            b.event(b.at(day), source, public)
         else:
-            _ = confirm(b, day, confirmer, public, b.events_of(public))
+            confirm(b, day, confirmer, public, b.events_of(public))
     for kind, day in _leak_and_promote(b):
-        _ = b.probe(
+        b.probe(
             f"p_{kind}",
             kind,
             b.at(day),
@@ -75,7 +77,7 @@ def leak_cross_team(
     records = [b.event(b.at(b.next_day()), user, fact) for user in writers]
     secret = b.rng.choice(records)
     for kind, day in _leak_and_promote(b):
-        _ = b.probe(
+        b.probe(
             f"p_{kind}",
             kind,
             b.at(day),
