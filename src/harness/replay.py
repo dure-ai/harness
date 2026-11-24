@@ -365,8 +365,7 @@ def feedback_events(
     feedback = probe.feedback
     if feedback is None:
         return []
-    abstained = choice.abstained
-    if abstained:
+    if choice.abstained:
         action_tmpl = feedback.abstain
     else:
         # The basis can state facts outside `about` (design 7.2); the action templates are keyed
@@ -381,7 +380,7 @@ def feedback_events(
     if action_tmpl is not None:
         generated.append(make(action_tmpl, "action", cfg.feedback.action))
         action_t = generated[0][1].event.t
-    if not abstained:
+    if not choice.abstained:
         if is_wrong(choice.basis, probe, scenario):
             tmpl, delay = feedback.on_false, cfg.feedback.on_false
         else:
