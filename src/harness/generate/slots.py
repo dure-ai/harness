@@ -229,7 +229,7 @@ def _echo_sources(s: Scenario) -> dict[str, str]:
         return {}
     for e in s.events:
         if e.fact is not None and not s.facts[e.fact].valid:
-            first.setdefault(e.fact, e.id)
+            _ = first.setdefault(e.fact, e.id)
     return {
         f"{p.id}.action:{fid}": first[fid]
         for p in s.probes

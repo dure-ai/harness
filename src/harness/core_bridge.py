@@ -114,7 +114,7 @@ class CoreBridge(BaseEngine):
     @override
     def record(self, event: Event) -> None:
         """Append the event; the runtime delivers it to the engine."""
-        self._runtime().append(to_core_event(event))
+        _ = self._runtime().append(to_core_event(event))
         self._check_embedding()
 
     @override
@@ -150,7 +150,7 @@ class CoreBridge(BaseEngine):
             RuntimeError: If the runtime skipped an event (design 4.5).
         """
         runtime = self._runtime()
-        runtime.sync()
+        _ = runtime.sync()
         self._check_embedding()
         if runtime.skipped:
             raise RuntimeError(f"the runtime skipped events: {runtime.skipped}")

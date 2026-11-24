@@ -206,7 +206,7 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
 
     with tempfile.TemporaryDirectory() as scratch:
         copy = Path(scratch) / path.name
-        copy.write_bytes(before)
+        _ = copy.write_bytes(before)
         try:
             done = subprocess.run([*shlex.split(editor), str(copy)], check=False)
         except (OSError, ValueError) as e:
@@ -248,7 +248,7 @@ def edit_draft(path: Path, editor: str, cfg: EvalConfig, gen: GenConfig) -> Edit
     reset = edited.review.status != "draft"
     if reset:
         edited.review = Review(status="draft", reviewer=None, notes=edited.review.notes)
-    save_draft(edited, path)
+    _ = save_draft(edited, path)
     return EditResult(
         "saved",
         issues=check_draft(edited, cfg, gen),
@@ -276,7 +276,7 @@ def _keep_edit(scenario_id: str, text: bytes) -> Path:
         target = folder / f"{stem}-{n}.yaml"
     if target.resolve().parent != folder.resolve():
         raise ValueError(f"refusing to keep the edit outside {folder}: {target}")
-    target.write_bytes(text)
+    _ = target.write_bytes(text)
     return target
 
 
@@ -414,7 +414,7 @@ def set_status(
         # Hash the text `save_draft` writes (the `review` block is not hashed).
         s.review.approved_hash = saved_hash(s, "approval")
         s.review.check_config_hash = check_config_hash(gen)
-    save_draft(s, path)
+    _ = save_draft(s, path)
     return issues
 
 
@@ -534,11 +534,11 @@ def _timeline(s: Scenario, tz: ZoneInfo | None) -> RenderableType:
             e = s.events[n]
             body = Text(e.text or "(empty)")
             if e.secret_markers:
-                body.append(f"\nsecret: {', '.join(e.secret_markers)}", style="magenta")
+                _ = body.append(f"\nsecret: {', '.join(e.secret_markers)}", style="magenta")
             if (ev := evidence.get(e.id)) is not None:
-                body.append(f"\n[{ev.origin}]", style="dim")
+                _ = body.append(f"\n[{ev.origin}]", style="dim")
                 if ev.quote:
-                    body.append(f" {ev.quote}", style="dim")
+                    _ = body.append(f" {ev.quote}", style="dim")
             table.add_row(
                 Text(_clock(t, tz)),
                 Text(e.id),
@@ -572,7 +572,7 @@ def _cell(run: ScenarioRun, probe_id: str) -> Text:
     if rec is None:
         return Text("-")
     cell = Text(rec.outcome, style=_OUTCOME_STYLE.get(rec.outcome, ""))
-    cell.append(f"  leaks {len(rec.leaks)}", style="red" if rec.leaks else "dim")
+    _ = cell.append(f"  leaks {len(rec.leaks)}", style="red" if rec.leaks else "dim")
     return cell
 
 

@@ -100,7 +100,7 @@ class NoneEngine(NamespacedEngine):
     @override
     def search(self, query: Query) -> list[Result]:
         """Return no results (after checking that `reset` was called)."""
-        self._store()
+        _ = self._store()
         return []
 
 

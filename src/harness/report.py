@@ -678,12 +678,12 @@ def write_report(
     out_dir.mkdir(parents=True, exist_ok=True)
     # First, so the blind-id mapping survives a failure while rendering the rest of the report.
     blind = {v: k for k, v in sorted(ids.items(), key=lambda kv: key(kv[0])) if v != k}
-    (out_dir / "engine_ids.json").write_text(
+    _ = (out_dir / "engine_ids.json").write_text(
         json.dumps({"seed": blind_seed, "ids": blind}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     summary = _summary(meta, ordered, ranking, selfcheck, ids, scrub)
-    (out_dir / "summary.json").write_text(
+    _ = (out_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     results = out_dir / "results.jsonl"
@@ -691,7 +691,7 @@ def write_report(
         results.unlink(missing_ok=True)
     else:
         lines = result_lines(runs, sorted(runs, key=key), ids)
-        results.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
-    (out_dir / "report.md").write_text(
+        _ = results.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    _ = (out_dir / "report.md").write_text(
         _markdown(meta, ordered, ranking, repeat_runs, selfcheck, ids, scrub) + "\n", encoding="utf-8"
     )

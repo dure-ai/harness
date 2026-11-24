@@ -294,8 +294,8 @@ class CachedClient:
         }
         self._dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
+        _ = tmp.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
+        _ = tmp.replace(path)
         return value
 
 

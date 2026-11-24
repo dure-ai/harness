@@ -253,7 +253,7 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
     if not isinstance(info, EngineInfo):  # pyright: ignore[reportUnnecessaryIsInstance]  # third-party engines may return anything
         raise TypeError(f"info() returned {type(info).__name__}, expected EngineInfo")
     try:
-        json.dumps(jsonable(info))  # the same conversion the report uses
+        _ = json.dumps(jsonable(info))  # the same conversion the report uses
     except (TypeError, ValueError) as e:
         raise TypeError(f"info() is not JSON-serializable: {e}") from e
     return info
@@ -769,7 +769,7 @@ def bench_fetch(
     dest = bench_cache(ds.name)
     try:
         for f in files:
-            fetch_file(f, dest, timeout=timeout)
+            _ = fetch_file(f, dest, timeout=timeout)
     except FetchError as e:
         raise _fail(f"error: {e}", 2) from e
     typer.echo(str(dest))
@@ -797,7 +797,7 @@ def bench_export(
     if not is_cached(ds):
         raise _fail(f"error: {dataset} is not in the cache; run harness bench fetch --dataset {dataset} first", 2)
     try:
-        verify_cached(ds)
+        _ = verify_cached(ds)
     except FetchError as e:
         raise _fail(f"error: {e}", 2) from e
     cfg = _bench_config(config)
@@ -808,7 +808,7 @@ def bench_export(
             skipped += 1
             typer.echo(f"skipped {c.source_id}: {c.skipped}")
             continue
-        (out / f"{c.scenario.id}.yaml").write_text(scenario_text(c.scenario), encoding="utf-8")
+        _ = (out / f"{c.scenario.id}.yaml").write_text(scenario_text(c.scenario), encoding="utf-8")
         written += 1
     typer.echo(f"wrote {written} scenarios to {out}, skipped {skipped}")
 
@@ -1201,7 +1201,7 @@ def generate_cmd(
             if dry_run:
                 with tempfile.TemporaryDirectory() as scratch:
                     client = pipeline.DryRunClient(gen.provider, gen.model)
-                    pipeline.generate(
+                    _ = pipeline.generate(
                         families, n, seed, loaded, client, cfg, gen, out, Path(scratch), wanted, per_family, max_traces, max_attempts
                     )
                 return
@@ -1262,7 +1262,7 @@ def scenario_new(
         raise _fail(f"error: {path} already exists; not overwriting it", 1)
     # A leak skeleton's secret strings (a label) are filled in by hand, so no label fingerprint.
     mark_generated(s, fingerprint=not s.provenance.secret_events)
-    save_draft(s, path)
+    _ = save_draft(s, path)
     typer.echo(str(path))
     typer.echo("글을 채우려면: harness review edit " + s.id)
     if s.provenance.secret_events:  # `secret_markers` is not editable in `review edit`
