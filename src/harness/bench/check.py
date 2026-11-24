@@ -8,14 +8,14 @@ from harness.bench.dataset import Converted
 from harness.config import EvalConfig
 from harness.contract import BaseEngine
 from harness.replay import ScenarioRun, blind_key, run_scenario
-from harness.scenario.model import Scenario
+from harness.scenario.model import ProbeKind, Scenario
 from harness.scenario.validate import validate_scenario
 from harness.scoring import probe_correct
 
 _RUN_ID = "bench-check"
 
 
-def _wrong(run: ScenarioRun, kinds: dict[str, str]) -> list[str]:
+def _wrong(run: ScenarioRun, kinds: dict[str, ProbeKind]) -> list[str]:
     """Ids of the block and promote probes the engine answered wrongly, see `probe_correct`."""
     return [
         r.probe_id
@@ -38,7 +38,7 @@ def check_conversion(
         None when both hold, else a one-line reason.
     """
     key = blind_key(0)
-    kinds = {p.id: p.kind for p in s.probes}
+    kinds: dict[str, ProbeKind] = {p.id: p.kind for p in s.probes}
     oracle = run_scenario(OracleEngine(s), s, run_id=_RUN_ID, cfg=cfg, blind_key=key)
     if oracle.error is not None:
         return f"oracle failed: {oracle.error}"
