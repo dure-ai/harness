@@ -53,7 +53,8 @@ pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]
-# The width the code is written to; import sorting wraps at it.
+# Import sorting wraps at this width. Line length itself (E501) is not checked; a few older lines
+# are longer.
 line-length = 120
 
 [tool.ruff.lint]
