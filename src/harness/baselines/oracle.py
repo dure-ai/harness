@@ -1,5 +1,7 @@
 """Oracle baseline: reads the hidden labels and returns the currently-true event for each fact."""
 
+from typing import override
+
 from harness.baselines.simple import NamespacedEngine
 from harness.contract import EngineInfo, Event, Query, Result, can_see
 from harness.scenario.model import LabeledEvent, Probe, QueryKey, Scenario, probe_key, query_key
@@ -24,7 +26,7 @@ class OracleEngine(NamespacedEngine):
 
     def __init__(self, scenario: Scenario) -> None:
         super().__init__()
-        self._scenario = scenario
+        self._scenario: Scenario = scenario
         # Engines see opaque ids (`replay.engine_event_id`), so recorded events are matched to
         # their labels by content; the first of identical events wins.
         self._labeled: dict[tuple[object, ...], LabeledEvent] = {}
@@ -34,10 +36,12 @@ class OracleEngine(NamespacedEngine):
         # Probes with the same key are rejected by validate_scenario, so the key is unique.
         self._probes: dict[QueryKey, Probe] = {probe_key(p): p for p in scenario.probes}
 
+    @override
     def info(self) -> EngineInfo:
         """Return the oracle's engine info."""
         return EngineInfo(name="oracle", version="0.1", sources=True, scopes=True)
 
+    @override
     def record(self, event: Event) -> None:
         """Store scenario events; harness-generated feedback events have no label and are ignored."""
         le = self._labeled.get(_content_key(event))
@@ -45,6 +49,7 @@ class OracleEngine(NamespacedEngine):
             self._facts[event.id] = le.fact
             super().record(event)
 
+    @override
     def search(self, query: Query) -> list[Result]:
         """Hand over the currently true, visible event for each `about` fact of the matching probe."""
         recorded = self._store()

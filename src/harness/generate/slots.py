@@ -448,7 +448,7 @@ def _body(kind: str, outcome: str, marker: str | None) -> str:
     return f"{_TOPIC} log: {_LEADS[(kind, outcome)]} the {marker} option."
 
 
-def fake_slots(system: str, user: str) -> dict[str, Any]:
+def fake_slots(system: str, user: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedParameter]  # the fake provider's responder signature
     """Canned `bodies` reply for the fake provider, built from the `<<<SLOTS` block in `user`.
 
     Every fact gets a unique two-word marker. Each event and feedback template states its fact

@@ -94,7 +94,7 @@ def _yaml_files(path: Path) -> list[Path]:
 @scenario_app.command("check")
 def scenario_check(
     paths: Annotated[list[Path], typer.Argument(help="Scenario files or directories.")],
-    include_drafts: Annotated[
+    include_drafts: Annotated[  # pyright: ignore[reportUnusedParameter]  # a documented no-op flag
         bool, typer.Option("--include-drafts", help="No-op: drafts are always checked.")
     ] = False,
     config: ConfigOpt = Path("config/eval-v0.1.yaml"),
@@ -250,7 +250,7 @@ def _checked_info(engine: BaseEngine) -> EngineInfo:
             JSON (checked with the report's own conversion, `report.jsonable`).
     """
     info = engine.info()
-    if not isinstance(info, EngineInfo):
+    if not isinstance(info, EngineInfo):  # pyright: ignore[reportUnnecessaryIsInstance]  # third-party engines may return anything
         raise TypeError(f"info() returned {type(info).__name__}, expected EngineInfo")
     try:
         json.dumps(jsonable(info))  # the same conversion the report uses

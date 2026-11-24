@@ -177,10 +177,10 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
 class LongMemEvalS:
     """LongMemEval-S, cleaned version (500 questions, about 115k tokens of history each)."""
 
-    name = "longmemeval-s"
-    license = "MIT"
-    commit_ok = False  # converted scenarios hold the dataset's text; keep exports git-ignored
-    converter_version = 1
+    name: str = "longmemeval-s"
+    license: str = "MIT"
+    commit_ok: bool = False  # converted scenarios hold the dataset's text; keep exports git-ignored
+    converter_version: int = 1
     label_file: str | None = LABEL_FILE
 
     def files(self) -> list[RemoteFile]:

@@ -286,7 +286,8 @@ class _Pairs:
     """Pairwise comparison of passed engines, with the bootstrap CI computed once per pair."""
 
     def __init__(self, runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig) -> None:
-        self._runs, self._cfg = runs, cfg
+        self._runs: Mapping[str, list[ScenarioRun]] = runs
+        self._cfg: EvalConfig = cfg
         self._cache: dict[tuple[str, str], tuple[float, float] | None] = {}
 
     def ci(self, a: str, b: str) -> tuple[float, float] | None:

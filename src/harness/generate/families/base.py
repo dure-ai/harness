@@ -92,17 +92,17 @@ class SkeletonBuilder:
         self, family: Family, cand: FactCandidate, traces: Sequence[Trace], seed: int
     ) -> None:
         self.family: Family = family
-        self.cand = cand
-        self.seed = seed
-        self.repo = traces[0].repo if traces else MANUAL
-        self.trajectory_id = traces[0].trajectory_id if traces else MANUAL
+        self.cand: FactCandidate = cand
+        self.seed: int = seed
+        self.repo: str = traces[0].repo if traces else MANUAL
+        self.trajectory_id: str = traces[0].trajectory_id if traces else MANUAL
         # Seeded per candidate, so drafts made at one seed do not all share one timeline.
-        self.rng = random.Random(f"{seed}:{self.trajectory_id}:{cand.index}")
-        self._traces = list(traces)
+        self.rng: random.Random = random.Random(f"{seed}:{self.trajectory_id}:{cand.index}")
+        self._traces: list[Trace] = list(traces)
         self._teams: dict[str, list[str]] = {}
-        self._n_users = 0
-        self._next_session = self.rng.randint(1, 20)
-        self._day = -1
+        self._n_users: int = 0
+        self._next_session: int = self.rng.randint(1, 20)
+        self._day: int = -1
         self.facts: dict[str, Fact] = {}
         self.fabricated: list[str] = []
         self.events: list[ScenarioEvent] = []

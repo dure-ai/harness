@@ -34,9 +34,9 @@ class ScenarioLoadError(Exception):
 
     def __init__(self, path: Path, message: str, code: str = "load"):
         super().__init__(f"{path.name}: {message}")
-        self.path = path
-        self.message = message
-        self.code = code
+        self.path: Path = path
+        self.message: str = message
+        self.code: str = code
 
 
 @dataclass
