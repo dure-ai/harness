@@ -540,6 +540,11 @@ def _section_errors(
     return [*out, *markdown_table(["엔진", "회차", "시나리오", "상태", "오류"], rows)]
 
 
+def _repeated(meta: RunMeta) -> bool:
+    """Whether any engine ran more than once, so its tables pool repeats."""
+    return any(n > 1 for n in meta.repeats.values())
+
+
 def _section_head(meta: RunMeta, ids: Mapping[str, str]) -> list[str]:
     """Title and run facts: what was run, on what, and how repeats were pooled."""
     roots = (
@@ -548,7 +553,6 @@ def _section_head(meta: RunMeta, ids: Mapping[str, str]) -> list[str]:
         else f"- 시나리오 경로: {', '.join(meta.scenario_roots) or '-'}"
     )
     repeats = ", ".join(f"{ids[name]} {n}" for name, n in _ordered_repeats(meta, ids)) or "-"
-    repeated = any(n > 1 for n in meta.repeats.values())
     return [
         "# 메모리 평가 리포트",
         "",
@@ -564,18 +568,17 @@ def _section_head(meta: RunMeta, ids: Mapping[str, str]) -> list[str]:
         f"- 초안 포함: {'예' if meta.include_drafts else '아니오'}",
         roots,
         f"- 반복 실행: {repeats}",
-        *([f"- 집계: {AGGREGATION_NOTE}"] if repeated else []),
+        *([f"- 집계: {AGGREGATION_NOTE}"] if _repeated(meta) else []),
         "",
     ]
 
 
 def _section_breakdowns(meta: RunMeta, ordered: list[EngineScore], ids: Mapping[str, str]) -> list[str]:
     """M1-M3 by family, in feedback mode by family, and M1/M2 by who wrote the events."""
-    repeated = any(n > 1 for n in meta.repeats.values())
     return [
         "## 계열별",
         "",
-        *([POOLING_CAVEAT, ""] if repeated else []),
+        *([POOLING_CAVEAT, ""] if _repeated(meta) else []),
         *markdown_table(["엔진", "계열", "M1", "M2", "M3"], _family_rows(ordered, ids, lambda m: m.by_family)),
         "## 되먹임",
         "",

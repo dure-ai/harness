@@ -226,10 +226,6 @@ def relative_metrics(
     return {"improvement_ratio": improvement, "repeat_mistake_reduction": reduction}
 
 
-def _promote_tp_by_scenario(runs: list[ScenarioRun]) -> dict[str, tuple[int, int]]:
-    return per_scenario_counts(runs, "promote", "TP")
-
-
 def _canonical_ci(
     first: str, second: str, runs: Mapping[str, list[ScenarioRun]], cfg: EvalConfig
 ) -> tuple[float, float] | None:
@@ -239,7 +235,8 @@ def _canonical_ci(
     (0, 0) pair adds nothing to the pooled rates, but a resample made of such scenarios
     alone would count as a 0 difference and widen the interval toward a false tie.
     """
-    a, b = _promote_tp_by_scenario(runs[first]), _promote_tp_by_scenario(runs[second])
+    a = per_scenario_counts(runs[first], "promote", "TP")
+    b = per_scenario_counts(runs[second], "promote", "TP")
     common = sorted(s for s in a.keys() & b.keys() if a[s][1] > 0 and b[s][1] > 0)
     if not common:
         return None
