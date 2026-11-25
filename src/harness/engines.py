@@ -30,8 +30,10 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
         ValueError: If `name` is not a known engine and has no ":", or an OSS engine's models
             differ from the config.
         EngineHTTPError: If an OSS engine's server cannot be reached.
-        TypeError: If the imported class does not produce a `BaseEngine`.
-        ModuleNotFoundError: If a cortex-mem engine is named but the core extra is not installed.
+        TypeError: If the imported class does not produce a `BaseEngine` (or, with the core
+            extra installed, a cortex-mem engine).
+        ModuleNotFoundError: If the named module imports cortex-mem but the core extra is not
+            installed.
     """
     if ":" in name:
         module_name, _, class_name = name.partition(":")
@@ -44,15 +46,17 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
         if isinstance(engine, BaseEngine):
             return engine
         # Imported only here so baselines and OSS engines run without the core extra.
+        not_an_engine = f"{name} did not produce a BaseEngine (got {type(engine).__name__})"
         try:
             from cortex_mem.contract import Engine as CoreEngine
 
             from harness.core_bridge import CoreBridge
         except ModuleNotFoundError as e:
-            raise ModuleNotFoundError(_NEEDS_CORE, name=e.name) from e
+            # Without the extra we cannot tell a cortex-mem engine from any other object.
+            raise TypeError(f"{not_an_engine}; {_NEEDS_CORE}") from e
         if isinstance(engine, CoreEngine):
             return CoreBridge(engine, cfg.core_embedding)
-        raise TypeError(f"{name} did not produce a BaseEngine (got {type(engine).__name__})")
+        raise TypeError(not_an_engine)
     match name:
         case "none":
             return NoneEngine()

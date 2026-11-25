@@ -98,11 +98,13 @@ def _count(runs: Iterable[ScenarioRun], kind: str, hit: str) -> tuple[int, int]:
     return k, n
 
 
-def _m1(runs: Iterable[ScenarioRun]) -> Rate:
+def m1_rate(runs: Iterable[ScenarioRun]) -> Rate:
+    """M1: share of `block` probes that ended in FP (the engine acted on a false fact)."""
     return rate(*_count(runs, "block", "FP"))
 
 
-def _m2(runs: Iterable[ScenarioRun]) -> Rate:
+def m2_rate(runs: Iterable[ScenarioRun]) -> Rate:
+    """M2: share of `promote` probes that ended in TP (the engine handed over the evidence)."""
     return rate(*_count(runs, "promote", "TP"))
 
 
@@ -119,7 +121,7 @@ def _family_table(runs: list[ScenarioRun]) -> dict[str, FamilyRow]:
     for run in runs:
         grouped[run.family].append(run)
     return {
-        family: FamilyRow(m1=_m1(group), m2=_m2(group), m3=_m3(group))
+        family: FamilyRow(m1=m1_rate(group), m2=m2_rate(group), m3=_m3(group))
         for family, group in sorted(grouped.items())
     }
 
@@ -130,7 +132,7 @@ def _author_table(
     grouped: dict[str, list[ScenarioRun]] = defaultdict(list)
     for run in runs:
         grouped[scenarios[run.scenario_id].provenance.author].append(run)
-    return {a: {"m1": _m1(g), "m2": _m2(g)} for a, g in sorted(grouped.items())}
+    return {a: {"m1": m1_rate(g), "m2": m2_rate(g)} for a, g in sorted(grouped.items())}
 
 
 def _judged(run: ScenarioRun, scenario: Scenario) -> Iterable[tuple[Probe, ProbeRecord]]:
@@ -192,7 +194,8 @@ def _delays(
     return delays
 
 
-def _percentile(values: list[float], p: int) -> float | None:
+def percentile(values: list[float], p: int) -> float | None:
+    """The nearest-rank `p`th percentile of `values`, or None when there are none."""
     if not values:
         return None
     ordered = sorted(values)
@@ -235,8 +238,8 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
     all_records = [rec for r in ok for rec in r.probes]
     all_results = [res for rec in all_records for res in rec.results]
     return Metrics(
-        m1=_m1(read_only),
-        m2=_m2(read_only),
+        m1=m1_rate(read_only),
+        m2=m2_rate(read_only),
         m3=_m3(runs),  # leaks recorded before an error still count
         promote_fn=rate(*_count(read_only, "promote", "FN")),
         promote_fp=rate(*_count(read_only, "promote", "PROMOTE_FP")),
@@ -262,10 +265,10 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
             if all_records
             else None
         ),
-        record_ms_p50=_percentile([ms for r in ok for ms in r.record_ms], 50),
-        record_ms_p95=_percentile([ms for r in ok for ms in r.record_ms], 95),
-        search_ms_p50=_percentile([rec.search_ms for rec in all_records], 50),
-        search_ms_p95=_percentile([rec.search_ms for rec in all_records], 95),
+        record_ms_p50=percentile([ms for r in ok for ms in r.record_ms], 50),
+        record_ms_p95=percentile([ms for r in ok for ms in r.record_ms], 95),
+        search_ms_p50=percentile([rec.search_ms for rec in all_records], 50),
+        search_ms_p95=percentile([rec.search_ms for rec in all_records], 95),
         n_error_runs=sum(r.status != "ok" for r in runs),
         n_unavailable=sum(r.status == "unavailable" for r in runs),
         n_skipped=sum(r.status == "skipped" for r in runs),

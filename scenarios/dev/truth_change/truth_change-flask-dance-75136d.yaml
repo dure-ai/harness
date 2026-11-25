@@ -101,16 +101,32 @@ events:
   team: null
   signal: human
   kind: human_confirm
-  outcome: success
-  text: 'Review on the contrib provider notes: after merging the helper refactor,
-    providers should call `register_applocal_session(bp, "<name>")` from flask_dance.contrib._utils
-    and export the proxy as `<name> = make_session_proxy("<name>")`; please update
-    orcid.py and the provider template to match before this goes in.'
+  outcome: failure
+  text: 'Review on the earlier notes: please don''t follow these steps; see my follow-up
+    note.'
   meta: {}
   refs:
   - e1
   - e2
   - e3
+  fact: null
+  secret_markers: []
+- id: e6
+  t: '2026-10-08T13:30:00+09:00'
+  user: u1
+  session: s6
+  repo: singingwolfboy/flask-dance
+  scope: team
+  team: null
+  signal: human
+  kind: agent_record
+  outcome: unknown
+  text: 'Review on the contrib provider notes: after merging the helper refactor,
+    providers should call `register_applocal_session(bp, "<name>")` from flask_dance.contrib._utils
+    and export the proxy as `<name> = make_session_proxy("<name>")`; please update
+    orcid.py and the provider template to match before this goes in.'
+  meta: {}
+  refs: []
   fact: f_new
   secret_markers: []
 - id: e5
@@ -161,9 +177,10 @@ probes:
   feedback: null
 review:
   status: approved
-  reviewer: jaehyuk
-  notes: ''
-  approved_hash: v1:7a77beed720e73a637794d0eb866c2c3bc543defd3fadac5b325f72bb65bbf42
+  reviewer: HJinS
+  notes: '11/18 #25 옵션 B로 옮김(확인 이벤트를 실패 확인 + 사람 기록으로 나눔)'
+  approved_hash: v1:2ae0a9eada3f27f2ba88bf5691c550ca0a95e65d53bf9e0628424de420b343d6
+  check_config_hash: c1:3f46d80d8ded15856cfc5b57640d7eeef4fa5ba6e6509e7b2ce5ed428fcdab4e
 provenance:
   author: llm
   source_traces:
@@ -203,7 +220,7 @@ provenance:
     quote: null
     origin: written
   secret_events: []
-  reviewer_edited: false
+  reviewer_edited: true
   generated_at: '2026-10-27T11:07:51.240881Z'
-  label_fingerprint: l1:ef4eb7e9192280c6367178187b75345b4f7b5818da5d24c257cb81b2579dfbb3
+  label_fingerprint: l1:5e95ffb9d7bd24b0f1836ac920786559bbf2a9682de7284c9fd909d7686e944c
   generated_hash: v1:03b05e617cf135cfd636ed9e6dc7cf0ee1dd86019189843881920e701b7176d9

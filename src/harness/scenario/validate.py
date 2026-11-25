@@ -39,6 +39,8 @@ class Issue:
 
 # The families that need a `leak` probe; derived from the model's list so a new family is seen.
 LEAK_FAMILIES = tuple(f for f in FAMILIES if f.startswith("leak_"))
+# Families that need a promote probe but no block probe.
+NO_BLOCK_FAMILIES = ("ext_recall",)
 
 
 def _templates(feedback: Feedback) -> list[FeedbackTemplate]:
@@ -221,6 +223,24 @@ def validate_scenario(s: Scenario) -> list[Issue]:
             elif order[ref] >= (e.t, i):  # must be replayed before this event
                 error("ref_not_earlier", f"event {e.id}: refs {ref!r}, which is not earlier")
 
+    by_id = {e.id: e for e in s.events}
+    for e in s.events:
+        if e.outcome != "success" or e.fact is None or not e.refs:
+            continue
+        if any(r not in by_id for r in e.refs):
+            continue  # `unknown_ref` already reports it
+        judged = {by_id[r].fact for r in e.refs}
+        if e.fact not in judged:
+            issues.append(
+                Issue(
+                    "warning",
+                    "confirm_asserts_other_fact",
+                    f"event {e.id}: a successful judgement of {e.refs} asserts fact "
+                    f"{e.fact!r}, not the fact of the events it judges "
+                    "(contract §3-2: refs are what is judged)",
+                )
+            )
+
     bad_users, messages = _unknown_users(s)
     for message in messages:
         error("unknown_user", message)
@@ -250,7 +270,7 @@ def validate_scenario(s: Scenario) -> list[Issue]:
     if s.family != "normal_repeat":
         kinds = {p.kind for p in s.probes}
         needed = "leak" if s.family in LEAK_FAMILIES else "block"
-        if needed not in kinds:
+        if needed not in kinds and s.family not in NO_BLOCK_FAMILIES:
             error("pairing_missing", f"no {needed} probe (family {s.family!r})")
         if "promote" not in kinds:
             error("pairing_missing", "no promote probe")

@@ -26,6 +26,8 @@ uv run harness selfcheck --scenarios scenarios/examples --include-drafts
 uv run harness run --scenarios scenarios/examples --include-drafts --out runs
 ```
 
+To compare two runs (before and after an engine or core change), use a fourth command, `harness seeds`, to see the spread over several blind seeds ([below](#reading-the-numbers-of-one-seed-seeds)).
+
 평가할 엔진은 `--engine package.module:ClassName`으로 추가합니다(여러 번 지정 가능, 기준선은 항상 같이 돕니다). 오픈소스 엔진 `hindsight`, `mem0`은 이름으로 고릅니다([아래](#오픈소스-엔진-측정)). `all_store_noacl` 같은 내부 진단용 이름은 후보로 받지 않고(종료 코드 2), 엔진의 `info()`는 `EngineInfo`이며 JSON으로 쓸 수 있어야 합니다(pydantic JSON 모드로 바꿀 수 있는 값이면 됩니다. `Path` 등은 문자열로 기록). 실행 결과는 `runs/`에 쌓이며 레포에는 올리지 않습니다.
 
 ### Core 엔진을 로컬 Qwen으로 시험하기
@@ -140,6 +142,34 @@ cmp /tmp/r1/*/results.jsonl /tmp/r2/*/results.jsonl && echo same
 
 LLM을 쓰는 엔진은 같은 입력에도 답이 달라질 수 있습니다. 그런 엔진은 `--repeat`(기본 3회)로 여러 번 돌리고, 리포트의 재실행 뒤집힘률(`flip`)로 흔들림을 봅니다. M1·M2 값은 회차 평균이고, 그 신뢰구간과 순위 부트스트랩은 첫 회차 기준이며, 나머지 표는 회차를 합산합니다(리포트 머리말에 표시).
 
+### Reading the numbers of one seed (`seeds`)
+
+The blind seed also decides the event ids an engine sees. An engine that orders equally scored results by id (core's knowledge search does) can therefore put a different tied result first under another seed, and a probe that depends on the tie flips. For example, under core's pin before #29, `a02369d` (a store that scores by the number of shared words), core `PromoteAllEngine` scored M1 12/17 or 13/17 on the dev set of the time (40 scenarios), depending on the seed. On the current BM25 store (core `daaba07`) no probe flips across the same 12 seeds, but ties are still ordered by id, so the same thing happens whenever ties come back. The four baselines do not depend on the seed. The measurements and the cause are in [docs/research/2026-11-18-blind-seed-ties.md](docs/research/2026-11-18-blind-seed-ties.md).
+
+So a single `run` gives one draw of the tie order. To compare two runs (before and after an engine or core change), look at the spread over several seeds with `seeds`.
+
+```bash
+# Run the baselines and candidates once per seed with 5 random seeds, and write the mean and [min, max]
+uv run harness seeds --scenarios scenarios/dev --engine cortex_mem.engines.baseline:PromoteAllEngine --n 5
+# Compare before and after with the same seed list: repeat --blind-seed with the seeds in the earlier run's engine_ids.json
+uv run harness seeds --scenarios scenarios/dev --engine ... --blind-seed <seed 1> --blind-seed <seed 2> ...
+```
+
+It writes `report.md`, `summary.json` and `engine_ids.json` under `runs/<run id>-seeds/`. Report values are `mean [min, max] (k/n)`, or just `value (k/n)` when every seed agrees. The report has tables overall, per family and per feedback family, the candidates' versions and settings (blinded as in `run`), and the probes whose result changed across seeds (only a count with `--sealed`). It does not judge or rank.
+
+- `engine_ids.json` has the same shape as for `run`, except that the key is `seeds` (a list) rather than `seed`.
+- Blind ids (E1, E2, ...) come from the first seed, as in `run`. A different seed order or set of candidates can therefore give the same engine another E number. Match engines across reports by each run's `engine_ids.json`, not by E number.
+- The `k`, `n` and `values` lists in `summary.json` are in seed order. If every scenario of a family errors on some seed, that position is `null`, so each list is as long as the seed list.
+- When `n` differs across seeds (some scenarios error or are skipped on some seeds only), the cell is marked `*`: its k and n ranges are taken separately, so read the per-seed lists in `summary.json` instead.
+- With `--blind-seed`, `--n` is ignored (with a warning), and a seed given twice runs once (with a warning).
+- Each seed builds the candidate engines anew. An engine that stops answering is skipped for the rest of that seed after three errors in a row, and tried again on the next seed.
+
+How to read it:
+
+- A difference inside both sides' [min, max] may be a different tie order, so do not read it as an effect. If both sides used the same seed list, also check whether every seed moved in the same direction (the `k` lists in `summary.json` are in seed order).
+- Use at least 5 seeds for numbers you compare or publish. Fixing one seed is reproducible but ties you to that seed's draw.
+- `seeds` runs a candidate once per seed. For an LLM engine the spread also includes sampling noise; look at that noise on its own with the flip rate of `run --repeat`.
+
 ### 직접 만든 엔진 붙여 보기
 
 ```bash
@@ -148,7 +178,7 @@ PYTHONPATH=. uv run harness run --scenarios scenarios/examples --include-drafts 
   --engine tests.dummy_engine:LatestWins --repeat 2 --out runs
 ```
 
-엔진은 `harness.contract.BaseEngine`을 구현합니다(`info`, `reset`, `record`, `search`, 선택으로 `tick`·`flush`). 백엔드에 닿지 못하거나 재시도할 만한 실패가 계속되면 `harness.contract.EngineUnavailable`을 상속한 예외를 던지면 연속 중단 대상이 되고, 그 밖의 예외는 그 시나리오만 오류로 끝납니다. 결과의 `sources`에 근거 이벤트 id를 채우면 출처로 정밀 채점되고, 비우면 사실의 판정 문자열(`markers`)로 채점됩니다.
+엔진은 `harness.contract.BaseEngine`을 구현합니다(`info`, `reset`, `record`, `search`, 선택으로 `tick`·`flush`·`usage`. `usage`는 `harness bench run`이 시나리오마다 비용을 읽을 때 씁니다). 백엔드에 닿지 못하거나 재시도할 만한 실패가 계속되면 `harness.contract.EngineUnavailable`을 상속한 예외를 던지면 연속 중단 대상이 되고, 그 밖의 예외는 그 시나리오만 오류로 끝납니다. 결과의 `sources`에 근거 이벤트 id를 채우면 출처로 정밀 채점되고, 비우면 사실의 판정 문자열(`markers`)로 채점됩니다.
 
 ### 종료 코드
 
@@ -344,6 +374,30 @@ YAML 파일 하나가 시나리오 하나입니다. 계열, 사실, 이벤트, �
 ## 알려진 한계
 
 - 출처 채점의 한계: 결과의 `sources`는 질문 시점까지 엔진에 기록된 이벤트만 근거로 인정합니다(아직 기록되지 않은 id는 무시). 하지만 아무것도 저장하지 않고 이미 기록된 id만 돌려주는 엔진은 하네스가 제대로 기억한 엔진과 구별하지 못합니다.
+
+## 외부 벤치마크 트랙 (`bench`)
+
+공개 벤치마크(지금은 [LongMemEval](https://github.com/xiaowu0162/LongMemEval)-S, Wu et al., ICLR 2025, MIT 라이선스)를 시나리오로 바꿔 같은 엔진·같은 채점 코드로 돌려 보는 별도 트랙입니다. **사전 등록한 측정이 아닙니다.** 판정 기준(`config/eval-v0.1.yaml`)을 쓰지 않고 자체 설정(`config/bench-v0.1.yaml`)과 자체 리포트를 쓰며, 결과를 `harness run` 결과와 섞어 읽지 않습니다. `harness run`은 외부 계열(`ext_recall`, `ext_update`) 시나리오가 섞여 있으면 종료 코드 2로 멈춥니다. `harness run`, `selfcheck`, `scenario check`의 출력은 이 트랙 때문에 바뀌지 않습니다.
+
+```bash
+uv run harness bench list                          # 등록된 데이터셋, 라이선스, 크기, 캐시 여부
+uv run harness bench fetch --dataset longmemeval-s # 크기를 보여 주고 y/N을 묻는다. --yes로 건너뜀
+uv run harness bench export --dataset longmemeval-s --out /tmp/lme --types knowledge-update --limit 5
+uv run harness bench run --dataset longmemeval-s --types knowledge-update --yes
+uv run harness bench run --scenarios scenarios/dev --yes   # 데이터셋 대신 개발용 시나리오 세트
+```
+
+- **`bench fetch`**: LongMemEval-S 파일은 277 MB입니다. 받는 중에 크기와 sha256을 확인하고, 맞아야만 캐시에 이름이 생깁니다. 위치는 `T5_HARNESS_CACHE`(기본은 하네스 캐시 폴더) 아래 `bench/<데이터셋>/`입니다. `bench export`와 `bench run`은 시작할 때 캐시 파일의 sha256을 다시 계산하고, 다르면 파일 이름을 알리며 종료 코드 2로 멈춥니다. 그 파일을 지우고 다시 `fetch` 하세요. 리포트에는 이때 계산한 값이 남습니다.
+- **`bench export`**: 변환한 시나리오 중 `bench run`과 같은 걸러내기(같은 `--config`)를 통과한 것을 문항당 YAML 한 개로 `--out`에 씁니다. `--types`와 `--limit`은 `bench run`과 같습니다. 변환본에는 데이터셋 본문이 들어 있으므로 git이 무시하는 폴더나 git 작업 트리 밖에만 쓸 수 있습니다(LongMemEval-S도 MIT지만 v1은 커밋하지 않습니다). 쓴 파일은 초안(draft)이라 `bench run --scenarios <폴더> --include-drafts`로 돌리고, 이 리포트에는 초안 포함 표시가 붙습니다.
+- **`bench run`**: `--dataset`이나 `--scenarios` 중 정확히 하나를 줍니다. `--types`(데이터셋 유형, 쉼표 또는 반복)는 `--dataset`에서만 쓰고 `--scenarios`와 같이 주면 종료 코드 2입니다. `--limit`은 원본 문항 수 상한, `--engine`은 `harness run`과 같은 형식(기준선은 항상 같이 돎), `--gold`는 프로브가 묻는 사실의 이벤트만 넣은 실행을 한 번 더 해서 검색 실패와 판단 실패를 가르고, `--yes`는 확인 질문을 건너뜁니다. 확인 질문의 LLM 호출 추정치는 `--gold`면 두 번째 실행까지 셉니다. `harness run`처럼 연속 3개 문항에서 `unavailable`인 엔진은 남은 문항을 건너뛰고(골드 실행은 첫 문항으로 한 번 다시 확인), 경고를 남깁니다. 설정은 `--config`(기본 `config/bench-v0.1.yaml`)입니다. 리포트는 `runs/bench/<데이터셋>/<실행 id>/`(`--scenarios`는 `runs/bench/scenarios/<실행 id>/`)에 `report.md`, `summary.json`, `results.jsonl`, `engine_ids.json`으로 남고, 엔진은 `harness run`처럼 블라인드 id로 나옵니다.
+- **M2는 "근거 도달"입니다.** 엔진이 돌려준 결과가 정답 근거(증거 세션의 문장)를 가리키는지로 채점하며, LongMemEval 논문의 정확도(LLM 판정으로 정답 문장을 맞혔는지)가 아닙니다. 이 트랙은 표지(marker)를 쓰지 않으므로 `sources`를 채우지 않는 엔진은 0점이 됩니다. 리포트의 "출처 없는 결과 수" 표로 이를 구분해서 읽으세요.
+  - `promote`의 about은 근거 세션 전부이고 그중 하나에만 닿아도 TP입니다. 그래서 `multi-session`의 M2는 "근거 세션을 모두 찾았다"가 아니라 "근거 세션 하나 이상에 닿았다"입니다.
+  - knowledge-update에서 옛 값을 묻는 문항(라벨 `old`)은 about이 옛 사실뿐이라, 새 세션만 가리킨 결과는 틀린 근거가 아니라 관련 없는 결과로 셉니다(M2에서 TP가 아닐 뿐 M1에는 들어가지 않습니다).
+- **건너뛴 문항의 이유**가 리포트 머리말에 이유별로 남습니다. `evidence session after the question`은 원본의 근거 세션 날짜가 질문보다 늦은 경우(데이터 문제), `evidence turn pushed past the question by turn spacing`은 변환기가 턴을 1분 간격(앞 이벤트보다 늦지 않으면 그 1초 뒤)으로 놓다가 근거 턴이 질문 시각을 넘은 경우(변환기 탓)입니다.
+- **knowledge-update는 판정이 다릅니다.** LongMemEval의 원래 판정은 옛 값과 새 값을 같이 말해도 새 값이 답이면 정답으로 봅니다. 이 하네스는 옛 사실을 근거로 행동하면 `block` FP로 세므로, 결과 하나의 근거에 옛 사실과 새 사실이 함께 있으면(섞인 근거) 틀린 것입니다. 결과 여러 개에 나뉘어 있으면 에이전트가 따르는 첫 관련 결과가 판정을 정합니다. 새 근거만 든 결과가 먼저면 뒤에 옛 근거를 든 결과가 있어도 FP가 아닙니다. 이 차이는 의도한 것이니 같은 문항의 점수를 논문이나 다른 구현의 값과 직접 비교하지 않습니다.
+- **`--scenarios`는 개발용 세트(`scenarios/dev` 등)를 돌려 보는 용도입니다.** 봉인한 테스트 세트에는 쓰지 않습니다. `bench run`에는 `--sealed`가 없고, `results.jsonl`과 리포트에 시나리오·문항 id가 늘 남습니다.
+- **메모리**: `bench run`과 `bench export`는 데이터셋 JSON(277 MB) 전체를 한 번에 읽습니다. 모든 문항 유형을 돌리면 최대 RSS가 약 2 GB입니다(`bench run --gold` 2.2 GB, `bench export` 1.9 GB에서 측정).
+- `harness run`만 외부 계열을 막습니다. `scenario check`와 `selfcheck --include-drafts`는 `ext_*` 시나리오도 받습니다(형식 검사와 기준선 확인은 외부 계열에도 그대로 맞습니다).
 
 ## 오픈소스 엔진 측정
 

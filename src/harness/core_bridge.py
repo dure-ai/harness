@@ -7,7 +7,9 @@ implementations score search differently (core `docs/contract.md` section 4).
 """
 
 import json
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError, distribution
+from typing import override
 
 from cortex_mem.contract import CONTRACT_VERSION, Caller, Kind
 from cortex_mem.contract import Engine as CoreEngine
@@ -81,6 +83,7 @@ class CoreBridge(BaseEngine):
         self.embedder: QwenEmbedder | None = None
         self.runtime: Runtime | None = None
 
+    @override
     def info(self) -> EngineInfo:
         """Describe the wrapped engine: the runtime gives it a virtual clock, sources and scopes."""
         config: dict[str, object] = {"core_commit": _core_commit(), "store": InMemoryDatabase.__name__}
@@ -95,6 +98,7 @@ class CoreBridge(BaseEngine):
             scopes=True,
         )
 
+    @override
     def reset(self, namespace: str) -> None:
         """Start a new database and runtime; `namespace` is not needed since nothing is shared."""
         db = InMemoryDatabase()
@@ -107,11 +111,13 @@ class CoreBridge(BaseEngine):
             self.engine, db.events, db.knowledge, db.state("engine"), db.transaction, max_failures=None, index=index
         )
 
+    @override
     def record(self, event: Event) -> None:
         """Append the event; the runtime delivers it to the engine."""
         self._runtime().append(to_core_event(event))
         self._check_embedding()
 
+    @override
     def search(self, query: Query) -> list[Result]:
         """Hand off through the runtime without logging a recall (design 4.5).
 
@@ -130,11 +136,13 @@ class CoreBridge(BaseEngine):
         self._check_embedding()
         return [Result(text=h.content, sources=list(h.sources)) for h in handoffs]
 
-    def tick(self, t) -> None:
+    @override
+    def tick(self, t: datetime) -> None:
         """Pass virtual time on to the engine."""
         self._runtime().tick(t)
         self._check_embedding()
 
+    @override
     def flush(self) -> None:
         """Deliver anything still pending; replay calls this before every probe.
 
