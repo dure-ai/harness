@@ -389,8 +389,7 @@ def set_status(
             fingerprint = "changed"
         if fingerprint == "changed":
             return [
-                Issue(
-                    "error",
+                Issue.error(
                     LABELS_CHANGED,
                     "the labels were changed outside the review tool (the label fingerprint "
                     "differs from the one recorded at generation); undo that change, or reject "
@@ -402,8 +401,7 @@ def set_status(
             return issues
         if fingerprint == "unverified":
             issues.append(
-                Issue(
-                    "warning",
+                Issue.warning(
                     FINGERPRINT_NOT_RECORDED,
                     "no usable label fingerprint was recorded at generation, so label edits made "
                     "outside review edit cannot be detected; check the labels yourself",

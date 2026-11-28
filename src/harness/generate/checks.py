@@ -237,8 +237,7 @@ def _text_issues(
     issues: list[Issue] = []
     if own_facts and not any(_has(text, m) for m in own):
         issues.append(
-            Issue(
-                "error",
+            Issue.error(
                 "marker_not_in_body",
                 f"{where}: text has none of fact {', '.join(own_facts)}'s markers",
             )
@@ -246,8 +245,7 @@ def _text_issues(
     for fid in other_facts:
         if hit := next((m for m in s.facts[fid].markers if _has(text, m)), None):
             issues.append(
-                Issue(
-                    "error",
+                Issue.error(
                     "other_fact_marker",
                     f"{where}: text contains marker {hit!r} of fact {fid}",
                 )
@@ -255,7 +253,7 @@ def _text_issues(
     masked = [*own, *(m for fid in mask_facts for m in s.facts[fid].markers)]
     for word in _cue_words(text, patterns, masked):
         issues.append(
-            Issue("error", "cue_word", f"{where}: text contains cue word {word!r}")
+            Issue.error("cue_word", f"{where}: text contains cue word {word!r}")
         )
     return issues
 
@@ -312,8 +310,7 @@ def _marker_issues(s: Scenario, patterns: dict[str, re.Pattern[str]]) -> list[Is
         for marker in f.markers:
             if words := _marker_cue_words(marker, patterns):
                 issues.append(
-                    Issue(
-                        "error",
+                    Issue.error(
                         "cue_word_in_marker",
                         f"fact {fid}: marker {marker!r} contains cue word "
                         + ", ".join(repr(w) for w in words),
@@ -372,8 +369,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
     ids = secret_events(s)
     if not recorded and ids:
         issues.append(
-            Issue(
-                "warning",
+            Issue.warning(
                 "secret_events_not_recorded",
                 "provenance.secret_events is missing; the secret events are taken from the "
                 "events that have secret_markers",
@@ -389,8 +385,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
             if unmarked := sorted(listed - marked):
                 parts.append(f"listed events without secret_markers: {', '.join(unmarked)}")
             issues.append(
-                Issue(
-                    "error",
+                Issue.error(
                     "secret_events_mismatch",
                     "provenance.secret_events differs from the events that have secret_markers ("
                     + "; ".join(parts)
@@ -400,8 +395,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
     if s.family in LEAK_FAMILIES and not ids:
         where = "provenance.secret_events is empty" if recorded else "no event has secret_markers"
         issues.append(
-            Issue(
-                "error",
+            Issue.error(
                 "no_secret_events",
                 f"family {s.family!r} needs a secret event but {where}",
             )
@@ -412,16 +406,15 @@ def _secret_issues(s: Scenario) -> list[Issue]:
         e = by_id.get(eid)
         if e is None:
             issues.append(
-                Issue("error", "secret_missing", f"event {eid}: listed as a secret event but not found")
+                Issue.error("secret_missing", f"event {eid}: listed as a secret event but not found")
             )
         elif not e.secret_markers:
             issues.append(
-                Issue("error", "secret_missing", f"event {eid}: listed as a secret event but has no secret_markers")
+                Issue.error("secret_missing", f"event {eid}: listed as a secret event but has no secret_markers")
             )
         elif not any(_has_secret(e.text, m) for m in e.secret_markers):
             issues.append(
-                Issue(
-                    "error",
+                Issue.error(
                     "secret_not_in_secret_event",
                     f"event {e.id}: text has none of its secret markers",
                 )
@@ -432,8 +425,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
             hit := next((m for m in secrets if _has_secret(e.text, m)), None)
         ):
             issues.append(
-                Issue(
-                    "error",
+                Issue.error(
                     "secret_in_public_event",
                     f"event {e.id}: public text contains secret marker {hit!r}",
                 )
@@ -441,8 +433,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
     for fid, f in s.facts.items():
         if hit := next((m for m in secrets if _has_secret(f.text, m) or any(_has_secret(k, m) for k in f.markers)), None):
             issues.append(
-                Issue(
-                    "error",
+                Issue.error(
                     "secret_in_fact_text",
                     f"fact {fid}: text or markers contain secret marker {hit!r}",
                 )
@@ -451,8 +442,7 @@ def _secret_issues(s: Scenario) -> list[Issue]:
         for where, tpl in _feedback_bodies(p):
             if hit := next((m for m in secrets if _has_secret(tpl.text, m)), None):
                 issues.append(
-                    Issue(
-                        "error",
+                    Issue.error(
                         "secret_in_feedback",
                         f"{where}: text contains secret marker {hit!r}",
                     )
@@ -491,16 +481,14 @@ def _evidence_issues(s: Scenario) -> list[Issue]:
         event = events[ev.event_id]
         if (why := quote_problem(s, event.fact)) is not None:
             issues.append(
-                Issue(
-                    "error",
+                Issue.error(
                     "quoted_unsupported",
                     f"event {ev.event_id}: origin is quoted but {why}",
                 )
             )
         elif ev.quote and _fold(ev.quote) not in _fold(event.text):
             issues.append(
-                Issue(
-                    "error",
+                Issue.error(
                     "quoted_evidence_mismatch",
                     f"event {ev.event_id}: text does not contain its quoted evidence {ev.quote!r}",
                 )
@@ -553,8 +541,7 @@ def repeat_issues(s: Scenario, cfg: EvalConfig) -> list[Issue]:
         f"{who}: " + ", ".join(f"{m:.2f}" for m in maxes) for who, maxes in best
     )
     return [
-        Issue(
-            "error",
+        Issue.error(
             "repeats_too_different",
             f"repeat_n (n={n}, tau={tau}) would not serve the false fact: need {n} records of it "
             f"from one user each similar to {n - 1} others; max similarity per record: "

@@ -190,8 +190,7 @@ def _validate_all(scenarios: list[Scenario], sealed: bool) -> None:
             found.append(
                 (
                     dup,
-                    Issue(
-                        "error",
+                    Issue.error(
                         "duplicate_scenario_id",
                         f"scenario id appears {n} times",
                     ),

@@ -617,3 +617,8 @@ def test_feedback_action_warnings_follow_probe_then_about_then_key_order():
         missing("p_promote", "f_new"),
         not_in_about("p_promote", "f_old"),
     ]
+
+
+def test_issue_helpers_set_the_level():
+    assert Issue.error("code", "message") == Issue("error", "code", "message")
+    assert Issue.warning("code", "message") == Issue("warning", "code", "message")
