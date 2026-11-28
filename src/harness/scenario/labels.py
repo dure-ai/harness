@@ -12,7 +12,7 @@ and the whole `review` section are left out, as are the fields the harness itsel
 `provenance.generated_hash` (a fingerprint cannot cover itself).
 `provenance.too_easy_repairs` is covered when it is not 0 and left out when it is 0, so a repair
 count cannot be changed, added or removed, and a file written before the field existed keeps its
-fingerprint.
+fingerprint. `provenance.variant` is covered the same way when it is set and left out when None.
 
 `content_hash` is the other hash: of a whole parsed file, labels and text, used to bind an
 approval (`review.approved_hash`) and a generated draft (`provenance.generated_hash`) to the
@@ -70,6 +70,8 @@ def _label_view(s: Scenario) -> dict[str, Any]:
     provenance = s.provenance.model_dump(mode="json", exclude=_HASH_FIELDS)
     if not provenance["too_easy_repairs"]:
         del provenance["too_easy_repairs"]  # absent from older files: 0 must not move their fingerprint
+    if provenance["variant"] is None:
+        del provenance["variant"]  # likewise: only a stress variant carries it
     return {
         "id": s.id,
         "family": s.family,

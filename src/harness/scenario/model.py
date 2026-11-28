@@ -159,6 +159,32 @@ class Review(_Strict):
     check_config_hash: str | None = None
 
 
+Knob = Literal["noise", "position", "gap"]  # difficulty knobs of the stress set (`harness.stress`)
+
+
+class Variant(_Strict):
+    """How a stress-set scenario was derived from an approved one (`harness stress build`).
+
+    Hidden: never reaches engines.
+
+    Attributes:
+        base: Id of the approved scenario it was derived from; its labels are unchanged.
+        knob: The difficulty knob that was turned.
+        value: The knob's setting, as written in the variant id (e.g. "100", "late", "30d").
+        seed: Seed of the random choices (noise texts, users, sessions, times).
+        noise_traces: Ids of the trajectories the noise texts came from, in event order.
+        pool_sha256: SHA-256 of the noise pool the texts were drawn from (its texts, trajectories
+            and repositories, in order); the same base, knob, seed and pool give the same variant.
+    """
+
+    base: str
+    knob: Knob
+    value: str
+    seed: int
+    noise_traces: list[str] = []
+    pool_sha256: str | None = None
+
+
 class SourceRepo(_Strict):
     """A repository a scenario's source traces came from, with its license."""
 
@@ -210,6 +236,9 @@ class Provenance(_Strict):
             repaired from unrepaired scenarios. When 0 it is left out of the file (`draft_text`) and
             of the label fingerprint, so a file written before the field existed keeps its bytes
             and its hashes; any other value is part of the fingerprint and cannot be edited.
+        variant: Set on a stress-set variant: the approved scenario it came from and the knob
+            that was turned. None for every scenario that is not a variant; when None it is left
+            out of the file (`draft_text`) and of the label fingerprint, like `too_easy_repairs`.
     """
 
     author: Literal["human", "llm", "generator"]
@@ -226,6 +255,7 @@ class Provenance(_Strict):
     label_fingerprint: str | None = None
     generated_hash: str | None = None
     too_easy_repairs: int = 0
+    variant: Variant | None = None
 
 
 @dataclass(frozen=True)
@@ -261,12 +291,15 @@ class Scenario(_Strict):
     def file_data(self) -> dict[str, Any]:
         """The JSON-ready content of this scenario's YAML file.
 
-        `provenance.too_easy_repairs` is left out when 0, so a scenario written before that field
-        existed is saved byte for byte as it was and keeps its hashes.
+        `provenance.too_easy_repairs` is left out when 0 and `provenance.variant` when None, so a
+        scenario written before those fields existed is saved byte for byte as it was and keeps
+        its hashes.
         """
         data = self.model_dump(mode="json")
         if not data["provenance"]["too_easy_repairs"]:
             del data["provenance"]["too_easy_repairs"]
+        if data["provenance"]["variant"] is None:
+            del data["provenance"]["variant"]
         return data
 
     def team_of(self, user: str) -> str:

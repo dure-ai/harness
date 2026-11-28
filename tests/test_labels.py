@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from harness.scenario import labels
 from harness.scenario.labels import changed_label_fields, content_hash, fingerprint_state, label_fingerprint
-from harness.scenario.model import Feedback, FeedbackTemplate, Scenario
+from harness.scenario.model import Feedback, FeedbackTemplate, Scenario, Variant
 from tests.factories import T, ev, fact, probe, scenario
 
 
@@ -245,3 +245,13 @@ def test_fingerprint_covers_a_repair_count_but_not_its_absence() -> None:
     assert changed_label_fields(a, b) == ["provenance.too_easy_repairs"]
     # 0 is what a file written before the field existed loads as: its fingerprint must not move.
     assert "too_easy_repairs" not in json.dumps(labels._label_view(a))
+
+
+def test_fingerprint_covers_a_variant_but_not_its_absence() -> None:
+    a = _scenario()
+    b = a.model_copy(deep=True)
+    b.provenance.variant = Variant(base=a.id, knob="gap", value="30d", seed=0)
+    assert label_fingerprint(a) != label_fingerprint(b)
+    assert changed_label_fields(a, b) == ["provenance.variant"]
+    # None is what a file written before the field existed loads as: its fingerprint must not move.
+    assert "variant" not in json.dumps(labels._label_view(a))

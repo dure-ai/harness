@@ -2,9 +2,8 @@
 
 from datetime import datetime, timedelta
 
-import yaml
-
 from harness.scenario.model import Scenario
+from harness.yamlio import dump_yaml
 
 
 def scenario_text(s: Scenario) -> str:
@@ -16,7 +15,7 @@ def scenario_text(s: Scenario) -> str:
     Returns:
         The YAML document.
     """
-    return yaml.safe_dump(s.file_data(), sort_keys=False, allow_unicode=True)
+    return dump_yaml(s.file_data())
 
 
 class Clock:

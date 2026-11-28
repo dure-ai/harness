@@ -66,6 +66,15 @@ def _cue_pattern(word: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){body}(?!\w)", re.IGNORECASE)
 
 
+def cue_words_in(text: str, words: Sequence[str]) -> list[str]:
+    """The banned cue `words` found in `text`, matched as the generation checks match them.
+
+    Whole words, ignoring case and whitespace shape; cue words attached to code are skipped
+    (see `_cue_words`). There are no fact markers to skip here.
+    """
+    return _cue_words(text, {w: _cue_pattern(w) for w in words if w.strip()})
+
+
 # A fenced block: a run of 3+ backticks that opens a line (after optional indentation),
 # followed by at most a language tag (`yaml`, `c++`) and a newline, closed by the same run at
 # the start of a later line. A one-line ```...``` span, or ``` after prose on the same line, is

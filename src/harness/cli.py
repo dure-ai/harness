@@ -9,7 +9,7 @@ from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from harness.bench.config import BenchConfig
     from harness.bench.dataset import Converted
     from harness.bench.run import BenchRun, DatasetFacts
+    from harness.stress.noise import NoisePool
     from harness.generate.config import GenConfig
 
 NO_SCENARIOS = "승인된 시나리오가 없습니다. 초안을 포함하려면 --include-drafts"
@@ -54,6 +55,8 @@ traces_app = typer.Typer(help="Source trajectories for scenario generation.", no
 app.add_typer(traces_app, name="traces")
 bench_app = typer.Typer(help="External benchmarks converted into scenarios.", no_args_is_help=True)
 app.add_typer(bench_app, name="bench")
+stress_app = typer.Typer(help="Stress set: harder, label-preserving variants of approved scenarios.", no_args_is_help=True)
+app.add_typer(stress_app, name="stress")
 
 ScenariosOpt = Annotated[
     list[Path],
@@ -484,6 +487,13 @@ def run(
     _check_engine_specs(engine)
     cfg, loaded = _load(scenarios, config, include_drafts, sealed)
     scenario_list = loaded.scenarios
+    variants = sum(s.provenance.variant is not None for s in scenario_list)
+    if variants:  # stress variants are not part of the pre-registered measurement
+        raise _fail(
+            f"error: {variants} stress variant(s) (provenance.variant); harness run judges only the measurement "
+            "set, so run them with harness bench run --scenarios <dir> --include-drafts",
+            2,
+        )
     external = sum(s.family in EXT_FAMILIES for s in scenario_list)
     if external:  # the pre-registered verdict is not defined on external benchmark scenarios
         raise _fail(
@@ -832,8 +842,8 @@ def bench_run(
         bool,
         typer.Option(
             "--include-drafts",
-            help="With --scenarios, also run draft scenarios, such as the files bench export writes. "
-            "The report is marked as not for publication.",
+            help="With --scenarios, also run draft scenarios, such as the files bench export or "
+            "harness stress build writes. The report is marked as not for publication.",
         ),
     ] = False,
     gold: Annotated[bool, typer.Option("--gold", help="Also run with only the events of facts a probe asks about.")] = False,
@@ -864,8 +874,11 @@ def bench_run(
     if dataset is not None and include_drafts:
         raise _fail("error: --include-drafts applies to --scenarios only; dataset items are converted on the fly", 2)
     cfg = _bench_config(config)
-    found, facts, folder = _bench_source(dataset, scenarios_path, types, limit, include_drafts)
+    found, facts, folder = _bench_source(dataset, scenarios_path, types, limit, include_drafts=include_drafts)
     items = list(screened(found, cfg.eval))
+    if any(c.scenario is not None and c.scenario.provenance.variant is not None for c in items) and not _cannot_be_committed(out):
+        # Results quote what engines returned, stress noise included: third-party trajectory text.
+        raise _fail(f"error: --out {out} must be git-ignored or outside the repository for stress variants", 2)
     candidates = list(dict.fromkeys(n for n in engine or [] if n not in BASELINES))
     scenarios = _confirm_bench(items, candidates, gold=gold, yes=yes)
 
@@ -902,15 +915,18 @@ def _bench_source(
     scenarios_path: Path | None,
     types: list[str] | None,
     limit: int | None,
+    *,
     include_drafts: bool = False,
 ) -> "tuple[Iterable[Converted], DatasetFacts, str]":
     """The items `bench run` converts, the facts its report records, and its report folder name.
 
     A dataset must be known and cached with the right sha256 (exit 2 otherwise); its items are
     converted lazily. Scenario files are loaded now: approved ones only unless `include_drafts`.
-    When only drafts are found (such as `bench export` output), it exits 2 and says so; when some
-    are drafts, it warns how many it leaves out.
+    When only drafts are found (such as `bench export` or `harness stress build` output), it
+    exits 2 and says so; when some are drafts, it warns how many it leaves out. A stress variant's
+    group is "<family>/<knob>=<value>", any other scenario's its family.
     """
+    from harness.stress.groups import group_of
     from harness.bench.dataset import Converted, FetchError, bench_cache, is_cached, verify_cached
     from harness.bench.datasets import DATASETS
     from harness.bench.run import dataset_facts, scenario_facts
@@ -928,25 +944,20 @@ def _bench_source(
         found = ds.convert(bench_cache(ds.name), types=_dataset_types(types), limit=limit)
         return found, dataset_facts(ds, file_sha256), ds.name
     assert scenarios_path is not None
-    try:
-        loaded = load_set([scenarios_path], include_drafts=include_drafts).scenarios
-        drafts = 0 if include_drafts else len(load_set([scenarios_path], include_drafts=True).scenarios) - len(loaded)
-        if not loaded and drafts:
-            raise _fail(
-                f"error: the scenarios in {scenarios_path} are drafts (bench export writes drafts); "
-                "pass --include-drafts to run them",
-                2,
-            )
-        if drafts:
-            typer.echo(
-                f"warning: skipped {drafts} draft scenario(s) in {scenarios_path}; pass --include-drafts to run them",
-                err=True,
-            )
-    except typer.Exit:
-        raise
-    except Exception as e:
-        raise _fail(f"error: cannot load scenarios {scenarios_path}: {e}", 2) from e
-    found = [Converted(s, s.id, s.family, None) for s in loaded[:limit]]
+    loaded = _load_scenarios(scenarios_path, include_drafts=include_drafts)
+    drafts = 0 if include_drafts else len(_load_scenarios(scenarios_path, include_drafts=True)) - len(loaded)
+    if not loaded and drafts:
+        raise _fail(
+            f"error: the scenarios in {scenarios_path} are drafts (bench export and harness stress build "
+            "write drafts); pass --include-drafts to run them",
+            2,
+        )
+    if drafts:
+        typer.echo(
+            f"warning: skipped {drafts} draft scenario(s) in {scenarios_path}; pass --include-drafts to run them",
+            err=True,
+        )
+    found = [Converted(s, s.id, group_of(s), None) for s in loaded[:limit]]
     return found, scenario_facts(str(scenarios_path), include_drafts), "scenarios"
 
 
@@ -992,6 +1003,124 @@ def _bench_passes(
             for name in sorted(b.tripped):
                 typer.echo(f"warning: {name} stayed unavailable in the {b.mode} pass; its remaining scenarios were skipped", err=True)
     return normal, gold_run
+
+
+@stress_app.command("build")
+def stress_build(
+    out: Annotated[Path, typer.Option("--out", help="Directory for the variants; must not be committable (e.g. runs/).")],
+    scenarios_path: Annotated[
+        Path, typer.Option("--scenarios", help="Approved scenarios to vary.")
+    ] = Path("scenarios/dev"),
+    knob: Annotated[
+        list[str] | None,
+        typer.Option("--knob", help="Knob to sweep: noise, position or gap (repeatable). All by default."),
+    ] = None,
+    seed: Annotated[int, typer.Option("--seed", help="Seed of every random choice.")] = 0,
+    noise_file: Annotated[
+        Path | None,
+        typer.Option("--noise-file", help="Noise texts, one per line, instead of the cached Open-SWE-Traces shards."),
+    ] = None,
+    gen_config: GenConfigOpt = Path("config/gen-v0.1.yaml"),
+    config: BenchConfigOpt = Path("config/bench-v0.1.yaml"),
+    pool_size: Annotated[int, typer.Option("--pool-size", min=1, help="Noise texts read from the traces.")] = 20000,
+    force: Annotated[
+        bool, typer.Option("--force", help="Delete the stress variants already in --out before writing.")
+    ] = False,
+) -> None:
+    """Write label-preserving variants of approved scenarios, one knob at a time, screened like bench items.
+
+    Each knob sweeps its values: noise events 0/20/100/300; the evidence early or late among
+    100 noise events (in the middle is noise 100); time before the first probe 1h/1d/30d.
+    Run the result with harness bench run --scenarios <out> --include-drafts.
+    """
+    from harness.bench.check import screened
+    from harness.bench.convert import scenario_text
+    from harness.stress.build import build_variants
+    from harness.stress.groups import KNOBS, is_knob
+
+    knobs = list(dict.fromkeys(knob or KNOBS))
+    for name in knobs:
+        if not is_knob(name):
+            raise _fail(f"error: unknown knob {name!r}; choose from {', '.join(KNOBS)}", 2)
+    if not _cannot_be_committed(out):  # noise texts come from third-party trajectories
+        raise _fail(f"error: --out {out} must be git-ignored or outside the repository", 2)
+    stale = _stress_variants_in(out)
+    if stale and not force:
+        raise _fail(f"error: --out {out} already holds {len(stale)} stress variants; pass --force to replace them", 2)
+    cfg = _bench_config(config)
+    bases = _load_scenarios(scenarios_path, include_drafts=False)
+    if not bases:
+        raise _fail(f"error: no approved scenario in {scenarios_path}", 2)
+    if any(s.provenance.variant is not None for s in bases):
+        raise _fail("error: the input already holds stress variants; vary approved scenarios only", 2)
+    pool = _noise_pool(noise_file, gen_config, pool_size)
+    typer.echo(f"noise pool: {len(pool)} texts, sha256 {pool.sha256[:12]}")
+    for path in stale:
+        path.unlink()
+    out.mkdir(parents=True, exist_ok=True)
+    written: Counter[str] = Counter()
+    skipped = 0
+    for item in screened(build_variants(bases, pool, [k for k in knobs if is_knob(k)], seed=seed), cfg.eval):
+        variant = item.scenario.provenance.variant if item.scenario is not None else None
+        if item.scenario is None or variant is None:
+            skipped += 1
+            typer.echo(f"skipped {item.source_id}: {item.skipped}")
+            continue
+        (out / f"{item.scenario.id}.yaml").write_text(scenario_text(item.scenario), encoding="utf-8")
+        written[variant.knob] += 1
+    per_knob = ", ".join(f"{k} {written[k]}" for k in knobs)
+    typer.echo(f"wrote {sum(written.values())} variants of {len(bases)} scenarios to {out} ({per_knob}), skipped {skipped}")
+    typer.echo(f"next: harness bench run --scenarios {out} --include-drafts")
+
+
+def _stress_variants_in(out: Path) -> list[Path]:
+    """The top-level YAML files in `out` that are stress variants (`provenance.variant` is set).
+
+    Other files there are left alone: `out` is outside git, so a deleted file could not be restored.
+    """
+    from harness.yamlio import load_yaml
+
+    found: list[Path] = []
+    for path in sorted(out.glob("*.yaml")) if out.is_dir() else []:
+        try:
+            data: object = load_yaml(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue  # not a scenario this command wrote
+        provenance: object = cast("dict[str, object]", data).get("provenance") if isinstance(data, dict) else None
+        if isinstance(provenance, dict) and cast("dict[str, object]", provenance).get("variant") is not None:
+            found.append(path)
+    return found
+
+
+def _load_scenarios(path: Path, *, include_drafts: bool) -> list[Scenario]:
+    """The scenarios under `path`; exit 2 with the reason when they do not load."""
+    try:
+        return load_set([path], include_drafts=include_drafts).scenarios
+    except Exception as e:
+        raise _fail(f"error: cannot load scenarios {path}: {e}", 2) from e
+
+
+def _noise_pool(noise_file: Path | None, gen_config: Path, pool_size: int) -> "NoisePool":
+    """Noise texts from `noise_file`, or else from the cached Open-SWE-Traces shards; exit 2 if none.
+
+    Texts that hold a banned cue word of the generation config are left out.
+    """
+    from harness.stress.noise import NoisePool, drop_cue_words, file_pool, trace_pool
+
+    gen = _gen_config(gen_config)
+    if noise_file is not None:
+        try:
+            return NoisePool(drop_cue_words(file_pool(noise_file), gen.banned_cue_words))
+        except (OSError, UnicodeDecodeError) as e:
+            raise _fail(f"error: cannot read --noise-file {noise_file}: {e}", 2) from e
+    with _needs_gen():
+        from harness.generate.config import cache_root
+        from harness.generate.fetch import local_shards
+
+        shards = local_shards(cache_root() / "traces")
+        if not shards:
+            raise _fail("error: no cached trajectories; run harness traces fetch first, or pass --noise-file", 2)
+        return NoisePool(drop_cue_words(trace_pool(shards, gen, pool_size), gen.banned_cue_words))
 
 
 @traces_app.command("list")
