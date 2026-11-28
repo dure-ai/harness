@@ -1,4 +1,4 @@
-# extbench: question answering over LoCoMo with a memory in front of the reader
+# extbench: question answering over LoCoMo and LongMemEval-S with a memory in front of the reader
 
 A small runner that answers the questions of an external benchmark with a reader model, once per
 memory "arm", and scores the answers with the benchmark's own scorer. It was written to get
@@ -110,6 +110,46 @@ Outputs, under `runs/<name>/` (not committed):
 - `retrieved.jsonl`: the texts and source ids each arm handed over (not for `none` and `full`).
 - `summary.json`: the settings, token usage, estimated cost, failures, and scores per arm.
 - `judged.jsonl` and its `summary.json` from `judge`.
+
+## LongMemEval-S
+
+`run.sh longmemeval` runs LongMemEval-S (500 questions, each with its own history of about 50
+sessions) the way the official evaluation does, with the same arms:
+
+1. For each arm and question, store that question's history afresh, one record per turn
+   (`<session date> | <role>: <content>`, the session date plus one second per turn).
+2. Ask the memory for `k` texts (default 20) with the question.
+3. The reader answers with the official prompt for retrieved history without chain of thought
+   (`Current Date` is the question's date; temperature 0, at most 500 tokens).
+4. The judge labels the answer with the official prompt for the question's type, or the
+   abstention prompt for `_abs` questions (temperature 0, at most 10 tokens); the answer is
+   correct when the reply contains "yes".
+
+The prompts and settings are copied from [xiaowu0162/LongMemEval](https://github.com/xiaowu0162/LongMemEval)
+(MIT), `src/generation/run_generation.py` and `src/evaluation/evaluate_qa.py`. Two deviations are
+recorded in each summary: the backends send a short system message, and the history is the texts
+the arm handed over, one line per turn, instead of the official JSON per session.
+
+The data comes from the harness bench cache (`uv run harness bench fetch --dataset longmemeval-s`),
+checked against its sha256 before every run; `--data` reads another file instead.
+
+```bash
+# Twenty questions, no memory and the whole history, with a local reader and a local judge.
+EXTBENCH_JUDGE_BASE_URL=http://127.0.0.1:8081/v1 tools/extbench/run.sh longmemeval \
+  --model openai:qwen --judge-model openai:gemma --questions 20 --price 0,0 \
+  --arm none --arm full
+```
+
+- The judge's endpoint is `EXTBENCH_JUDGE_BASE_URL` / `EXTBENCH_JUDGE_API_KEY`, each falling back
+  to the reader's, so the two can be different local servers. A judge from another model family
+  than the reader avoids a model grading its own answers.
+- `--types`, `--only`, `--questions N` make a run small; `--resume`, `--budget`, `--per-record`,
+  `--price` work as for LoCoMo. `--price 0,0` for local models.
+- `summary.json` reports accuracy overall, per question type (abstention questions counted in
+  their type, as the official script does), for abstention questions alone, and evidence recall
+  over the turns the dataset marks `has_answer`.
+- Storing is the expensive part: about 500 turns per question, so 250,000 records per tool over
+  the whole set.
 
 ## Results of the first full run (18 to 20 November 2026)
 
