@@ -1,12 +1,15 @@
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+from cortex_mem.embed import EmbeddingError
 from cortex_mem.engines.baseline import PromoteAllEngine
 
-from harness.config import load_config
-from harness.contract import BaseEngine, Event, Query
+from harness.config import CoreEmbedding, EvalConfig, load_config
+from harness.contract import BaseEngine, EngineUnavailable, Event, Query
 from harness.core_bridge import CoreBridge, to_core_event
 from harness.engines import make_engine
 from harness.replay import run_scenario
@@ -109,6 +112,117 @@ def test_reset_starts_empty():
     engine.record(event())
     engine.reset("other")
     assert engine.search(query()) == []
+
+
+class EmbeddingAwareEngine(PromoteAllEngine):
+    def handoff(self, query, caller, scope, ctx, k=6):
+        if ctx.similar is not None:
+            self.group = ctx.similar.group("e1")
+            ctx.similar.search(query, caller, scope, k)
+        else:
+            self.used_fallback = True
+        return super().handoff(query, caller, scope, ctx, k)
+
+
+@pytest.fixture
+def qwen_http(monkeypatch):
+    connection = MagicMock()
+    calls = []
+    replies = {"query_status": 200}
+
+    def respond():
+        method, path, body, headers = connection.request.call_args.args
+        assert (method, path, headers["Content-Type"]) == ("POST", "/v1/embeddings", "application/json")
+        payload = json.loads(body)
+        calls.append(payload)
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.status = replies["query_status"] if payload["input"][0].startswith("Instruct:") else 200
+        response.read.return_value = json.dumps(replies.get("payload", {"data": [
+            {"index": i, "embedding": [1.0, 0.0]} for i in range(len(payload["input"]))
+        ]})).encode()
+        return response
+
+    connection.getresponse.side_effect = respond
+    monkeypatch.setattr("harness.core_embedding.http.client.HTTPConnection", MagicMock(return_value=connection))
+    return calls, replies
+
+
+def test_local_qwen_index_is_used_and_reset_per_scenario(qwen_http):
+    calls, _ = qwen_http
+    settings = CoreEmbedding(group_threshold=0.8)
+    bridge = make_engine("tests.test_core_bridge:EmbeddingAwareEngine", None, EvalConfig(core_embedding=settings))
+    assert isinstance(bridge, CoreBridge)
+    assert bridge.info().config["core_embedding"] == settings.model_dump()
+    bridge.reset("first")
+    bridge.record(event())
+    bridge.record(event(id="e2", text="the same deploy rule"))
+    bridge.search(query())
+    assert bridge.engine.group.members == ("e1", "e2")
+    assert calls[0] == {"model": settings.model, "input": [event().text]}
+    assert calls[-1]["input"][0].startswith("Instruct: ")
+    assert calls[-1]["input"][0].endswith("\nQuery: " + query().text)
+    bridge.reset("second")
+    assert bridge.search(query()) == []
+    assert bridge.engine.group is None
+
+
+def test_local_qwen_query_failure_does_not_score_text_fallback(qwen_http):
+    _, replies = qwen_http
+    engine = EmbeddingAwareEngine()
+    bridge = CoreBridge(engine, CoreEmbedding())
+    bridge.reset("ns")
+    bridge.record(event())
+    replies["query_status"] = 503
+    with pytest.raises(EmbeddingError, match="HTTP 503"):
+        bridge.search(query())
+    assert engine.used_fallback
+
+
+@pytest.mark.parametrize(("payload", "message"), [
+    ({"data": [{"index": 0, "embedding": ["bad"]}]}, "ValidationError"),
+    ({"data": [{"index": 1, "embedding": [1.0, 0.0]}]}, "input indexes"),
+    ({"data": [{"index": 0, "embedding": [1.0]}]}, "inconsistent vector lengths"),
+])
+def test_invalid_local_qwen_response_fails_scenario(qwen_http, payload, message):
+    _, replies = qwen_http
+    bridge = CoreBridge(PromoteAllEngine(), CoreEmbedding())
+    bridge.reset("ns")
+    bridge.record(event())
+    replies["payload"] = payload
+    with pytest.raises(EmbeddingError, match=message):
+        bridge.record(event(id="e2", text="a new record"))
+
+
+@pytest.mark.parametrize("status", [429, 502, 503, 504])
+def test_a_retryable_qwen_status_marks_the_engine_unavailable(qwen_http, status):
+    _, replies = qwen_http
+    bridge = CoreBridge(EmbeddingAwareEngine(), CoreEmbedding())
+    bridge.reset("ns")
+    bridge.record(event())
+    replies["query_status"] = status
+    with pytest.raises(EngineUnavailable, match=f"HTTP {status}"):
+        bridge.search(query())
+
+
+def test_an_unreachable_qwen_server_marks_the_engine_unavailable(monkeypatch):
+    connection = MagicMock()
+    connection.request.side_effect = ConnectionRefusedError()
+    monkeypatch.setattr("harness.core_embedding.http.client.HTTPConnection", MagicMock(return_value=connection))
+    bridge = CoreBridge(PromoteAllEngine(), CoreEmbedding())
+    bridge.reset("ns")
+    with pytest.raises(EngineUnavailable, match="ConnectionRefusedError"):
+        bridge.record(event())
+
+
+def test_a_malformed_qwen_reply_is_not_an_outage(qwen_http):
+    _, replies = qwen_http
+    bridge = CoreBridge(PromoteAllEngine(), CoreEmbedding())
+    bridge.reset("ns")
+    replies["payload"] = {"data": [{"index": 1, "embedding": [1.0, 0.0]}]}
+    with pytest.raises(EmbeddingError) as raised:
+        bridge.record(event())
+    assert not isinstance(raised.value, EngineUnavailable)
 
 
 def test_engine_failure_reaches_the_replay():

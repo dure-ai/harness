@@ -55,7 +55,7 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
             # Without the extra we cannot tell a cortex-mem engine from any other object.
             raise TypeError(f"{not_an_engine}; {_NEEDS_CORE}") from e
         if isinstance(engine, CoreEngine):
-            return CoreBridge(engine)
+            return CoreBridge(engine, cfg.core_embedding)
         raise TypeError(not_an_engine)
     match name:
         case "none":

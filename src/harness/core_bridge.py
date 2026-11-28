@@ -14,10 +14,13 @@ from typing import override
 from cortex_mem.contract import CONTRACT_VERSION, Caller, Kind
 from cortex_mem.contract import Engine as CoreEngine
 from cortex_mem.contract import Event as CoreEvent
+from cortex_mem.index import Index
 from cortex_mem.runtime import Runtime
 from cortex_mem.store.memory import InMemoryDatabase
 
+from harness.config import CoreEmbedding
 from harness.contract import BaseEngine, EngineInfo, Event, Query, Result
+from harness.core_embedding import QwenEmbedder
 
 # The harness has no org scope, and "team" sees what `can_see` allows: own records and the team's.
 _QUERY_SCOPE = "team"
@@ -71,19 +74,25 @@ class CoreBridge(BaseEngine):
     Args:
         engine: The core engine. Its failures propagate, so the replay marks the scenario errored
             rather than scoring around them.
+        embedding: Optional local Qwen settings for the scenario index.
     """
 
-    def __init__(self, engine: CoreEngine) -> None:
+    def __init__(self, engine: CoreEngine, embedding: CoreEmbedding | None = None) -> None:
         self.engine = engine
+        self.embedding: CoreEmbedding | None = embedding
+        self.embedder: QwenEmbedder | None = None
         self.runtime: Runtime | None = None
 
     @override
     def info(self) -> EngineInfo:
         """Describe the wrapped engine: the runtime gives it a virtual clock, sources and scopes."""
+        config: dict[str, object] = {"core_commit": _core_commit(), "store": InMemoryDatabase.__name__}
+        if self.embedding is not None:
+            config.update(core_embedding=self.embedding.model_dump())
         return EngineInfo(
             name=type(self.engine).__name__,
             version=f"contract-{CONTRACT_VERSION}",
-            config={"core_commit": _core_commit(), "store": InMemoryDatabase.__name__},
+            config=config,
             virtual_clock=True,
             sources=True,
             scopes=True,
@@ -93,15 +102,20 @@ class CoreBridge(BaseEngine):
     def reset(self, namespace: str) -> None:
         """Start a new database and runtime; `namespace` is not needed since nothing is shared."""
         db = InMemoryDatabase()
+        index = None
+        if self.embedding is not None:
+            self.embedder = QwenEmbedder(self.embedding)
+            index = Index(db.vectors, self.embedder, self.embedding.group_threshold, db.transaction)
         # Explicit: a skipped event would score an engine around its own failure.
         self.runtime = Runtime(
-            self.engine, db.events, db.knowledge, db.state("engine"), db.transaction, max_failures=None
+            self.engine, db.events, db.knowledge, db.state("engine"), db.transaction, max_failures=None, index=index
         )
 
     @override
     def record(self, event: Event) -> None:
         """Append the event; the runtime delivers it to the engine."""
         self._runtime().append(to_core_event(event))
+        self._check_embedding()
 
     @override
     def search(self, query: Query) -> list[Result]:
@@ -119,12 +133,14 @@ class CoreBridge(BaseEngine):
             context=query.meta,
         )
         handoffs = self._runtime().handoff(query.text, caller, _QUERY_SCOPE, query.k)
+        self._check_embedding()
         return [Result(text=h.content, sources=list(h.sources)) for h in handoffs]
 
     @override
     def tick(self, t: datetime) -> None:
         """Pass virtual time on to the engine."""
         self._runtime().tick(t)
+        self._check_embedding()
 
     @override
     def flush(self) -> None:
@@ -135,8 +151,14 @@ class CoreBridge(BaseEngine):
         """
         runtime = self._runtime()
         runtime.sync()
+        self._check_embedding()
         if runtime.skipped:
             raise RuntimeError(f"the runtime skipped events: {runtime.skipped}")
+
+    def _check_embedding(self) -> None:
+        # Core may respond without embeddings during an outage, which would invalidate a comparison.
+        if self.embedder is not None and self.embedder.failure is not None:
+            raise self.embedder.failure
 
     def _runtime(self) -> Runtime:
         if self.runtime is None:
