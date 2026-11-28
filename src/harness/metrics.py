@@ -277,13 +277,13 @@ def compute_metrics(runs: list[ScenarioRun], scenarios: Mapping[str, Scenario]) 
 
 def per_scenario_counts(
     runs: list[ScenarioRun], kind: Literal["block", "promote"], hit: Literal["FP", "TP"]
-) -> list[tuple[int, int]]:
-    """(hits, probes of `kind`) per read-only scenario, ordered by scenario id."""
+) -> dict[str, tuple[int, int]]:
+    """Scenario id -> (hits, probes of `kind`) for each finished read-only run, ordered by scenario id."""
     chosen = sorted(
         (r for r in runs if r.error is None and r.mode == "read_only"),
         key=lambda r: r.scenario_id,
     )
-    return [_count([r], kind, hit) for r in chosen]
+    return {r.scenario_id: _count([r], kind, hit) for r in chosen}
 
 
 def flip_rate(repeats: list[list[ScenarioRun]]) -> Rate:
