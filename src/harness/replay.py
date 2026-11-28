@@ -6,18 +6,18 @@ import hmac
 import time
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import count
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 
 from harness.agent import Choice, choose, result_basis
 from harness.config import EvalConfig
 from harness.contract import BaseEngine, EngineUnavailable, Event, Query, Result
-from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, Scenario
+from harness.scenario.model import FeedbackTemplate, LabeledEvent, Probe, ProbeKind, Scenario
 from harness.scoring import Leak, ProbeOutcome, find_leaks, is_wrong, judge
 
 Status = Literal["ok", "error", "unavailable", "skipped"]
-STATUSES: frozenset[str] = frozenset({"ok", "error", "unavailable", "skipped"})
+STATUSES: frozenset[str] = frozenset(get_args(Status))
 
 EVENT, PROBE = 0, 1  # tie-break order: events at the same time come before probes
 
@@ -126,7 +126,7 @@ class ProbeRecord:
     """
 
     probe_id: str
-    kind: str
+    kind: ProbeKind
     results: list[Result]
     choice: Choice
     outcome: ProbeOutcome
@@ -294,7 +294,7 @@ def _generated(
     probe: Probe,
     tmpl: FeedbackTemplate,
     event_id: str,
-    default_delay,
+    default_delay: timedelta,
     scenario: Scenario,
     refs: Sequence[str] = (),
     not_before: datetime | None = None,
@@ -354,7 +354,7 @@ def feedback_events(
     def make(
         tmpl: FeedbackTemplate,
         slot: str,
-        delay,
+        delay: timedelta,
         refs: Sequence[str] = (),
         not_before: datetime | None = None,
     ) -> tuple[str, LabeledEvent]:

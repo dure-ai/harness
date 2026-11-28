@@ -40,7 +40,7 @@ def _config_model(reply: Any, section: str) -> str:
 
 def _expected_dims(env: Mapping[str, str]) -> int:
     raw = env.get(ENV_DIMS)
-    if raw is None or raw == "":  # like compose's ${VAR:-default}: only unset or empty is the default
+    if not raw:  # like compose's ${VAR:-default}: only unset or empty is the default
         return DEFAULT_DIMS
     msg = f"{ENV_DIMS} must be a positive whole number, got {raw!r}"
     try:

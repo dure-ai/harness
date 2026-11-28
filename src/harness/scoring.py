@@ -6,7 +6,7 @@ from typing import Literal
 
 from harness.agent import Choice
 from harness.contract import Result, can_see
-from harness.scenario.model import LabeledEvent, Probe, Scenario
+from harness.scenario.model import LabeledEvent, Probe, ProbeKind, Scenario
 from harness.text import contains_secret
 from harness.world import probe_ctx, true_at
 
@@ -47,7 +47,7 @@ def judge(probe: Probe, choice: Choice, scenario: Scenario) -> ProbeOutcome:
     return "PROMOTE_FP" if wrong else "TP"
 
 
-def probe_correct(kind: str, outcome: str) -> bool:
+def probe_correct(kind: ProbeKind, outcome: ProbeOutcome) -> bool:
     """Whether a block or promote probe was answered right: block unless FP, promote only on TP.
 
     Other probe kinds (leak) are never right by this rule; callers keep them out.

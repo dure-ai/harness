@@ -35,6 +35,7 @@ Family = Literal[MainFamily, ExtFamily]
 FAMILIES: tuple[str, ...] = get_args(MainFamily)
 EXT_FAMILIES: tuple[str, ...] = get_args(ExtFamily)
 FEEDBACK_FAMILIES = ("echo", "failure_feedback")
+ProbeKind = Literal["block", "promote", "leak"]
 
 
 class _Strict(BaseModel):
@@ -117,7 +118,7 @@ class Probe(_Strict):
     """
 
     id: str
-    kind: Literal["block", "promote", "leak"]
+    kind: ProbeKind
     t: AwareDatetime
     user: str
     session: str

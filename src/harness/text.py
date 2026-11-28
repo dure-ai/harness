@@ -36,7 +36,7 @@ _MIN_SECRET_CHARS = 4
 
 def _is_separator(ch: str) -> bool:
     """Whitespace, an underscore, a Unicode dash or hyphen (category Pd), or the minus sign U+2212."""
-    return ch.isspace() or ch == "_" or ch == "\u2212" or unicodedata.category(ch) == "Pd"
+    return ch.isspace() or ch in {"_", "\u2212"} or unicodedata.category(ch) == "Pd"
 
 
 def normalize_secret(text: str) -> str:

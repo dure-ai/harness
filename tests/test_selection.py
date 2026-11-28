@@ -401,3 +401,20 @@ def test_averaged_handles_a_repeat_with_zero_denominator():
     assert none_only.worst_family is None and none_only.reach.value is None
     for r in (avg.reach, avg.promote_fp, avg.by_family["x"]["m1"]):
         assert r.value is None or 0.0 <= r.value <= 1.0
+
+
+def test_close_treats_equal_infinities_as_equal_and_uses_eps():
+    from harness.selection import EPS, _close  # pyright: ignore[reportPrivateUsage]
+
+    inf = float("inf")
+    assert _close(inf, inf) and _close(-inf, -inf)
+    assert not _close(inf, -inf) and not _close(inf, 1.0)
+    assert _close(1.0, 1.0 + EPS / 2) and not _close(1.0, 1.0 + 2 * EPS)
+
+
+def test_statuses_are_the_status_literal():
+    from typing import get_args
+
+    from harness.replay import STATUSES, Status
+
+    assert STATUSES == frozenset(get_args(Status)) == {"ok", "error", "unavailable", "skipped"}
