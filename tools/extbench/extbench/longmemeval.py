@@ -309,15 +309,19 @@ def main(argv: list[str] | None = None) -> Path:
     questions = select(data, split(args.types), split(args.only), args.questions)
     prior = read_prior(args.resume)
     run = Run(args)
-    for arm in args.arm:
-        for entry in questions:
-            if (key := (arm, entry["question_id"])) in prior:  # written only once answered and judged
-                run.rows.append(prior[key])
-                run.kept.append(list(key))
-                run.write(run.answers, prior[key])
-                continue
-            run.question(arm, entry)
-    summary = run.summary(source, questions)
+    try:
+        for arm in args.arm:
+            for entry in questions:
+                if (key := (arm, entry["question_id"])) in prior:  # written only once answered and judged
+                    run.rows.append(prior[key])
+                    run.kept.append(list(key))
+                    run.write(run.answers, prior[key])
+                    continue
+                run.question(arm, entry)
+        summary = run.summary(source, questions)
+    finally:
+        if run.embedder is not None:
+            run.embedder.close()
     _ = (run.out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(json.dumps(summary["arms"], indent=2, ensure_ascii=False))
     print("written to", run.out)

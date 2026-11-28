@@ -1,7 +1,8 @@
 import re
+import sqlite3
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -39,20 +40,34 @@ def records() -> list[memory.Record]:
             for i, text in enumerate(lines)]
 
 
+@pytest.fixture
+def caches() -> Iterator[Callable[..., embedding.CachedEmbedder]]:
+    """Make CachedEmbedders that are all closed when the test ends (Python 3.13 warns on an open one)."""
+    made: list[embedding.CachedEmbedder] = []
+
+    def make(inner: FakeTransport, path: Path) -> embedding.CachedEmbedder:
+        made.append(embedding.CachedEmbedder(inner, path))
+        return made[-1]
+
+    yield make
+    for cache in made:
+        cache.close()
+
+
 def sent_texts(transport: FakeTransport) -> list[str]:
     return [t for texts, _ in transport.calls for t in texts]
 
 
-def test_cache_serves_repeated_texts_without_calling_the_transport(tmp_path: Path) -> None:
+def test_cache_serves_repeated_texts_without_calling_the_transport(tmp_path: Path, caches: Callable[..., embedding.CachedEmbedder]) -> None:
     # Arrange
     transport = FakeTransport()
     path = tmp_path / "embeddings.sqlite3"
-    first = embedding.CachedEmbedder(transport, path)
+    first = caches(transport, path)
 
     # Act
     a = first.embed(["alpha", "beta"], "passage")
     b = first.embed(["beta", "alpha", "gamma"], "passage")
-    again = embedding.CachedEmbedder(transport, path).embed(["gamma", "alpha"], "passage")
+    again = caches(transport, path).embed(["gamma", "alpha"], "passage")
 
     # Assert
     assert sent_texts(transport) == ["alpha", "beta", "gamma"]
@@ -61,24 +76,24 @@ def test_cache_serves_repeated_texts_without_calling_the_transport(tmp_path: Pat
     assert first.dim == 32
 
 
-def test_cache_keys_vectors_by_model(tmp_path: Path) -> None:
+def test_cache_keys_vectors_by_model(tmp_path: Path, caches: Callable[..., embedding.CachedEmbedder]) -> None:
     # Arrange
     path = tmp_path / "embeddings.sqlite3"
     one, other = FakeTransport(), FakeTransport()
     other.model = "another-embed"
 
     # Act
-    _ = embedding.CachedEmbedder(one, path).embed(["alpha"], "passage")
-    _ = embedding.CachedEmbedder(other, path).embed(["alpha"], "passage")
+    _ = caches(one, path).embed(["alpha"], "passage")
+    _ = caches(other, path).embed(["alpha"], "passage")
 
     # Assert
     assert sent_texts(other) == ["alpha"]
 
 
-def test_queries_carry_the_conversation_instruction_once(tmp_path: Path) -> None:
+def test_queries_carry_the_conversation_instruction_once(tmp_path: Path, caches: Callable[..., embedding.CachedEmbedder]) -> None:
     # Arrange
     transport = FakeTransport()
-    cached = embedding.CachedEmbedder(transport, tmp_path / "e.sqlite3")
+    cached = caches(transport, tmp_path / "e.sqlite3")
 
     # Act
     _ = cached.embed(["what did Caroline research?"], "query")
@@ -89,10 +104,10 @@ def test_queries_carry_the_conversation_instruction_once(tmp_path: Path) -> None
     ]
 
 
-def test_engine_arm_with_an_embedder_builds_an_index_and_embeds_every_record(tmp_path: Path) -> None:
+def test_engine_arm_with_an_embedder_builds_an_index_and_embeds_every_record(tmp_path: Path, caches: Callable[..., embedding.CachedEmbedder]) -> None:
     # Arrange
     transport = FakeTransport()
-    cached = embedding.CachedEmbedder(transport, tmp_path / "e.sqlite3")
+    cached = caches(transport, tmp_path / "e.sqlite3")
     settings = {"group_threshold": 0.8}
 
     # Act
@@ -114,10 +129,10 @@ def test_engine_arm_without_an_embedder_runs_with_no_index(tmp_path: Path) -> No
     assert mem.recall("support group", 3)
 
 
-def test_engine_arm_fails_once_the_embedder_has_failed(tmp_path: Path) -> None:
+def test_engine_arm_fails_once_the_embedder_has_failed(tmp_path: Path, caches: Callable[..., embedding.CachedEmbedder]) -> None:
     # Arrange
     transport = FakeTransport()
-    cached = embedding.CachedEmbedder(transport, tmp_path / "e.sqlite3")
+    cached = caches(transport, tmp_path / "e.sqlite3")
     mem = memory.make(f"engine:{PROMOTE_ALL}", records(), "ns", tmp_path, cached, {"group_threshold": 0.8})
     transport.failure = RuntimeError("HTTP 503")
 
@@ -126,9 +141,9 @@ def test_engine_arm_fails_once_the_embedder_has_failed(tmp_path: Path) -> None:
         _ = mem.recall("support group", 3)
 
 
-def test_engine_arm_rejects_an_embedder_without_a_threshold(tmp_path: Path) -> None:
+def test_engine_arm_rejects_an_embedder_without_a_threshold(tmp_path: Path, caches: Callable[..., embedding.CachedEmbedder]) -> None:
     # Arrange
-    cached = embedding.CachedEmbedder(FakeTransport(), tmp_path / "e.sqlite3")
+    cached = caches(FakeTransport(), tmp_path / "e.sqlite3")
 
     # Act / Assert
     with pytest.raises(ValueError, match="group threshold"):
@@ -207,3 +222,13 @@ def test_core_facts_report_a_core_checkout_by_its_commit(tmp_path: Path, monkeyp
 
     # Assert
     assert facts == {"path": str(package.resolve()), "commit": head, "uncommitted_changes": True}
+
+
+def test_a_cache_used_as_a_context_manager_is_closed_after(tmp_path: Path) -> None:
+    # Act
+    with embedding.CachedEmbedder(FakeTransport(), tmp_path / "e.sqlite3") as cached:
+        _ = cached.embed(["alpha"], "passage")
+
+    # Assert
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        _ = cached.embed(["beta"], "passage")

@@ -255,6 +255,8 @@ def main() -> None:
     (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     print("written to", out)
+    if embedder is not None:
+        embedder.close()
 
 
 if __name__ == "__main__":

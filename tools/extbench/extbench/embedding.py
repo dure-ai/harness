@@ -52,6 +52,16 @@ class CachedEmbedder:
         self._db.commit()
         self.hits = self.misses = 0
 
+    def close(self) -> None:
+        """Close the cache database; a run calls this once it has no more to embed."""
+        self._db.close()
+
+    def __enter__(self) -> "CachedEmbedder":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     @property
     def failure(self) -> Exception | None:
         """The transport's first failure, which the engine arm checks after each step."""
