@@ -41,16 +41,26 @@ the gold answer, without seeing which arm wrote it.
 | --- | --- |
 | `none` | nothing |
 | `full` | every record, in order |
-| `engine:<module>:<Class>` | `Runtime.handoff(question, scope="team", k)` of a core engine, built with no arguments, over the in-memory stores |
+| `engine:<module>:<Class>` | `Runtime.handoff(question, scope="team", k)` of a core engine, built with no arguments, over one `InMemoryDatabase` (with an index when embeddings are set) |
 | `oss:mem0`, `oss:hindsight` | one search of the self-hosted tool through the harness adapter |
 
 - The harness's `CoreBridge` and its baselines (`all_store` and the others) are not used. The
   "simple search" row below is core's `PromoteAllEngine` over core's in-memory store.
-- The engine arm imports whatever `cortex_mem` is first on the path. The harness pin
-  (`a02369d`) predates the in-memory BM25 ranking and gives lower numbers. Set
-  `EXTBENCH_CORE=<core checkout>/src` to run a newer core. Core `main` at `0c3f85d` reproduces
-  the simple-search row below exactly (checked on `conv-26`: the same prompts for all 152
-  questions).
+- The engine arm imports whatever `cortex_mem` is first on the path: the harness pin, or the
+  checkout `EXTBENCH_CORE=<core checkout>/src` names. `summary.json` records which (`core`: its
+  path, commit, and whether the checkout has uncommitted changes). The first full run below used
+  core `main` at `0c3f85d`; that core reproduces the simple-search row exactly (checked on
+  `conv-26`: the same prompts for all 152 questions).
+- Engines that group records by embedding (Supersede since core #36) need an index. Set
+  `EXTBENCH_EMBED_URL` to a local llama.cpp embedding server (loopback only, the same rule as the
+  harness's `core_embedding`), and optionally `EXTBENCH_EMBED_MODEL` and
+  `EXTBENCH_GROUP_THRESHOLD` (defaults from `harness.config.CoreEmbedding`). The arm then builds an
+  `Index` the way the harness's `CoreBridge` does. Queries are embedded with an instruction for
+  conversation questions, not the harness's software-engineering one; `summary.json` records it
+  under `embedding`. Without `EXTBENCH_EMBED_URL` engines run with no index, as before.
+- Vectors are cached in `cache/embeddings.sqlite3` by model and text, so the engine arms of one
+  run, and later runs, embed each record once. An embedding failure, or an event the runtime
+  skipped, fails that conversation for that arm instead of scoring around it.
 - A tool stores each history once. `ingested/` holds a marker per stored history and a
   `.partial.json` while one is in progress, so a stopped run continues from the record it
   reached. Histories stored with `--times order` are not reused by `--times session`.

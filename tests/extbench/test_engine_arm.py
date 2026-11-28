@@ -1,0 +1,180 @@
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+from cortex_mem.embed import HashEmbedder
+from extbench import embedding, memory
+
+T0 = datetime(2023, 5, 8, 13, 56, tzinfo=UTC)
+PROMOTE_ALL = "cortex_mem.engines.baseline:PromoteAllEngine"
+LOOPBACK = "http://127.0.0.1:18081/v1"
+
+
+class FakeTransport:
+    """Stands in for QwenEmbedder: deterministic vectors, a call log, and a settable failure."""
+
+    def __init__(self) -> None:
+        self.model = "fake-embed"
+        self.failure: Exception | None = None
+        self.calls: list[tuple[list[str], str]] = []
+        self._hash = HashEmbedder(dim=32)
+
+    def embed(self, texts: Sequence[str], kind: str) -> list[list[float]]:
+        self.calls.append((list(texts), kind))
+        return self._hash.embed(texts, "passage")
+
+
+def records() -> list[memory.Record]:
+    lines = [
+        "1:56 pm on 8 May, 2023 | Caroline: I went to a LGBTQ support group yesterday",
+        "1:56 pm on 8 May, 2023 | Melanie: That sounds lovely, how did it go?",
+        "1:56 pm on 8 May, 2023 | Caroline: I am thinking about a career in counseling",
+    ]
+    return [memory.Record(f"r{i}", text, text.split("| ")[1].split(":")[0], T0 + timedelta(seconds=i))
+            for i, text in enumerate(lines)]
+
+
+def sent_texts(transport: FakeTransport) -> list[str]:
+    return [t for texts, _ in transport.calls for t in texts]
+
+
+def test_cache_serves_repeated_texts_without_calling_the_transport(tmp_path: Path) -> None:
+    # Arrange
+    transport = FakeTransport()
+    path = tmp_path / "embeddings.sqlite3"
+    first = embedding.CachedEmbedder(transport, path)
+
+    # Act
+    a = first.embed(["alpha", "beta"], "passage")
+    b = first.embed(["beta", "alpha", "gamma"], "passage")
+    again = embedding.CachedEmbedder(transport, path).embed(["gamma", "alpha"], "passage")
+
+    # Assert
+    assert sent_texts(transport) == ["alpha", "beta", "gamma"]
+    assert b[:2] == [a[1], a[0]]
+    assert again == [b[2], a[0]]
+    assert first.dim == 32
+
+
+def test_cache_keys_vectors_by_model(tmp_path: Path) -> None:
+    # Arrange
+    path = tmp_path / "embeddings.sqlite3"
+    one, other = FakeTransport(), FakeTransport()
+    other.model = "another-embed"
+
+    # Act
+    _ = embedding.CachedEmbedder(one, path).embed(["alpha"], "passage")
+    _ = embedding.CachedEmbedder(other, path).embed(["alpha"], "passage")
+
+    # Assert
+    assert sent_texts(other) == ["alpha"]
+
+
+def test_queries_carry_the_conversation_instruction_once(tmp_path: Path) -> None:
+    # Arrange
+    transport = FakeTransport()
+    cached = embedding.CachedEmbedder(transport, tmp_path / "e.sqlite3")
+
+    # Act
+    _ = cached.embed(["what did Caroline research?"], "query")
+
+    # Assert
+    assert transport.calls == [
+        ([f"Instruct: {embedding.QUERY_INSTRUCTION}\nQuery: what did Caroline research?"], "passage")
+    ]
+
+
+def test_engine_arm_with_an_embedder_builds_an_index_and_embeds_every_record(tmp_path: Path) -> None:
+    # Arrange
+    transport = FakeTransport()
+    cached = embedding.CachedEmbedder(transport, tmp_path / "e.sqlite3")
+    settings = {"group_threshold": 0.8}
+
+    # Act
+    mem = memory.make(f"engine:{PROMOTE_ALL}", records(), "ns", tmp_path, cached, settings)
+    handed = mem.recall("career in counseling", 2)
+
+    # Assert
+    assert mem.rt.index is not None
+    assert {r.text for r in records()} <= set(sent_texts(transport))
+    assert any("counseling" in text for text in handed)
+
+
+def test_engine_arm_without_an_embedder_runs_with_no_index(tmp_path: Path) -> None:
+    # Act
+    mem = memory.make(f"engine:{PROMOTE_ALL}", records(), "ns", tmp_path)
+
+    # Assert
+    assert mem.rt.index is None
+    assert mem.recall("support group", 3)
+
+
+def test_engine_arm_fails_once_the_embedder_has_failed(tmp_path: Path) -> None:
+    # Arrange
+    transport = FakeTransport()
+    cached = embedding.CachedEmbedder(transport, tmp_path / "e.sqlite3")
+    mem = memory.make(f"engine:{PROMOTE_ALL}", records(), "ns", tmp_path, cached, {"group_threshold": 0.8})
+    transport.failure = RuntimeError("HTTP 503")
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="embedding failed"):
+        _ = mem.recall("support group", 3)
+
+
+def test_engine_arm_rejects_an_embedder_without_a_threshold(tmp_path: Path) -> None:
+    # Arrange
+    cached = embedding.CachedEmbedder(FakeTransport(), tmp_path / "e.sqlite3")
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="group threshold"):
+        _ = memory.EngineMemory(records(), PROMOTE_ALL, cached)
+
+
+def test_settings_are_none_without_an_embedding_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    monkeypatch.delenv("EXTBENCH_EMBED_URL", raising=False)
+
+    # Act / Assert
+    assert embedding.settings_from_env() is None
+
+
+def test_settings_come_from_the_environment_and_record_the_instruction(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    monkeypatch.setenv("EXTBENCH_EMBED_URL", LOOPBACK + "/")
+    monkeypatch.setenv("EXTBENCH_EMBED_MODEL", "Qwen3-Embedding-4B-Q4_K_M.gguf")
+    monkeypatch.setenv("EXTBENCH_GROUP_THRESHOLD", "0.75")
+
+    # Act
+    settings = embedding.settings_from_env()
+
+    # Assert
+    assert settings == {
+        "base_url": LOOPBACK,
+        "model": "Qwen3-Embedding-4B-Q4_K_M.gguf",
+        "group_threshold": 0.75,
+        "query_instruction": embedding.QUERY_INSTRUCTION,
+    }
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("EXTBENCH_EMBED_URL", "https://api.example.com/v1"), ("EXTBENCH_GROUP_THRESHOLD", "1.5")],
+)
+def test_invalid_settings_stop_the_run(monkeypatch: pytest.MonkeyPatch, name: str, value: str) -> None:
+    # Arrange
+    monkeypatch.setenv("EXTBENCH_EMBED_URL", LOOPBACK)
+    monkeypatch.setenv(name, value)
+
+    # Act / Assert
+    with pytest.raises(SystemExit, match="invalid embedding settings"):
+        _ = embedding.settings_from_env()
+
+
+def test_core_facts_name_the_imported_core() -> None:
+    # Act
+    facts = memory.core_facts()
+
+    # Assert
+    assert Path(facts["path"]).name == "cortex_mem"
+    assert facts["commit"]

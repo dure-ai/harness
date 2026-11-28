@@ -23,7 +23,7 @@ from pathlib import Path
 
 from nltk.stem import PorterStemmer
 
-from . import llm, memory
+from . import embedding, llm, memory
 
 QA_PROMPT = """
 Based on the above context, write an answer in the form of a short phrase for the following question. Answer with exact words from the context whenever possible.
@@ -131,6 +131,9 @@ def main() -> None:
 
     root = Path(args.root)
     model = llm.make(args.model, root, args.workers, max_tokens=32)  # official: 32 tokens, temperature 0
+    engines = any(a.startswith("engine:") for a in args.arm)
+    embed_settings = embedding.settings_from_env() if engines else None
+    embedder = embedding.make(embed_settings, root) if embed_settings else None
     cats = {int(c) for c in args.categories.split(",")}
     data = json.load(open(args.data))[: args.conversations]
     if args.only:
@@ -180,7 +183,7 @@ def main() -> None:
             stored_now += len(records) if fresh else 0
             done = len(rows)
             try:
-                mem = memory.make(arm, records, ns, root)
+                mem = memory.make(arm, records, ns, root, embedder, embed_settings)
             except Exception as exc:  # a tool that failed on one history must not end the night
                 failed.append([arm, conv["sample_id"], repr(exc)[:300]])
                 print(f"{arm} {conv['sample_id']}: FAILED storing: {exc!r}"[:400], flush=True)
@@ -234,6 +237,8 @@ def main() -> None:
                      "categories": sorted(cats), "conversations": len(data), "per_category": args.per_category,
                      "unit": args.unit, "times": args.times, "calls": model.calls, "cache_hits": model.hits, "usage": model.usage,
                      "estimated_usd": round(spent(), 2), "records_stored": stored_now, "per_record_usd": args.per_record,
+                     "core": memory.core_facts() if engines else None, "embedding": embed_settings,
+                     "embedding_cache": None if embedder is None else {"hits": embedder.hits, "misses": embedder.misses},
                      "skipped_for_budget": skipped, "kept_from": args.resume, "kept": kept, "failed": failed, "arms": {}}
     for arm in args.arm:
         mine = [r for r in rows if r["arm"] == arm]
