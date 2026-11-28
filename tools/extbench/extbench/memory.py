@@ -117,7 +117,9 @@ class OssMemory:
         from harness.contract import Event, Query
         from harness.oss.text import engine_ns
 
-        cfg = EvalConfig(llm=LLM(provider="upstage", model=os.environ["HARNESS_LLM_MODEL"],
+        # The tools take their LLM from how the containers were started; this records which one it is.
+        cfg = EvalConfig(llm=LLM(provider=os.environ.get("HARNESS_LLM_PROVIDER", "upstage"),
+                                 model=os.environ["HARNESS_LLM_MODEL"],
                                  embedding_model=os.environ["HARNESS_EMBEDDING_MODEL"]))
         if tool == "mem0":
             from harness.oss.mem0 import Mem0Engine as Engine

@@ -60,12 +60,20 @@ def judge(model, triples: list[tuple], batch: int) -> tuple[list[bool], int]:
     return [labels[i] for i in range(len(triples))], split
 
 
+def backend(spec: str, root: Path, workers: int) -> llm.Backend:
+    """The judge model: an `openai:`/`claude-cli:` spec, or a bare Claude model name for the local CLI."""
+    full = spec if ":" in spec else f"claude-cli:{spec}"
+    return llm.make(full, root, workers, prefix="EXTBENCH_JUDGE", system=SYSTEM)
+
+
 def main() -> None:
     """Judge the answers of finished runs and write judged.jsonl and summary.json."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True)
     ap.add_argument("--answers", action="append", required=True, help="answers.jsonl of a finished run")
-    ap.add_argument("--model", required=True, help="e.g. claude-haiku-5-5 (through the local CLI)")
+    ap.add_argument("--model", required=True,
+                    help="openai:<model> (EXTBENCH_JUDGE_BASE_URL, else EXTBENCH_BASE_URL), claude-cli:<model>, "
+                         "or a bare Claude model name for the local CLI")
     ap.add_argument("--questions", type=int, default=None, help="judge a sample: this many questions, every arm")
     ap.add_argument("--batch", type=int, default=20)
     ap.add_argument("--workers", type=int, default=2)
@@ -88,7 +96,7 @@ def main() -> None:
 
     triples = sorted({(r["question"], str(r["answer"]), r["prediction"]) for r in rows})
     random.Random(args.seed).shuffle(triples)
-    model = llm.ClaudeCli(args.model, llm.Cache(root / "cache"), cwd=root / "cwd", system=SYSTEM, workers=args.workers)
+    model = backend(args.model, root, args.workers)
     started = time.time()
     labels, split = judge(model, triples, args.batch)
     label = dict(zip(triples, labels))

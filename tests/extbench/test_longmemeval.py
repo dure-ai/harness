@@ -207,3 +207,21 @@ def test_a_missing_endpoint_says_what_to_set(monkeypatch: pytest.MonkeyPatch, tm
     # Act / Assert
     with pytest.raises(SystemExit, match="EXTBENCH_JUDGE_BASE_URL"):
         _ = llm.make("openai:gemma", tmp_path, prefix="EXTBENCH_JUDGE")
+
+
+def test_locomo_judge_takes_a_local_model_or_a_bare_claude_name(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Arrange
+    from extbench import judge
+
+    monkeypatch.setenv("EXTBENCH_BASE_URL", "http://127.0.0.1:8080/v1")
+    monkeypatch.setenv("EXTBENCH_API_KEY", "local")
+    monkeypatch.setenv("EXTBENCH_JUDGE_BASE_URL", "http://127.0.0.1:8081/v1")
+
+    # Act
+    local = judge.backend("openai:gemma", tmp_path, 2)
+    cli = judge.backend("claude-sonnet-5-5", tmp_path, 2)
+
+    # Assert
+    assert local.describe()["base_url"] == "http://127.0.0.1:8081/v1"
+    assert local.system == judge.SYSTEM
+    assert isinstance(cli, llm.ClaudeCli) and cli.model == "claude-sonnet-5-5" and cli.system == judge.SYSTEM
