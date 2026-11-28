@@ -9,6 +9,7 @@ and judgment or use failures (wrong in both).
 
 from harness.replay import ScenarioRun
 from harness.scenario.model import Scenario
+from harness.scoring import probe_correct
 
 CELLS = ("both_right", "retrieval_or_noise", "judgment_or_use", "gold_only_wrong")
 MAX_EXAMPLES = 5
@@ -22,16 +23,6 @@ def gold_copy(s: Scenario) -> Scenario:
     """
     wanted = {f for p in s.probes for f in p.about}
     return s.model_copy(update={"events": [e for e in s.events if e.fact in wanted]})
-
-
-def probe_correct(kind: str, outcome: str) -> bool:
-    """Whether a block or promote probe was answered right: block unless FP, promote only on TP.
-
-    Other probe kinds (leak) are never right by this rule; callers keep them out.
-    """
-    if kind == "block":
-        return outcome != "FP"
-    return kind == "promote" and outcome == "TP"
 
 
 def _verdicts(runs: list[ScenarioRun]) -> dict[tuple[str, str], bool]:

@@ -603,3 +603,17 @@ def test_scenario_run_rejects_unknown_status():
 
     with pytest.raises(ValueError):
         ScenarioRun("s", "f", "read_only", error="X", status="bogus")  # pyright: ignore[reportArgumentType]
+
+
+def test_a_run_failed_by_an_engine_exception_records_its_text_kind_and_status():
+    from harness.contract import EngineUnavailable
+    from harness.replay import ScenarioRun
+
+    class Down(EngineUnavailable):
+        status = 503
+
+    down = ScenarioRun.failed("s1", "coincidence", "read_only", Down("no reply"))
+    assert (down.error, down.error_kind, down.status) == ("Down: no reply", "Down 503", "unavailable")
+    broken = ScenarioRun.failed("s1", "coincidence", "read_only", ValueError("bad"))
+    assert (broken.error, broken.error_kind, broken.status) == ("ValueError: bad", "ValueError", "error")
+    assert broken.probes == [] and broken.record_ms == []

@@ -8,7 +8,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import count
-from typing import Literal
+from typing import Literal, Self
 
 from harness.agent import Choice, choose, result_basis
 from harness.config import EvalConfig
@@ -182,6 +182,19 @@ class ScenarioRun:
         if (self.status == "ok") != (self.error is None):
             raise ValueError(f"status {self.status!r} does not match error {self.error!r}")
 
+    @classmethod
+    def failed(cls, scenario_id: str, family: str, mode: str, e: Exception) -> Self:
+        """A run that ended on engine exception `e` before any step, see `fail`."""
+        run = cls(scenario_id, family, mode)
+        run.fail(e)
+        return run
+
+    def fail(self, e: Exception) -> None:
+        """Mark the run as ended by engine exception `e`: its error text, kind and status."""
+        self.error = f"{type(e).__name__}: {e}"
+        self.error_kind = error_kind_of(e)
+        self.status = failure_status(e)
+
 
 def error_kind_of(e: BaseException) -> str:
     """The exception class name, plus " <status>" when it has an int `status`; no message."""
@@ -190,8 +203,8 @@ def error_kind_of(e: BaseException) -> str:
     return f"{name} {status}" if isinstance(status, int) and not isinstance(status, bool) else name
 
 
-def _failure_status(e: Exception) -> Status:
-    """The `ScenarioRun.status` for an engine exception."""
+def failure_status(e: Exception) -> Status:
+    """The `ScenarioRun.status` for an engine exception: "unavailable" or "error"."""
     return "unavailable" if isinstance(e, EngineUnavailable) else "error"
 
 
@@ -352,8 +365,7 @@ def feedback_events(
     feedback = probe.feedback
     if feedback is None:
         return []
-    abstained = choice.index is None or not choice.basis  # same rule as scoring.judge
-    if abstained:
+    if choice.abstained:
         action_tmpl = feedback.abstain
     else:
         # The basis can state facts outside `about` (design 7.2); the action templates are keyed
@@ -368,7 +380,7 @@ def feedback_events(
     if action_tmpl is not None:
         generated.append(make(action_tmpl, "action", cfg.feedback.action))
         action_t = generated[0][1].event.t
-    if not abstained:
+    if not choice.abstained:
         if is_wrong(choice.basis, probe, scenario):
             tmpl, delay = feedback.on_false, cfg.feedback.on_false
         else:
@@ -449,9 +461,7 @@ def run_scenario(
         virtual_clock = engine.info().virtual_clock
         engine.reset(namespace(run_id, scenario.id, blind_key))
     except Exception as e:
-        run.error = f"{type(e).__name__}: {e}"
-        run.error_kind = error_kind_of(e)
-        run.status = _failure_status(e)
+        run.fail(e)
         return run
 
     while timeline:
@@ -464,9 +474,7 @@ def run_scenario(
                 engine.record(ids.out(item.event))
                 run.record_ms.append((time.perf_counter() - start) * 1000)
             except Exception as e:
-                run.error = f"{type(e).__name__}: {e}"
-                run.error_kind = error_kind_of(e)
-                run.status = _failure_status(e)
+                run.fail(e)
                 return run
             recorded[item.event.id] = item
             continue
@@ -484,9 +492,7 @@ def run_scenario(
                 _as_result(r) for r in raw
             ]  # a malformed return errors this scenario only
         except Exception as e:
-            run.error = f"{type(e).__name__}: {e}"
-            run.error_kind = error_kind_of(e)
-            run.status = _failure_status(e)
+            run.fail(e)
             return run
         results = [ids.back(r) for r in raw[: cfg.k if item.k is None else item.k]]
         record = _score_probe(item, results, scenario, recorded, search_ms)

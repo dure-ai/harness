@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 
 from harness.config import EvalConfig, config_hash, load_config
-from harness.contract import BaseEngine, EngineInfo, EngineUnavailable
+from harness.contract import BaseEngine, EngineInfo
 from harness.engines import BASELINES, OSS_ENGINES, make_engine
 from harness.metrics import compute_metrics, flip_rate
 from harness.replay import DEFAULT_BLIND_KEY, ScenarioRun, blind_key, error_kind_of, run_scenario
@@ -320,14 +320,7 @@ def _run_extra(
                 if name not in infos:  # safety net: `run` fills it in its pre-flight
                     infos[name] = _checked_info(engine)
             except Exception as e:
-                run = ScenarioRun(
-                    s.id,
-                    s.family,
-                    s.mode,
-                    error=f"{type(e).__name__}: {e}",
-                    error_kind=error_kind_of(e),
-                    status="unavailable" if isinstance(e, EngineUnavailable) else "error",
-                )
+                run = ScenarioRun.failed(s.id, s.family, s.mode, e)
             else:
                 run = run_scenario(engine, s, run_id=f"{run_id}-r{r}", cfg=cfg, blind_key=key)
             runs.append(run)
