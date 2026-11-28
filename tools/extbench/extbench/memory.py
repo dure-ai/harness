@@ -222,8 +222,10 @@ def make(arm: str, records: list[Record], namespace: str = "", root=None, embedd
 def core_facts() -> dict:
     """Which cortex-mem the engine arms import, so a summary says what ran.
 
-    The commit comes from the checkout `EXTBENCH_CORE` points at when it is a git repository,
-    otherwise from the installed package's pin; "unknown" when neither says.
+    The commit comes from the core checkout `EXTBENCH_CORE` points at (a git repository whose
+    `src/cortex_mem` is the imported package), otherwise from the installed package's pin;
+    "unknown" when neither says. An installed package inside another repository (the harness's
+    own `.venv`) is not a checkout, so that repository's commit is never reported.
     """
     import json
     import subprocess
@@ -233,17 +235,22 @@ def core_facts() -> dict:
     import cortex_mem
 
     path = Path(cortex_mem.__file__).resolve().parent
-    commit, dirty = "unknown", None
-    try:
-        out = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
-        commit = out.stdout.strip()
-        status = subprocess.run(["git", "-C", str(path), "status", "--porcelain", "--", "."],
-                                capture_output=True, text=True, check=True)
-        dirty = bool(status.stdout.strip())
-    except (OSError, subprocess.CalledProcessError):
+
+    def git(*args: str) -> str | None:
         try:
-            direct = distribution("cortex-mem").read_text("direct_url.json") or "{}"
-            commit = json.loads(direct).get("vcs_info", {}).get("commit_id", "unknown")
-        except PackageNotFoundError:
-            pass
-    return {"path": str(path), "commit": commit, "uncommitted_changes": dirty}
+            done = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return done.stdout.strip()
+
+    top = git("rev-parse", "--show-toplevel")
+    if top is not None and (Path(top) / "src" / "cortex_mem").resolve() == path:
+        dirty = git("status", "--porcelain", "--", ".")
+        return {"path": str(path), "commit": git("rev-parse", "HEAD") or "unknown",
+                "uncommitted_changes": None if dirty is None else bool(dirty)}
+    try:
+        direct = distribution("cortex-mem").read_text("direct_url.json") or "{}"
+        commit = json.loads(direct).get("vcs_info", {}).get("commit_id", "unknown")
+    except PackageNotFoundError:
+        commit = "unknown"
+    return {"path": str(path), "commit": commit, "uncommitted_changes": None}

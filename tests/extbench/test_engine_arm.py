@@ -1,7 +1,11 @@
+import re
+import subprocess
+import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import cortex_mem  # noqa: F401  (imported so its module entry can be patched)
 import pytest
 from cortex_mem.embed import HashEmbedder
 from extbench import embedding, memory
@@ -171,10 +175,35 @@ def test_invalid_settings_stop_the_run(monkeypatch: pytest.MonkeyPatch, name: st
         _ = embedding.settings_from_env()
 
 
-def test_core_facts_name_the_imported_core() -> None:
+def test_core_facts_report_the_pin_of_an_installed_core_not_the_surrounding_repository() -> None:
+    # Arrange: the installed package lives in the harness's .venv, inside the harness repository
+    pyproject = (Path(__file__).parents[2] / "pyproject.toml").read_text()
+    pinned = re.search(r'cortex-mem = \{ git = "[^"]+", rev = "([0-9a-f]+)" \}', pyproject)
+    assert pinned is not None
+
     # Act
     facts = memory.core_facts()
 
     # Assert
     assert Path(facts["path"]).name == "cortex_mem"
-    assert facts["commit"]
+    assert facts["commit"] == pinned.group(1)
+    assert facts["uncommitted_changes"] is None
+
+
+def test_core_facts_report_a_core_checkout_by_its_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange: a git repository laid out like core, whose src/cortex_mem is the imported package
+    package = tmp_path / "core" / "src" / "cortex_mem"
+    package.mkdir(parents=True)
+    _ = (package / "__init__.py").write_text("")
+    git = ["git", "-C", str(tmp_path / "core"), "-c", "user.email=t@example.com", "-c", "user.name=t"]
+    for args in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "core"]):
+        _ = subprocess.run([*git, *args], check=True, capture_output=True)
+    head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    _ = (package / "extra.py").write_text("")
+    monkeypatch.setattr(sys.modules["cortex_mem"], "__file__", str(package / "__init__.py"))
+
+    # Act
+    facts = memory.core_facts()
+
+    # Assert
+    assert facts == {"path": str(package.resolve()), "commit": head, "uncommitted_changes": True}
