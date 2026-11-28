@@ -50,9 +50,8 @@ def test_the_report_shows_the_share_of_results_without_sources(tmp_path: Path):
 
 
 def test_a_dev_set_report_has_a_family_table_and_no_knowledge_update_note(tmp_path: Path):
-    from harness.scenario.load import load_set
-
     from harness.bench.dataset import Converted
+    from harness.scenario.load import load_set
 
     scenarios = load_set([Path("scenarios/dev")], include_drafts=False).scenarios[:2]
     items = [Converted(s, s.id, s.family, None) for s in scenarios]

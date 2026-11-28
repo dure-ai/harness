@@ -15,7 +15,6 @@ from pydantic import BaseModel, ValidationError
 
 from harness.generate.config import GenConfig
 
-
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 _AUTH_ERRORS = frozenset({"AuthenticationError", "PermissionDeniedError"})
 _FATAL_ERRORS = {
@@ -109,7 +108,7 @@ def _ask_with_retry[T: BaseModel](
     """Call `ask(user)`, validate the text, and ask once more with the error if it fails."""
     prompt = user
     last = ""
-    for attempt in range(2):
+    for _ in range(2):
         text = ask(prompt)
         try:
             value = schema.model_validate_json(text)

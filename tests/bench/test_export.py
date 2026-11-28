@@ -1,5 +1,5 @@
-import hashlib
 import dataclasses
+import hashlib
 from pathlib import Path
 
 import pytest

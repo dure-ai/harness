@@ -52,10 +52,23 @@ packages = ["src/harness"]
 pythonpath = ["."]
 testpaths = ["tests"]
 
+[tool.ruff]
+# Import sorting wraps at this width. Line length itself (E501) is not checked; a few older lines
+# are longer.
+line-length = 120
+
 [tool.ruff.lint]
-select = ["D"]
-# __init__ and dunder methods are documented in the class docstring (Google style).
-ignore = ["D105", "D107"]
+# D: docstrings. F: pyflakes. E4/E7/E9: the pycodestyle errors that are not layout. I: import order.
+# B: bugbear. UP: pyupgrade. SIM: simplifications.
+select = ["D", "F", "E4", "E7", "E9", "I", "B", "UP", "SIM"]
+ignore = [
+    "D105", "D107",  # __init__ and dunder methods are documented in the class docstring (Google style).
+    "B027",  # BaseEngine.tick and flush are optional hooks with a no-op default, not abstract methods.
+    "SIM108",  # an if/else block often reads better than a long or nested conditional expression.
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["harness", "tests"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

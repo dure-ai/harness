@@ -9,11 +9,11 @@ from harness.metrics import compute_metrics
 from harness.replay import ProbeRecord, ScenarioRun
 from harness.report import (
     RunMeta,
-    scrubber,
     blind_ids,
     harness_version,
     jsonable,
     machine_info,
+    scrubber,
     write_report,
 )
 from harness.scoring import Leak

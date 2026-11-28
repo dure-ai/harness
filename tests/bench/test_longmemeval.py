@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import UTC, datetime
+from itertools import pairwise
 
 from harness.bench.datasets.longmemeval import LongMemEvalS, convert_question, load_ku_labels, parse_lme_date
 from harness.scenario.model import Scenario
@@ -128,7 +129,7 @@ def test_events_have_strictly_increasing_times_within_and_across_sessions():
     s = convert_question(q, {}).scenario
     assert s is not None
     times = [e.t for e in s.events]
-    assert all(a < b for a, b in zip(times, times[1:]))
+    assert all(a < b for a, b in pairwise(times))
     assert [e.id for e in s.events][:2] == ["s0-t0", "s0-t1"]
     assert times[0] == datetime(2023, 5, 1, 9, 0, tzinfo=UTC)
     assert not errors(s)

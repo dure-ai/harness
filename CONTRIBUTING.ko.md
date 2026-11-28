@@ -31,7 +31,7 @@ uv run basedpyright src         # 타입 검사
 uv run pytest -q -W error       # 테스트 (경고를 오류로 처리)
 ```
 
-CI가 모든 PR에서 이 네 가지를 돌립니다. 푸시하기 전에 직접 돌려 보세요.
+CI가 모든 PR에서 이 네 가지를 돌립니다. 푸시하기 전에 직접 돌려 보세요. ruff 규칙은 `pyproject.toml`에 있습니다. 독스트링, pyflakes, import 순서, bugbear, pyupgrade, 단순화를 검사하고, 대부분은 `uv run ruff check --fix src tests`로 고칩니다. 코드에 `ruff format`은 돌리지 않습니다.
 
 시나리오를 바꿨다면 `uv run harness scenario check <경로>`도 돌립니다. 시나리오 승인은 `review.status`를 손으로 고치지 말고 `uv run harness review set <id> approved --reviewer <이름>`으로 합니다. `runs/` 아래 실행 결과는 커밋하지 않습니다.
 

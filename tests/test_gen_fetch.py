@@ -1,5 +1,6 @@
 """Tests for listing, downloading and counting Open-SWE-Traces shards (no network)."""
 
+import contextlib
 import gc
 import logging
 import socket
@@ -183,10 +184,8 @@ def silent_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     # On Linux, close() does not wake a thread blocked in accept(), so the listener would keep
     # taking the retries and hold them open; shutdown() wakes it. macOS refuses to shut down a
     # listening socket, and there close() alone does the job.
-    try:
+    with contextlib.suppress(OSError):
         srv.shutdown(socket.SHUT_RDWR)
-    except OSError:
-        pass
     srv.close()
     acceptor.join(10)
     assert not acceptor.is_alive(), "the test server kept accepting connections"
