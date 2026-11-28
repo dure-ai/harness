@@ -56,6 +56,12 @@ bench_app = typer.Typer(help="External benchmarks converted into scenarios.", no
 app.add_typer(bench_app, name="bench")
 stress_app = typer.Typer(help="Stress set: harder, label-preserving variants of approved scenarios.", no_args_is_help=True)
 app.add_typer(stress_app, name="stress")
+extbench_app = typer.Typer(
+    help="Every engine over the dev set, LoCoMo and LongMemEval-S (tools/extbench: models answer and judge; "
+    + "not the pre-registered measurement).",
+    no_args_is_help=True,
+)
+app.add_typer(extbench_app, name="extbench")
 
 ScenariosOpt = Annotated[
     list[Path],
@@ -665,6 +671,56 @@ def seeds(
     out_dir = out / f"{run_id}-seeds"
     write_seed_report(out_dir, meta, seed_list, metrics, runs)
     typer.echo(str(out_dir / "report.md"))
+
+
+# ---- extbench ---------------------------------------------------------------------------------
+
+
+@extbench_app.command("run")
+def extbench_run(
+    config: Annotated[Path, typer.Option("--config", help="Comparison config (tools/extbench/all-engines.example.yaml).")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Print every step, whether it is done, and its command; run nothing.")
+    ] = False,
+    rerun: Annotated[bool, typer.Option("--rerun", help="Run every step again, finished ones included.")] = False,
+) -> None:
+    """Run each engine on the dev set, LoCoMo and LongMemEval-S, skipping finished steps, and write one table.
+
+    Exits 1 when a step failed (the others still run and the table shows what finished), 2 when the
+    config cannot be read or this is not a harness checkout with tools/extbench.
+    """
+    import shlex
+
+    from harness.extbench_run import (
+        Execution,
+        absolute_paths,
+        default_paths,
+        is_done,
+        load_run_config,
+        plan,
+        write_summary,
+    )
+
+    try:
+        cfg = absolute_paths(load_run_config(config), Path.cwd())
+    except Exception as e:
+        raise _fail(f"error: cannot load config {config}: {e}", 2) from e
+    try:
+        run_sh, harness = default_paths()
+    except FileNotFoundError as e:
+        raise _fail(f"error: {e}", 2) from e
+    steps = plan(cfg, run_sh, harness)
+    if dry_run:
+        for step in steps:
+            env = " ".join(f"{k}={shlex.quote(v)}" for k, v in sorted(step.env.items()))
+            typer.echo(f"{'done' if is_done(step) else 'todo'}  {step.key}\n    {env} {shlex.join(step.argv)}".rstrip())
+        return
+    outcomes = Execution(steps, cfg.budget, rerun=rerun).run()
+    summary = write_summary(cfg, steps, outcomes)
+    typer.echo(summary.read_text(encoding="utf-8"))
+    typer.echo(f"written to {summary}")
+    if any(o.status in ("failed", "blocked") for o in outcomes):
+        raise typer.Exit(1)
 
 
 # ---- traces and generate (need the `gen` extra; harness.generate is imported lazily) ------------

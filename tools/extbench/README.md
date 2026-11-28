@@ -1,4 +1,4 @@
-# extbench: question answering over LoCoMo with a memory in front of the reader
+# extbench: question answering over LoCoMo and LongMemEval-S with a memory in front of the reader
 
 A small runner that answers the questions of an external benchmark with a reader model, once per
 memory "arm", and scores the answers with the benchmark's own scorer. It was written to get
@@ -41,16 +41,26 @@ the gold answer, without seeing which arm wrote it.
 | --- | --- |
 | `none` | nothing |
 | `full` | every record, in order |
-| `engine:<module>:<Class>` | `Runtime.handoff(question, scope="team", k)` of a core engine, built with no arguments, over the in-memory stores |
+| `engine:<module>:<Class>` | `Runtime.handoff(question, scope="team", k)` of a core engine, built with no arguments, over one `InMemoryDatabase` (with an index when embeddings are set) |
 | `oss:mem0`, `oss:hindsight` | one search of the self-hosted tool through the harness adapter |
 
 - The harness's `CoreBridge` and its baselines (`all_store` and the others) are not used. The
   "simple search" row below is core's `PromoteAllEngine` over core's in-memory store.
-- The engine arm imports whatever `cortex_mem` is first on the path. The harness pin
-  (`a02369d`) predates the in-memory BM25 ranking and gives lower numbers. Set
-  `EXTBENCH_CORE=<core checkout>/src` to run a newer core. Core `main` at `0c3f85d` reproduces
-  the simple-search row below exactly (checked on `conv-26`: the same prompts for all 152
-  questions).
+- The engine arm imports whatever `cortex_mem` is first on the path: the harness pin, or the
+  checkout `EXTBENCH_CORE=<core checkout>/src` names. `summary.json` records which (`core`: its
+  path, commit, and whether the checkout has uncommitted changes). The first full run below used
+  core `main` at `0c3f85d`; that core reproduces the simple-search row exactly (checked on
+  `conv-26`: the same prompts for all 152 questions).
+- Engines that group records by embedding (Supersede since core #36) need an index. Set
+  `EXTBENCH_EMBED_URL` to a local llama.cpp embedding server (loopback only, the same rule as the
+  harness's `core_embedding`), and optionally `EXTBENCH_EMBED_MODEL` and
+  `EXTBENCH_GROUP_THRESHOLD` (defaults from `harness.config.CoreEmbedding`). The arm then builds an
+  `Index` the way the harness's `CoreBridge` does. Queries are embedded with an instruction for
+  conversation questions, not the harness's software-engineering one; `summary.json` records it
+  under `embedding`. Without `EXTBENCH_EMBED_URL` engines run with no index, as before.
+- Vectors are cached in `cache/embeddings.sqlite3` by model and text, so the engine arms of one
+  run, and later runs, embed each record once. An embedding failure, or an event the runtime
+  skipped, fails that conversation for that arm instead of scoring around it.
 - A tool stores each history once. `ingested/` holds a marker per stored history and a
   `.partial.json` while one is in progress, so a stopped run continues from the record it
   reached. Histories stored with `--times order` are not reused by `--times session`.
@@ -76,7 +86,8 @@ EXTBENCH_CORE=../core/src tools/extbench/run.sh locomo --data locomo10.json \
   --arm engine:cortex_mem.engines.baseline:PromoteAllEngine \
   --arm engine:cortex_mem.engines.supersede:SupersedeEngine
 
-# Judge finished runs with a model through the local Claude Code CLI.
+# Judge finished runs: a bare Claude name goes through the local Claude Code CLI; openai:<model>
+# uses EXTBENCH_JUDGE_BASE_URL (else EXTBENCH_BASE_URL), e.g. a local server.
 tools/extbench/run.sh judge --model claude-sonnet-5-5 --name judged \
   --answers runs/a/answers.jsonl --answers runs/b/answers.jsonl
 ```
@@ -100,6 +111,70 @@ Outputs, under `runs/<name>/` (not committed):
 - `retrieved.jsonl`: the texts and source ids each arm handed over (not for `none` and `full`).
 - `summary.json`: the settings, token usage, estimated cost, failures, and scores per arm.
 - `judged.jsonl` and its `summary.json` from `judge`.
+
+## Every engine at once: `harness extbench run`
+
+One config names the engines (an arm each, and the core checkout for engines still in core pull
+requests), the models, and which of the dev set, LoCoMo and LongMemEval-S to run;
+[`all-engines.example.yaml`](all-engines.example.yaml) has every engine of #69 with local models.
+
+```bash
+uv run harness extbench run --config my-run.yaml --dry-run   # the steps, done or not, and their commands
+uv run harness extbench run --config my-run.yaml
+```
+
+- Steps: the dev set once per core checkout through `harness run` (the same `blind_seed` for each;
+  `none` and `full` have no dev run), and per engine `run.sh locomo` then `run.sh judge` on its
+  answers, and `run.sh longmemeval`. Relative paths in the config are taken against the directory
+  the command starts in.
+- A step whose `summary.json` exists is skipped; one stopped part-way is run again with `--resume`
+  on the answers it wrote (`answers.earlier.jsonl`). `--rerun` runs everything again. A failed step
+  is reported and the rest still run; a judge whose LoCoMo run failed is not started.
+- `budget` limits the estimated USD of all extbench steps together: each step gets what is left.
+- The table goes to `runs/<name>-summary.md` and `.json` under `root`: dev M1, M2, M3 and the
+  verdict, LoCoMo F1, judged correctness and evidence recall, LongMemEval-S accuracy, abstention
+  accuracy and evidence recall, and what became of each step. The servers (reader, judge,
+  embeddings, Mem0, Hindsight) are not started for you.
+
+## LongMemEval-S
+
+`run.sh longmemeval` runs LongMemEval-S (500 questions, each with its own history of about 50
+sessions) the way the official evaluation does, with the same arms:
+
+1. For each arm and question, store that question's history afresh, one record per turn
+   (`<session date> | <role>: <content>`, the session date plus one second per turn).
+2. Ask the memory for `k` texts (default 20) with the question.
+3. The reader answers with the official prompt for retrieved history without chain of thought
+   (`Current Date` is the question's date; temperature 0, at most 500 tokens).
+4. The judge labels the answer with the official prompt for the question's type, or the
+   abstention prompt for `_abs` questions (temperature 0, at most 10 tokens); the answer is
+   correct when the reply contains "yes".
+
+The prompts and settings are copied from [xiaowu0162/LongMemEval](https://github.com/xiaowu0162/LongMemEval)
+(MIT), `src/generation/run_generation.py` and `src/evaluation/evaluate_qa.py`. Two deviations are
+recorded in each summary: the backends send a short system message, and the history is the texts
+the arm handed over, one line per turn, instead of the official JSON per session.
+
+The data comes from the harness bench cache (`uv run harness bench fetch --dataset longmemeval-s`),
+checked against its sha256 before every run; `--data` reads another file instead.
+
+```bash
+# Twenty questions, no memory and the whole history, with a local reader and a local judge.
+EXTBENCH_JUDGE_BASE_URL=http://127.0.0.1:8081/v1 tools/extbench/run.sh longmemeval \
+  --model openai:qwen --judge-model openai:gemma --questions 20 --price 0,0 \
+  --arm none --arm full
+```
+
+- The judge's endpoint is `EXTBENCH_JUDGE_BASE_URL` / `EXTBENCH_JUDGE_API_KEY`, each falling back
+  to the reader's, so the two can be different local servers. A judge from another model family
+  than the reader avoids a model grading its own answers.
+- `--types`, `--only`, `--questions N` make a run small; `--resume`, `--budget`, `--per-record`,
+  `--price` work as for LoCoMo. `--price 0,0` for local models.
+- `summary.json` reports accuracy overall, per question type (abstention questions counted in
+  their type, as the official script does), for abstention questions alone, and evidence recall
+  over the turns the dataset marks `has_answer`.
+- Storing is the expensive part: about 500 turns per question, so 250,000 records per tool over
+  the whole set.
 
 ## Results of the first full run (18 to 20 November 2026)
 

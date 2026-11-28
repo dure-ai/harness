@@ -55,26 +55,54 @@ class FullContext:
 
 
 class EngineMemory:
-    """A cortex-mem engine behind the core Runtime with in-memory stores."""
+    """A cortex-mem engine behind the core Runtime over one in-memory database.
 
-    def __init__(self, records: list[Record], engine: str) -> None:
+    Built the way the harness's `CoreBridge` builds it: one `InMemoryDatabase`, its transaction,
+    and, when an embedder is given, an `Index` over the database's vectors with the configured
+    group threshold. Without an embedder the engine runs with no index.
+
+    Raises (from the constructor and `recall`):
+        RuntimeError: If the runtime skipped an event, or the embedder failed at any point;
+            an engine scored around its own failure would not be comparable.
+    """
+
+    def __init__(self, records: list[Record], engine: str, embedder=None, group_threshold: float | None = None) -> None:
         from cortex_mem.contract import Caller, Event
+        from cortex_mem.index import Index
         from cortex_mem.runtime import Runtime
-        from cortex_mem.store.memory import InMemoryEventStore, InMemoryKnowledgeBase, InMemoryStateBackend
+        from cortex_mem.store.memory import InMemoryDatabase
 
         module, _, cls = engine.partition(":")
-        self.rt = Runtime(getattr(importlib.import_module(module), cls)(), InMemoryEventStore(),
-                          InMemoryKnowledgeBase(), InMemoryStateBackend())
+        db = InMemoryDatabase()
+        index = None
+        if embedder is not None:
+            if group_threshold is None:
+                raise ValueError("an embedder needs a group threshold")
+            index = Index(db.vectors, embedder, group_threshold, db.transaction)
+        self.embedder = embedder
+        self.rt = Runtime(getattr(importlib.import_module(module), cls)(), db.events, db.knowledge,
+                          db.state("engine"), db.transaction, max_failures=None, index=index)
         last = max((r.at for r in records), default=datetime(2000, 1, 1, tzinfo=UTC))
         for r in records:
-            self.rt.append(Event(id=r.id, kind="record", at=r.at, user=r.author, team="t", session=f"s-{r.author}",
-                                 scope="team", text=r.text, signal="self"))
+            _ = self.rt.append(Event(id=r.id, kind="record", at=r.at, user=r.author, team="t",
+                                     session=f"s-{r.author}", scope="team", text=r.text, signal="self"))
+        _ = self.rt.sync()
+        self._check()
         self.caller = Caller(user="asker", team="t", session="s-asker", at=last + timedelta(seconds=1))
 
     def recall(self, query: str, k: int) -> list[str]:
         """Return the texts handed over for a query, best first."""
         # What the engine hands over, as it hands it over (its basis line included).
-        return [h.content for h in self.rt.handoff(query, self.caller, "team", k)]
+        handed = [h.content for h in self.rt.handoff(query, self.caller, "team", k)]
+        self._check()
+        return handed
+
+    def _check(self) -> None:
+        if self.rt.skipped:
+            raise RuntimeError(f"the runtime skipped events: {self.rt.skipped}")
+        # Core may answer without vectors during an outage, which would quietly change the engine.
+        if self.embedder is not None and self.embedder.failure is not None:
+            raise RuntimeError(f"embedding failed: {self.embedder.failure}")
 
 
 class OssMemory:
@@ -89,7 +117,9 @@ class OssMemory:
         from harness.contract import Event, Query
         from harness.oss.text import engine_ns
 
-        cfg = EvalConfig(llm=LLM(provider="upstage", model=os.environ["HARNESS_LLM_MODEL"],
+        # The tools take their LLM from how the containers were started; this records which one it is.
+        cfg = EvalConfig(llm=LLM(provider=os.environ.get("HARNESS_LLM_PROVIDER", "upstage"),
+                                 model=os.environ["HARNESS_LLM_MODEL"],
                                  embedding_model=os.environ["HARNESS_EMBEDDING_MODEL"]))
         if tool == "mem0":
             from harness.oss.mem0 import Mem0Engine as Engine
@@ -174,8 +204,11 @@ def stored(arm: str, records: list[Record], namespace: str, root) -> bool:
     return marker.exists() and json.loads(marker.read_text())["records"] == len(records)
 
 
-def make(arm: str, records: list[Record], namespace: str = "", root=None):
-    """Build the memory an arm names over these records."""
+def make(arm: str, records: list[Record], namespace: str = "", root=None, embedder=None, embed_settings=None):
+    """Build the memory an arm names over these records.
+
+    `embedder` and `embed_settings` (see `embedding.settings_from_env`) apply to engine arms only.
+    """
     if arm.startswith("oss:"):
         return OssMemory(records, arm[len("oss:"):], f"{namespace}|{arm}", root)
     if arm == "none":
@@ -183,5 +216,43 @@ def make(arm: str, records: list[Record], namespace: str = "", root=None):
     if arm == "full":
         return FullContext(records)
     if arm.startswith("engine:"):
-        return EngineMemory(records, arm[len("engine:"):])
+        threshold = embed_settings["group_threshold"] if embed_settings else None
+        return EngineMemory(records, arm[len("engine:"):], embedder, threshold)
     raise SystemExit(f"unknown arm {arm!r}")
+
+
+def core_facts() -> dict:
+    """Which cortex-mem the engine arms import, so a summary says what ran.
+
+    The commit comes from the core checkout `EXTBENCH_CORE` points at (a git repository whose
+    `src/cortex_mem` is the imported package), otherwise from the installed package's pin;
+    "unknown" when neither says. An installed package inside another repository (the harness's
+    own `.venv`) is not a checkout, so that repository's commit is never reported.
+    """
+    import json
+    import subprocess
+    from importlib.metadata import PackageNotFoundError, distribution
+    from pathlib import Path
+
+    import cortex_mem
+
+    path = Path(cortex_mem.__file__).resolve().parent
+
+    def git(*args: str) -> str | None:
+        try:
+            done = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return done.stdout.strip()
+
+    top = git("rev-parse", "--show-toplevel")
+    if top is not None and (Path(top) / "src" / "cortex_mem").resolve() == path:
+        dirty = git("status", "--porcelain", "--", ".")
+        return {"path": str(path), "commit": git("rev-parse", "HEAD") or "unknown",
+                "uncommitted_changes": None if dirty is None else bool(dirty)}
+    try:
+        direct = distribution("cortex-mem").read_text("direct_url.json") or "{}"
+        commit = json.loads(direct).get("vcs_info", {}).get("commit_id", "unknown")
+    except PackageNotFoundError:
+        commit = "unknown"
+    return {"path": str(path), "commit": commit, "uncommitted_changes": None}

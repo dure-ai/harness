@@ -162,13 +162,24 @@ class OpenAICompat(Backend):
                 "output": u.get("completion_tokens", 0)}
 
 
-def make(spec: str, root: Path, workers: int = 4, max_tokens: int | None = None) -> Backend:
-    """spec: 'claude-cli:<model>' or 'openai:<model>' (endpoint from EXTBENCH_BASE_URL / EXTBENCH_API_KEY)."""
+def make(spec: str, root: Path, workers: int = 4, max_tokens: int | None = None, prefix: str = "EXTBENCH",
+         system: str = SYSTEM) -> Backend:
+    """spec: 'claude-cli:<model>' or 'openai:<model>'.
+
+    An openai endpoint comes from `<prefix>_BASE_URL` / `<prefix>_API_KEY`, each falling back to the
+    EXTBENCH_ one, so a judge can sit on another local server than the reader (prefix "EXTBENCH_JUDGE").
+    """
     kind, _, model = spec.partition(":")
     cache = Cache(root / "cache")
     if kind == "claude-cli":
-        return ClaudeCli(model, cache, cwd=root / "cwd", workers=workers)
+        return ClaudeCli(model, cache, cwd=root / "cwd", workers=workers, system=system)
     if kind == "openai":
-        return OpenAICompat(model, cache, os.environ["EXTBENCH_BASE_URL"], os.environ["EXTBENCH_API_KEY"],
-                            workers=workers, max_tokens=max_tokens)
+        def env(name: str) -> str:
+            value = os.environ.get(f"{prefix}_{name}") or os.environ.get(f"EXTBENCH_{name}")
+            if value is None:
+                raise SystemExit(f"set {prefix}_{name} (or EXTBENCH_{name}) for {spec!r}")
+            return value
+
+        return OpenAICompat(model, cache, env("BASE_URL"), env("API_KEY"), workers=workers, max_tokens=max_tokens,
+                            system=system)
     raise SystemExit(f"unknown backend {spec!r}")
