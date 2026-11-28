@@ -96,9 +96,9 @@ class DryRun(Exception):
             user: User prompt.
         """
         super().__init__(f"dry run: first {kind} request")
-        self.kind = kind
-        self.system = system
-        self.user = user
+        self.kind: str = kind
+        self.system: str = system
+        self.user: str = user
 
 
 class DryRunClient:
@@ -117,8 +117,8 @@ class DryRunClient:
             name: Provider name.
             model: Model name.
         """
-        self.name = name
-        self.model = model
+        self.name: str = name
+        self.model: str = model
         self.last_model: str | None = None
 
     def complete_json[T: BaseModel](
@@ -126,8 +126,8 @@ class DryRunClient:
         kind: str,
         system: str,
         user: str,
-        schema: type[T],
-        validate: Callable[[T], None] | None = None,
+        schema: type[T],  # pyright: ignore[reportUnusedParameter]  # part of LLMClient.complete_json
+        validate: Callable[[T], None] | None = None,  # pyright: ignore[reportUnusedParameter]
     ) -> T:
         """Stop the run with the request that would have been sent.
 

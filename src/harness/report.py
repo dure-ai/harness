@@ -386,8 +386,7 @@ def _family_rows(
     rows = []
     for s in ordered:
         for family, t in table(s.metrics).items():
-            m3 = t.get("m3")
-            rows.append([ids[s.engine_id], family, rate_text(t["m1"]), rate_text(t["m2"]), NA if m3 is None else m3])
+            rows.append([ids[s.engine_id], family, rate_text(t["m1"]), rate_text(t["m2"]), t["m3"]])
     return rows
 
 
@@ -609,7 +608,6 @@ def _markdown(
     meta: RunMeta,
     ordered: list[EngineScore],
     ranking: list[RankEntry],
-    runs: Mapping[str, list[ScenarioRun]],
     repeat_runs: Mapping[str, list[list[ScenarioRun]]],
     selfcheck: list[CheckResult],
     ids: Mapping[str, str],
@@ -695,5 +693,5 @@ def write_report(
         lines = result_lines(runs, sorted(runs, key=key), ids)
         results.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
     (out_dir / "report.md").write_text(
-        _markdown(meta, ordered, ranking, runs, repeat_runs, selfcheck, ids, scrub) + "\n", encoding="utf-8"
+        _markdown(meta, ordered, ranking, repeat_runs, selfcheck, ids, scrub) + "\n", encoding="utf-8"
     )

@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import timedelta
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -14,7 +15,7 @@ from harness.yamlio import load_yaml
 class StrictModel(BaseModel):
     """Base for config models: unknown keys are errors."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
 
 class Judgment(StrictModel):

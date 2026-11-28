@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -18,7 +19,7 @@ class BenchConfig(BaseModel):
         eval: The evaluation settings the replay and the baselines use.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     version: str = "0.1"
     eval: EvalConfig = EvalConfig()

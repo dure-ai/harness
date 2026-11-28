@@ -2,7 +2,7 @@
 
 import re
 from importlib import resources
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -34,7 +34,7 @@ class RawCandidate(BaseModel):
         fix: For workaround-like facts, whether the cause was fixed or only worked around.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     statement: str
     kind: Kind
@@ -224,7 +224,7 @@ _FAKE_FACTS: list[dict[str, Any]] = [
 ]
 
 
-def fake_candidates(system: str, user: str) -> dict[str, Any]:
+def fake_candidates(system: str, user: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedParameter]  # the fake provider's responder signature
     """Canned `candidates` reply for the fake provider, built from the compressed trace in `user`.
 
     Each candidate quotes the first 40 characters of an assistant message as rendered, so it

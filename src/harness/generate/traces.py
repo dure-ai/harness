@@ -6,7 +6,7 @@ Needs `pyarrow` (extra `gen`), imported inside `read_parquet` only.
 import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -41,7 +41,7 @@ class TraceMessage(BaseModel):
         tool_calls: One string per call, "name(arguments)".
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     index: int
     role: str
@@ -62,7 +62,7 @@ class Trace(BaseModel):
         messages: The conversation in order.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     trajectory_id: str
     instance_id: str

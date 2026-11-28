@@ -20,11 +20,13 @@ class NamespacedEngine(BaseEngine, ABC):
             raise RuntimeError("reset(namespace) must be called before record/search")
         return self._stores[self._current]
 
+    @override
     def reset(self, namespace: str) -> None:
         """Create or clear `namespace` and make it current."""
         self._stores[namespace] = []
         self._current = namespace
 
+    @override
     def record(self, event: Event) -> None:
         """Store the event in the current namespace."""
         self._store().append(event)
@@ -90,10 +92,12 @@ def _rank(
 class NoneEngine(NamespacedEngine):
     """Hands over nothing: the "no memory" floor (M1 = M2 = 0)."""
 
+    @override
     def info(self) -> EngineInfo:
         """Return the engine info."""
         return EngineInfo(name="none", version="0.1", sources=True, scopes=True)
 
+    @override
     def search(self, query: Query) -> list[Result]:
         """Return no results (after checking that `reset` was called)."""
         self._store()
@@ -110,13 +114,15 @@ class AllStoreEngine(_IndexedEngine):
 
     def __init__(self, acl: bool = True) -> None:
         super().__init__()
-        self.acl = acl
+        self.acl: bool = acl
 
+    @override
     def info(self) -> EngineInfo:
         """Return the engine info, including whether visibility is enforced."""
         name = "all_store" if self.acl else "all_store_noacl"
         return EngineInfo(name=name, version="0.1", config={"acl": self.acl}, sources=True, scopes=True)
 
+    @override
     def search(self, query: Query) -> list[Result]:
         """Rank the visible stored events with BM25 and return the top `query.k`."""
         events = self._store()
@@ -138,8 +144,8 @@ class RepeatNEngine(_IndexedEngine):
 
     def __init__(self, n: int, tau: float) -> None:
         super().__init__()
-        self.n = n
-        self.tau = tau
+        self.n: int = n
+        self.tau: float = tau
         # Per namespace, by position in the store: the positions of the events similar to each
         # event (itself included when it is similar to itself). Found once, when an event is
         # recorded, so a query only counts them; the index finds them without a full scan. Every
@@ -169,6 +175,7 @@ class RepeatNEngine(_IndexedEngine):
             similar[j].append(position)
         similar.append(mine)
 
+    @override
     def info(self) -> EngineInfo:
         """Return the engine info with its parameters."""
         return EngineInfo(
@@ -176,6 +183,7 @@ class RepeatNEngine(_IndexedEngine):
             sources=True, scopes=True,
         )
 
+    @override
     def search(self, query: Query) -> list[Result]:
         """Keep visible events that recur at least `n` times, then rank them like all_store."""
         store = self._store()

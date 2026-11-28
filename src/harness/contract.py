@@ -6,7 +6,7 @@ is true, what counts as a secret) lives in the scenario model and never crosses 
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
@@ -24,7 +24,7 @@ class Event(BaseModel):
     followed result's sources), never derived from hidden labels.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     id: str
     t: AwareDatetime
@@ -44,7 +44,7 @@ class Event(BaseModel):
 class Query(BaseModel):
     """What the simulated agent asks. `team` is the asker's team, `t` the virtual time of asking."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     text: str
     user: str
@@ -119,7 +119,7 @@ class BaseEngine(ABC):
         result can be scored precisely, and never return events the asker cannot see.
         """
 
-    def tick(self, t: datetime) -> None:
+    def tick(self, t: datetime) -> None:  # pyright: ignore[reportUnusedParameter]  # a hook: engines with a virtual clock use t
         """Advance the virtual clock. Default: no-op."""
 
     def flush(self) -> None:

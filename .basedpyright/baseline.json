@@ -1,40 +1,6 @@
 {
     "files": {
-        "./src/harness/agent.py": [
-            {
-                "code": "reportUnknownParameterType",
-                "range": {
-                    "startColumn": 53,
-                    "endColumn": 61,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportMissingParameterType",
-                "range": {
-                    "startColumn": 53,
-                    "endColumn": 61,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnknownVariableType",
-                "range": {
-                    "startColumn": 12,
-                    "endColumn": 13,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./src/harness/baselines/oracle.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 22,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportUnusedCallResult",
                 "range": {
@@ -42,65 +8,9 @@
                     "endColumn": 64,
                     "lineCount": 1
                 }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 12,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
             }
         ],
         "./src/harness/baselines/simple.py": [
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 13,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 12,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportUnusedCallResult",
                 "range": {
@@ -108,73 +18,9 @@
                     "endColumn": 21,
                     "lineCount": 1
                 }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 12,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 12,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
             }
         ],
         "./src/harness/bench/config.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportAny",
                 "range": {
@@ -456,38 +302,6 @@
                 "range": {
                     "startColumn": 26,
                     "endColumn": 39,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 11,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 13,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 21,
                     "lineCount": 1
                 }
             },
@@ -1042,14 +856,6 @@
         ],
         "./src/harness/cli.py": [
             {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportCallInDefaultInitializer",
                 "range": {
                     "startColumn": 24,
@@ -1070,14 +876,6 @@
                 "range": {
                     "startColumn": 24,
                     "endColumn": 53,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnnecessaryIsInstance",
-                "range": {
-                    "startColumn": 11,
-                    "endColumn": 39,
                     "lineCount": 1
                 }
             },
@@ -1404,14 +1202,6 @@
         ],
         "./src/harness/config.py": [
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportAny",
                 "range": {
                     "startColumn": 4,
@@ -1421,22 +1211,6 @@
             }
         ],
         "./src/harness/contract.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportExplicitAny",
                 "range": {
@@ -1450,14 +1224,6 @@
                 "range": {
                     "startColumn": 22,
                     "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 19,
-                    "endColumn": 20,
                     "lineCount": 1
                 }
             }
@@ -1536,14 +1302,6 @@
                 }
             },
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 19,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportUnusedCallResult",
                 "range": {
                     "startColumn": 8,
@@ -1594,14 +1352,6 @@
                     "endColumn": 36,
                     "lineCount": 1
                 }
-            },
-            {
-                "code": "reportMatchNotExhaustive",
-                "range": {
-                    "startColumn": 10,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
             }
         ],
         "./src/harness/generate/bodies.py": [
@@ -1623,14 +1373,6 @@
             }
         ],
         "./src/harness/generate/candidates.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportAny",
                 "range": {
@@ -1684,14 +1426,6 @@
                 "range": {
                     "startColumn": 28,
                     "endColumn": 31,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 20,
-                    "endColumn": 26,
                     "lineCount": 1
                 }
             },
@@ -1837,78 +1571,6 @@
             }
         ],
         "./src/harness/generate/families/base.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 26,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 20,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 21,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 26,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportUnknownMemberType",
                 "range": {
@@ -2318,14 +1980,6 @@
         ],
         "./src/harness/generate/fetch.py": [
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportExplicitAny",
                 "range": {
                     "startColumn": 18,
@@ -2574,14 +2228,6 @@
                 }
             },
             {
-                "code": "reportImplicitOverride",
-                "range": {
-                    "startColumn": 16,
-                    "endColumn": 22,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportAny",
                 "range": {
                     "startColumn": 4,
@@ -2624,30 +2270,6 @@
         ],
         "./src/harness/generate/llm.py": [
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 9,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportExplicitAny",
                 "range": {
                     "startColumn": 47,
@@ -2676,70 +2298,6 @@
                 "range": {
                     "startColumn": 13,
                     "endColumn": 24,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 19,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 28,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 22,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
                     "lineCount": 1
                 }
             },
@@ -2808,22 +2366,6 @@
                 }
             },
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 21,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportAny",
                 "range": {
                     "startColumn": 39,
@@ -2840,34 +2382,10 @@
                 }
             },
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportExplicitAny",
                 "range": {
                     "startColumn": 26,
                     "endColumn": 29,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 22,
                     "lineCount": 1
                 }
             },
@@ -2992,22 +2510,6 @@
                 }
             },
             {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 12,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportAny",
                 "range": {
                     "startColumn": 39,
@@ -3020,30 +2522,6 @@
                 "range": {
                     "startColumn": 44,
                     "endColumn": 47,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 18,
                     "lineCount": 1
                 }
             },
@@ -3160,14 +2638,6 @@
                 }
             },
             {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 12,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportAny",
                 "range": {
                     "startColumn": 26,
@@ -3201,62 +2671,6 @@
             }
         ],
         "./src/harness/generate/pipeline.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 19,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 14,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 8,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportAny",
                 "range": {
@@ -3412,14 +2826,6 @@
                 }
             },
             {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 21,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportExplicitAny",
                 "range": {
                     "startColumn": 52,
@@ -3437,22 +2843,6 @@
             }
         ],
         "./src/harness/generate/traces.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportExplicitAny",
                 "range": {
@@ -3825,14 +3215,6 @@
             }
         ],
         "./src/harness/oss/hindsight.py": [
-            {
-                "code": "reportUnnecessaryTypeIgnoreComment",
-                "range": {
-                    "startColumn": 72,
-                    "endColumn": 103,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportAny",
                 "range": {
@@ -4360,30 +3742,6 @@
         ],
         "./src/harness/replay.py": [
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportUnknownMemberType",
                 "range": {
                     "startColumn": 8,
@@ -4850,14 +4208,6 @@
                 }
             },
             {
-                "code": "reportUnnecessaryComparison",
-                "range": {
-                    "startColumn": 97,
-                    "endColumn": 107,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportUnknownVariableType",
                 "range": {
                     "startColumn": 11,
@@ -4926,14 +4276,6 @@
                 "range": {
                     "startColumn": 53,
                     "endColumn": 57,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedParameter",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
                     "lineCount": 1
                 }
             },
@@ -5320,30 +4662,6 @@
         ],
         "./src/harness/scenario/load.py": [
             {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 20,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 17,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportExplicitAny",
                 "range": {
                     "startColumn": 52,
@@ -5403,14 +4721,6 @@
             }
         ],
         "./src/harness/scenario/model.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportExplicitAny",
                 "range": {
@@ -5899,22 +5209,6 @@
             }
         ],
         "./src/harness/selection.py": [
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 13,
-                    "endColumn": 18,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnannotatedClassAttribute",
-                "range": {
-                    "startColumn": 25,
-                    "endColumn": 29,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportUnknownMemberType",
                 "range": {

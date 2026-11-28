@@ -81,8 +81,8 @@ class _EngineIds:
     """Maps internal event ids to the opaque ids an engine sees, and sources back."""
 
     def __init__(self, scenario_id: str, key: bytes) -> None:
-        self._scenario_id = scenario_id
-        self._key = key
+        self._scenario_id: str = scenario_id
+        self._key: bytes = key
         self._back: dict[str, str] = {}
 
     def out(self, event: Event) -> Event:
@@ -213,7 +213,7 @@ class Timeline:
 
     def __init__(self) -> None:
         self._heap: list[tuple[datetime, int, int, LabeledEvent | Probe]] = []
-        self._seq = count()
+        self._seq: count[int] = count()
 
     def push(self, t: datetime, order: int, item: LabeledEvent | Probe) -> None:
         """Add `item` at time `t`; `order` is EVENT or PROBE."""

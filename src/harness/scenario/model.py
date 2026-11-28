@@ -7,7 +7,7 @@ Hidden labels are the ground truth used only for scoring and are never sent to e
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Literal, get_args
+from typing import Any, ClassVar, Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -41,7 +41,7 @@ ProbeKind = Literal["block", "promote", "leak"]
 class _Strict(BaseModel):
     """Base for scenario models: unknown keys are errors, never silently dropped."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
 
 class Fact(_Strict):

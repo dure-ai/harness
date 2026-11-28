@@ -76,7 +76,8 @@ def make_engine(name: str, scenario: Scenario, cfg: EvalConfig) -> BaseEngine:
             from harness.oss.mem0 import Mem0Engine
 
             return Mem0Engine(cfg)
-    raise ValueError(
-        f"unknown engine {name!r}; expected one of {BASELINES}, 'all_store_noacl', "
-        + f"one of {OSS_ENGINES}, or 'pkg.module:Class'"
-    )
+        case _:
+            raise ValueError(
+                f"unknown engine {name!r}; expected one of {BASELINES}, 'all_store_noacl', "
+                + f"one of {OSS_ENGINES}, or 'pkg.module:Class'"
+            )

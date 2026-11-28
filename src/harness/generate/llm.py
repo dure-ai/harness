@@ -43,7 +43,7 @@ class LLMError(Exception):
             fatal: Whether the whole run should stop.
         """
         super().__init__(message)
-        self.fatal = fatal
+        self.fatal: bool = fatal
 
 
 class LLMClient(Protocol):
@@ -132,8 +132,8 @@ class FakeClient:
         requests: Every `(kind, system, user)` asked, retries included.
     """
 
-    name = "fake"
-    model = "fake"
+    name: str = "fake"
+    model: str = "fake"
 
     def __init__(
         self,
@@ -222,15 +222,15 @@ class CachedClient:
                 key, so a reply made under other settings is never reused. Omitted or empty
                 leaves the key as it was.
         """
-        self._inner = inner
-        self._dir = Path(cache_dir)
-        self._prompt_version = prompt_version
-        self._settings = dict(settings or {})
-        self.name = inner.name
-        self.model = inner.model
+        self._inner: LLMClient = inner
+        self._dir: Path = Path(cache_dir)
+        self._prompt_version: str = prompt_version
+        self._settings: dict[str, object] = dict(settings or {})
+        self.name: str = inner.name
+        self.model: str = inner.model
         self.last_model: str | None = None
-        self.calls = 0
-        self.hits = 0
+        self.calls: int = 0
+        self.hits: int = 0
 
     def _key(self, kind: str, system: str, user: str, schema: type[BaseModel]) -> str:
         parts = [
@@ -331,8 +331,8 @@ class AnthropicClient:
         last_model: Model named in the last reply (`message.model`).
     """
 
-    name = "anthropic"
-    _DEFAULT_KEY_HINT = "ANTHROPIC_API_KEY (or ant auth login)"
+    name: str = "anthropic"
+    _DEFAULT_KEY_HINT: str = "ANTHROPIC_API_KEY (or ant auth login)"
 
     def __init__(self, cfg: GenConfig, sdk: Any = None) -> None:
         """Create the client.
@@ -347,8 +347,8 @@ class AnthropicClient:
         """
         if sdk is None:
             import anthropic as sdk
-        self._cfg = cfg
-        self.model = cfg.model
+        self._cfg: GenConfig = cfg
+        self.model: str = cfg.model
         self.last_model: str | None = None
         kwargs: dict[str, Any] = {
             "timeout": cfg.timeout_s,
@@ -361,7 +361,7 @@ class AnthropicClient:
             if not key:
                 raise LLMError(f"anthropic: {cfg.api_key_env} is not set", fatal=True)
             kwargs["api_key"] = key
-        self._key_hint = cfg.api_key_env or self._DEFAULT_KEY_HINT
+        self._key_hint: str = cfg.api_key_env or self._DEFAULT_KEY_HINT
         self._client = sdk.Anthropic(**kwargs)
 
     def _send(self, system: str, user: str, schema: dict[str, Any]) -> str:
@@ -396,7 +396,7 @@ class AnthropicClient:
 
     def complete_json[T: BaseModel](
         self,
-        kind: str,
+        kind: str,  # pyright: ignore[reportUnusedParameter]  # part of LLMClient.complete_json
         system: str,
         user: str,
         schema: type[T],
@@ -435,7 +435,7 @@ class OpenAIClient:
         last_model: Model named in the last reply (`completion.model`).
     """
 
-    name = "openai"
+    name: str = "openai"
 
     def __init__(self, cfg: GenConfig, sdk: Any = None) -> None:
         """Create the client.
@@ -448,14 +448,14 @@ class OpenAIClient:
         Raises:
             LLMError: Fatal, if the API key environment variable is not set.
         """
-        self._env = cfg.api_key_env or "OPENAI_API_KEY"
+        self._env: str = cfg.api_key_env or "OPENAI_API_KEY"
         key = os.environ.get(self._env)
         if not key:
             raise LLMError(f"openai: {self._env} is not set", fatal=True)
         if sdk is None:
             import openai as sdk
-        self._cfg = cfg
-        self.model = cfg.model
+        self._cfg: GenConfig = cfg
+        self.model: str = cfg.model
         self.last_model: str | None = None
         self._client = sdk.OpenAI(
             base_url=cfg.base_url,
@@ -499,7 +499,7 @@ class OpenAIClient:
 
     def complete_json[T: BaseModel](
         self,
-        kind: str,
+        kind: str,  # pyright: ignore[reportUnusedParameter]  # part of LLMClient.complete_json
         system: str,
         user: str,
         schema: type[T],

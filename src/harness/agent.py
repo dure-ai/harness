@@ -5,7 +5,7 @@ probe, otherwise abstain. With no model in the loop, every score difference come
 engine handed over. Engine-specific labels in `Result.meta` or the text are ignored.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from harness.contract import Result
@@ -30,7 +30,7 @@ class Choice:
         return self.index is None or not self.basis
 
 
-def _marker_hits(result: Result, scenario: Scenario, fact_ids) -> set[str]:
+def _marker_hits(result: Result, scenario: Scenario, fact_ids: Iterable[str]) -> set[str]:
     # Facts whose markers appear in the text (case-insensitive). Used when an engine returns no
     # sources, and to narrow a result whose sources state several facts.
     text = result.text.casefold()

@@ -9,7 +9,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from pydantic import BaseModel
 
@@ -61,7 +61,7 @@ class _Activity:
     """When the guarded call last showed a sign of life (monotonic seconds)."""
 
     def __init__(self) -> None:
-        self.last = time.monotonic()
+        self.last: float = time.monotonic()
 
     def touch(self) -> None:
         self.last = time.monotonic()
@@ -217,6 +217,7 @@ def fetch_shard(
         from huggingface_hub.utils import tqdm as hf_tqdm
 
         class _Progress(hf_tqdm):  # type: ignore[misc]
+            @override
             def update(self, n: float | None = 1) -> bool | None:
                 activity.touch()
                 return super().update(n)
