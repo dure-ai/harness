@@ -86,7 +86,8 @@ EXTBENCH_CORE=../core/src tools/extbench/run.sh locomo --data locomo10.json \
   --arm engine:cortex_mem.engines.baseline:PromoteAllEngine \
   --arm engine:cortex_mem.engines.supersede:SupersedeEngine
 
-# Judge finished runs with a model through the local Claude Code CLI.
+# Judge finished runs: a bare Claude name goes through the local Claude Code CLI; openai:<model>
+# uses EXTBENCH_JUDGE_BASE_URL (else EXTBENCH_BASE_URL), e.g. a local server.
 tools/extbench/run.sh judge --model claude-sonnet-5-5 --name judged \
   --answers runs/a/answers.jsonl --answers runs/b/answers.jsonl
 ```
@@ -110,6 +111,30 @@ Outputs, under `runs/<name>/` (not committed):
 - `retrieved.jsonl`: the texts and source ids each arm handed over (not for `none` and `full`).
 - `summary.json`: the settings, token usage, estimated cost, failures, and scores per arm.
 - `judged.jsonl` and its `summary.json` from `judge`.
+
+## Every engine at once: `harness extbench run`
+
+One config names the engines (an arm each, and the core checkout for engines still in core pull
+requests), the models, and which of the dev set, LoCoMo and LongMemEval-S to run;
+[`all-engines.example.yaml`](all-engines.example.yaml) has every engine of #69 with local models.
+
+```bash
+uv run harness extbench run --config my-run.yaml --dry-run   # the steps, done or not, and their commands
+uv run harness extbench run --config my-run.yaml
+```
+
+- Steps: the dev set once per core checkout through `harness run` (the same `blind_seed` for each;
+  `none` and `full` have no dev run), and per engine `run.sh locomo` then `run.sh judge` on its
+  answers, and `run.sh longmemeval`. Relative paths in the config are taken against the directory
+  the command starts in.
+- A step whose `summary.json` exists is skipped; one stopped part-way is run again with `--resume`
+  on the answers it wrote (`answers.earlier.jsonl`). `--rerun` runs everything again. A failed step
+  is reported and the rest still run; a judge whose LoCoMo run failed is not started.
+- `budget` limits the estimated USD of all extbench steps together: each step gets what is left.
+- The table goes to `runs/<name>-summary.md` and `.json` under `root`: dev M1, M2, M3 and the
+  verdict, LoCoMo F1, judged correctness and evidence recall, LongMemEval-S accuracy, abstention
+  accuracy and evidence recall, and what became of each step. The servers (reader, judge,
+  embeddings, Mem0, Hindsight) are not started for you.
 
 ## LongMemEval-S
 

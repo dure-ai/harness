@@ -39,6 +39,7 @@ scenarios/*.yaml ──load_set──▶ Scenario ──validate_scenario──�
 | 층 | 모듈 | 역할 |
 |---|---|---|
 | 진입점 | `cli.py` | Evaluation commands (`scenario check`, `selfcheck`, `run`, `seeds`) and draft commands (`scenario new`, `review`, `traces`, `generate`). It only chains the steps and holds no judging logic |
+| | `extbench_run.py` | `harness extbench run`: one config runs every engine on the dev set (`harness run`) and on LoCoMo and LongMemEval-S (`tools/extbench`, where models answer and judge) as subprocesses, skips finished steps, and writes one comparison table. Not on the scoring path |
 | 산출 | `report.py` | 네 개의 리포트 파일, 엔진 이름 가리기(blind id), sealed 모드 |
 | | `seeds.py` | Seed spread report: per-seed `Metrics` → mean and [min, max], and the probes whose result changed across seeds (`seeds` command) |
 | 판정 | `selection.py` | 사전 등록 기준으로 통과/실패(`judge_engine`), 반복 평균(`averaged`), 순위(`rank`) |

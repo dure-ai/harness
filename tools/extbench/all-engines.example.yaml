@@ -1,0 +1,40 @@
+# Copy, adjust the paths and models, then: uv run harness extbench run --config <copy> [--dry-run]
+# Every engine of harness #69 on the dev set, LoCoMo and LongMemEval-S, with local models.
+# Servers are not started for you: the reader and judge (OpenAI-compatible, see env.example.sh),
+# the embedding server for the core engines (EXTBENCH_EMBED_URL), and Mem0 and Hindsight
+# (engines/docker/, started with the same local LLM). No keys go in this file.
+
+name: all-engines-local
+root: tools/extbench            # EXTBENCH_ROOT: cache/, runs/, ingested/
+reader: openai:qwen             # EXTBENCH_BASE_URL
+judge: openai:gemma             # EXTBENCH_JUDGE_BASE_URL; another model family than the reader
+k: 20
+price: "0,0"                    # local models cost nothing per token
+per_record: 0
+budget: null                    # set a USD limit when a paid API is used
+
+engines:
+  - {id: none, arm: none}
+  - {id: full, arm: full}
+  - {id: no-memory, arm: "engine:cortex_mem.engines.baseline:NoMemoryEngine", core: ../core/src}
+  - {id: promote-all, arm: "engine:cortex_mem.engines.baseline:PromoteAllEngine", core: ../core/src}
+  - {id: evidence, arm: "engine:cortex_mem.engines.evidence:EvidenceEngine", core: ../core/src}
+  - {id: supersede, arm: "engine:cortex_mem.engines.supersede:SupersedeEngine", core: ../core/src}
+  # Engines still in core pull requests run from their own checkout (git worktree of the branch).
+  - {id: ledger, arm: "engine:cortex_mem.engines.ledger:LedgerEngine", core: ../core-ledger/src}
+  - {id: tier, arm: "engine:cortex_mem.engines.tiers:TierEngine", core: ../core-tier/src}
+  - {id: mem0, arm: "oss:mem0"}
+  - {id: hindsight, arm: "oss:hindsight"}
+
+dev:
+  scenarios: [scenarios/dev]
+  config: config/eval-v0.1.yaml
+  blind_seed: null              # set one to reproduce; every dev group uses the same seed
+
+locomo:
+  data: ../data/locomo10.json   # snap-research/locomo, not in this repository
+  categories: "1,2,3,4"
+
+longmemeval:
+  data: null                    # null: the harness bench cache (harness bench fetch --dataset longmemeval-s)
+  questions: null               # null: all 500
