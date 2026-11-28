@@ -200,8 +200,8 @@ def save_draft(s: Scenario, path: Path) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = draft_text(s)
     tmp = path.with_suffix(".yaml.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    _ = tmp.write_text(text, encoding="utf-8")
+    _ = tmp.replace(path)
     return text
 
 
@@ -283,7 +283,7 @@ class _Run:
 
     def reject(self, r: Rejection) -> None:
         self.rejected += 1
-        self.rejected_log.write(r.model_dump_json() + "\n")
+        _ = self.rejected_log.write(r.model_dump_json() + "\n")
         self.rejected_log.flush()
 
     def log_repair(self, trace: Trace, family: str, sid: str, result: str) -> None:
@@ -293,7 +293,7 @@ class _Run:
         else:
             self.repair_failed += 1
         line = {"trace_id": trace.trajectory_id, "family": family, "id": sid, "result": result}
-        self.repairs_log.write(json.dumps(line, ensure_ascii=False) + "\n")
+        _ = self.repairs_log.write(json.dumps(line, ensure_ascii=False) + "\n")
         self.repairs_log.flush()
 
     def llm_ok(self) -> None:
@@ -364,7 +364,7 @@ class _Run:
                 "repo": trace.repo,
                 **c.model_dump(),
             }
-            self.candidates_log.write(json.dumps(line, ensure_ascii=False) + "\n")
+            _ = self.candidates_log.write(json.dumps(line, ensure_ascii=False) + "\n")
         self.candidates_log.flush()
         self.cache[trace.trajectory_id] = kept
         return kept
@@ -457,7 +457,7 @@ def _one(
         repairs += 1
         # The first too-easy draft stays next to the rejected drafts, for audit.
         if repairs == 1:
-            save_draft(s, run.run_dir / "rejected_drafts" / family / f"{sid}.pre-repair.yaml")
+            _ = save_draft(s, run.run_dir / "rejected_drafts" / family / f"{sid}.pre-repair.yaml")
         hint = too_easy_hint(s, run.cfg)
         try:
             s = write_bodies(run.client, sk, cand, bundle, run.gen, run.cfg, revision=hint)
@@ -474,7 +474,7 @@ def _one(
     if stop:
         # Kept under the run dir for diagnosis, never in out_dir, so it is never reviewed.
         kept = run.run_dir / "rejected_drafts" / family / f"{sid}.yaml"
-        save_draft(s, kept)
+        _ = save_draft(s, kept)
         message = "; ".join(f"{i.code}: {i.message}" for i in stop)
         if repairs and all(i.code == "too_easy" for i in stop):
             message = f"after {repairs} repair{'s' if repairs > 1 else ''}: {message}"
@@ -484,7 +484,7 @@ def _one(
         return None
     s.provenance.too_easy_repairs = repairs
     mark_generated(s)
-    save_draft(s, path)
+    _ = save_draft(s, path)
     if repairs:
         run.log_repair(trace, family, sid, "saved")
     return "written", sid
@@ -559,7 +559,7 @@ def generate(
     pool = allowed if repos is None else [t for t in allowed if matches_repos(t, repos)]
     unique: dict[str, Trace] = {}
     for t in pool:
-        unique.setdefault(
+        _ = unique.setdefault(
             t.trajectory_id, t
         )  # the first occurrence of a trajectory wins
     pool = list(unique.values())

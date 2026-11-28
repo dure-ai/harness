@@ -378,7 +378,7 @@ def write_bench_report(out_dir: Path, meta: BenchMeta, normal: BenchRun, gold: B
 
     out_dir.mkdir(parents=True, exist_ok=True)
     blind = {v: k for k, v in sorted(ids.items(), key=lambda kv: key(kv[0])) if v != k}
-    (out_dir / "engine_ids.json").write_text(
+    _ = (out_dir / "engine_ids.json").write_text(
         json.dumps({"seed": seed, "ids": blind}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     summary: dict[str, Any] = {
@@ -395,10 +395,10 @@ def write_bench_report(out_dir: Path, meta: BenchMeta, normal: BenchRun, gold: B
         "gold": None if gold_tables is None else {"engines": jsonable(gold_tables), "comparison": comparison},
         "stress": None if stress is None else jsonable(stress),
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _ = (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for run, name in ((normal, "results.jsonl"), (gold, "results-gold.jsonl")):
         if run is not None:
             lines = result_lines(run.runs, sorted(run.runs, key=key), ids)
-            (out_dir / name).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
-    (out_dir / "report.md").write_text(_markdown(meta, normal, gold, tables, gold_tables, comparison, ids, scrub, stress) + "\n", encoding="utf-8")
+            _ = (out_dir / name).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    _ = (out_dir / "report.md").write_text(_markdown(meta, normal, gold, tables, gold_tables, comparison, ids, scrub, stress) + "\n", encoding="utf-8")
 

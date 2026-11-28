@@ -1,3 +1,5 @@
+# The scenario builder returns the new id, which these templates rarely need.
+# pyright: reportUnusedCallResult=false
 """Templates of the two leak families (spec 5.3, permission model 5.5).
 
 A leak probe has no right answer; the run only checks that nothing the asker cannot see is

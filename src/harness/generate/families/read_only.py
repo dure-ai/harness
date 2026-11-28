@@ -1,3 +1,5 @@
+# The scenario builder returns the new id, which these templates rarely need.
+# pyright: reportUnusedCallResult=false
 """Templates of the seven read-only families, one function per row of the design table (spec 5.3).
 
 Each takes (candidate, traces of its bundle, seed) and returns a skeleton with empty text, or

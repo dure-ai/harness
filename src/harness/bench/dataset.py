@@ -133,12 +133,12 @@ def fetch_file(
             while total <= file.size and (chunk := response.read(min(_CHUNK, file.size + 1 - total))):
                 digest.update(chunk)
                 total += len(chunk)
-                out.write(chunk)
+                _ = out.write(chunk)
         if total != file.size:
             raise FetchError(f"{file.name}: size {total} does not match the expected {file.size}")
         if digest.hexdigest() != file.sha256:
             raise FetchError(f"{file.name}: sha256 {digest.hexdigest()} does not match the expected {file.sha256}")
-        part.replace(final)
+        _ = part.replace(final)
     except FetchError:
         part.unlink(missing_ok=True)
         raise

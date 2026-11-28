@@ -179,7 +179,7 @@ def bundles(traces: Iterable[Trace]) -> dict[str, list[Trace]]:
     """
     out: dict[str, dict[str, Trace]] = {}
     for t in sorted(traces, key=lambda t: (t.instance_id, t.trajectory_id)):
-        out.setdefault(t.instance_id, {}).setdefault(t.model, t)
+        _ = out.setdefault(t.instance_id, {}).setdefault(t.model, t)
     return {k: list(v.values()) for k, v in out.items()}
 
 

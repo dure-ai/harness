@@ -31,7 +31,7 @@ class OracleEngine(NamespacedEngine):
         # their labels by content; the first of identical events wins.
         self._labeled: dict[tuple[object, ...], LabeledEvent] = {}
         for le in scenario.labeled_events():
-            self._labeled.setdefault(_content_key(le.event), le)
+            _ = self._labeled.setdefault(_content_key(le.event), le)
         self._facts: dict[str, str | None] = {}
         # Probes with the same key are rejected by validate_scenario, so the key is unique.
         self._probes: dict[QueryKey, Probe] = {probe_key(p): p for p in scenario.probes}

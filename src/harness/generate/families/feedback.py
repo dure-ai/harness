@@ -1,3 +1,5 @@
+# The scenario builder returns the new id, which these templates rarely need.
+# pyright: reportUnusedCallResult=false
 """Templates of the two feedback families (spec 5.3, feedback mode 6.2).
 
 Every probe carries feedback templates with empty text: an action record per `about` fact

@@ -235,7 +235,7 @@ def write_seed_report(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     blind = {ids[n]: n for n in names if ids[n] != n}
-    (out_dir / "engine_ids.json").write_text(
+    _ = (out_dir / "engine_ids.json").write_text(
         json.dumps({"seeds": list(seeds), "ids": blind}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     meta_json = {k: v for k, v in jsonable(meta).items() if k not in ("engine_infos", "repeats")}
@@ -253,5 +253,5 @@ def write_seed_report(
             for name in names
         },
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (out_dir / "report.md").write_text(_markdown(meta, seeds, names, spreads, unstable, ids, infos) + "\n", encoding="utf-8")
+    _ = (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _ = (out_dir / "report.md").write_text(_markdown(meta, seeds, names, spreads, unstable, ids, infos) + "\n", encoding="utf-8")

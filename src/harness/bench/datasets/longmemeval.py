@@ -111,7 +111,7 @@ def convert_question(q: dict[str, Any], labels: Mapping[str, str]) -> Converted:
                 continue
             t = clock.at(sess.t + timedelta(minutes=ti))
             if fact is not None:
-                first_evidence.setdefault(fact, t)
+                _ = first_evidence.setdefault(fact, t)
             events.append(
                 ScenarioEvent(
                     id=f"s{si}-t{ti}",
